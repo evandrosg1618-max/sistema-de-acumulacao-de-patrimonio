@@ -1,0 +1,135 @@
+/* Pulse Equity - Premium Fintech Dark Theme */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 224 48% 8%; /* #0A0F1E */
+    --foreground: 218 38% 97%; /* #F3F6FB */
+
+    --card: 222 47% 11%; /* #111827 */
+    --card-foreground: 218 38% 97%;
+
+    --popover: 222 47% 11%;
+    --popover-foreground: 218 38% 97%;
+
+    --primary: 173 79% 43%; /* #17C3B2 */
+    --primary-foreground: 224 48% 8%;
+
+    --secondary: 217 32% 15%; /* #1A2332 */
+    --secondary-foreground: 218 38% 97%;
+
+    --muted: 217 32% 17%;
+    --muted-foreground: 215 19% 65%; /* #96A3B8 */
+
+    --accent: 217 32% 15%;
+    --accent-foreground: 218 38% 97%;
+
+    --destructive: 0 91% 71%; /* #F87171 */
+    --destructive-foreground: 224 48% 8%;
+
+    --border: 214 27% 21%; /* #263343 */
+    --input: 217 32% 15%;
+    --ring: 173 79% 43%;
+
+    --radius: 1rem; /* 16px */
+
+    --sidebar-background: 224 48% 7%;
+    --sidebar-foreground: 218 38% 97%;
+    --sidebar-primary: 173 79% 43%;
+    --sidebar-primary-foreground: 224 48% 8%;
+    --sidebar-accent: 217 32% 15%;
+    --sidebar-accent-foreground: 218 38% 97%;
+    --sidebar-border: 214 27% 21%;
+    --sidebar-ring: 173 79% 43%;
+
+    --chart-1: 173 79% 43%; /* #17C3B2 */
+    --chart-2: 160 67% 52%; /* #34D399 */
+    --chart-3: 199 89% 48%; /* #0EA5E9 */
+    --chart-4: 43 96% 56%; /* #FBBF24 */
+    --chart-5: 0 91% 71%; /* #F87171 */
+  }
+
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  body {
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family:
+      'Inter',
+      -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
+    letter-spacing: -0.011em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  }
+
+  /* Scrollbar styles */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @keyframes pulse-bounce {
+    0%,
+    80%,
+    100% {
+      transform: scale(0.6);
+      opacity: 0.4;
+    }
+    40% {
+      transform: scale(1.1);
+      opacity: 1;
+    }
+  }
+
+  .typing-dot-1 {
+    animation: pulse-bounce 1.2s infinite ease-in-out;
+  }
+  .typing-dot-2 {
+    animation: pulse-bounce 1.2s infinite ease-in-out;
+    animation-delay: 0.2s;
+  }
+  .typing-dot-3 {
+    animation: pulse-bounce 1.2s infinite ease-in-out;
+    animation-delay: 0.4s;
+  }
+
+  .brand-gradient {
+    background: linear-gradient(135deg, #17c3b2 0%, #0ea5e9 100%);
+  }
+
+  .brand-gradient-text {
+    background: linear-gradient(135deg, #17c3b2 0%, #38bdf8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
