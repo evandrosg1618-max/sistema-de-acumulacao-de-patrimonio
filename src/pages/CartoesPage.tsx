@@ -123,7 +123,13 @@ export default function CartoesPage() {
       return
     }
 
-    if (!wsId) {
+    const activeWsId =
+      wsId ||
+      currentWorkspace?.workspace_id ||
+      localStorage.getItem('sap_active_workspace_id') ||
+      undefined
+
+    if (!activeWsId) {
       toast.error('Nenhum espaço familiar selecionado. Atualize a página.')
       return
     }
@@ -142,7 +148,7 @@ export default function CartoesPage() {
       if (editingCartao) {
         await cartaoService.update(
           editingCartao.id,
-          wsId,
+          activeWsId,
           {
             nome: formNome,
             bandeira,
@@ -156,7 +162,7 @@ export default function CartoesPage() {
         toast.success(`Cartão "${formNome}" atualizado com sucesso!`)
       } else {
         await cartaoService.create({
-          workspace_id: wsId,
+          workspace_id: activeWsId,
           nome: formNome,
           bandeira,
           dia_fechamento: df,

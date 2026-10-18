@@ -29,12 +29,15 @@ export default function UsuariosPage() {
     'Cliente',
   )
 
+  const wsId =
+    currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
+
   const carregarDados = async () => {
-    if (!currentWorkspace?.workspace_id) return
+    if (!wsId) return
     setLoading(true)
     try {
       const [membrosData, permsData] = await Promise.all([
-        workspaceService.getMembers(currentWorkspace.workspace_id),
+        workspaceService.getMembers(wsId),
         permissionsService.getPermissions(),
       ])
       setMembers(membrosData)
@@ -48,7 +51,7 @@ export default function UsuariosPage() {
 
   useEffect(() => {
     carregarDados()
-  }, [currentWorkspace?.workspace_id])
+  }, [wsId])
 
   const handleInvite = (e: React.FormEvent) => {
     e.preventDefault()

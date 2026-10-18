@@ -87,45 +87,60 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             id: m.id,
             workspace_id: m.workspace_id,
             workspace_nome: wsObj.nome,
-            perfil: m.perfil || 'Administrador',
-            status: m.status || 'ativo',
+            perfil: (m.perfil || 'Administrador') as WorkspaceMemberInfo['perfil'],
+            status: (m.status || 'ativo') as WorkspaceMemberInfo['status'],
             is_owner: wsObj.owner_user_id === userId,
           }
         })
         .filter(Boolean) as WorkspaceMemberInfo[]
 
-      // Se nenhum workspace foi retornado via join, busca diretamente na tabela workspaces
+      // Se nenhum workspace foi retornado via join ou se houve erro/incompletude, busca também workspaces onde é membro ou owner
       if (wsList.length === 0) {
-        const { data: directWs } = await db
+        // Fallback 1: Buscar diretamente todos os workspaces que o usuário tem permissão de SELECT
+        const { data: allWs } = await db
           .from('workspaces')
-          .select('*')
-          .eq('owner_user_id', userId)
+          .select('id, nome, owner_user_id, ativo')
           .eq('ativo', true)
 
-        if (directWs && directWs.length > 0) {
-          wsList = directWs.map((w: any) => ({
-            id: w.id,
-            workspace_id: w.id,
-            workspace_nome: w.nome,
-            perfil: 'Administrador' as const,
-            status: 'ativo' as const,
-            is_owner: true,
-          }))
+        if (allWs && allWs.length > 0) {
+          // Também busca members simples para saber o perfil exato
+          const { data: directMembers } = await db
+            .from('workspace_members')
+            .select('workspace_id, perfil, status')
+            .eq('user_id', userId)
 
-          // Garante registro em workspace_members
-          for (const w of directWs) {
-            await db
-              .from('workspace_members')
-              .upsert(
-                {
-                  workspace_id: w.id,
-                  user_id: userId,
-                  perfil: 'Administrador',
-                  status: 'ativo',
-                },
-                { onConflict: 'workspace_id,user_id' },
-              )
-              .catch(() => null)
+          const memberMap = new Map((directMembers || []).map((dm: any) => [dm.workspace_id, dm]))
+
+          wsList = allWs.map((w: any) => {
+            const m = memberMap.get(w.id) as any
+            const isOwner = w.owner_user_id === userId
+            return {
+              id: w.id,
+              workspace_id: w.id,
+              workspace_nome: w.nome,
+              perfil: (m?.perfil ||
+                (isOwner ? 'Administrador' : 'Colaborador')) as WorkspaceMemberInfo['perfil'],
+              status: (m?.status || 'ativo') as WorkspaceMemberInfo['status'],
+              is_owner: isOwner,
+            }
+          })
+
+          // Garante registro em workspace_members para workspaces onde ele é owner
+          for (const w of allWs) {
+            if (w.owner_user_id === userId && !memberMap.has(w.id)) {
+              await db
+                .from('workspace_members')
+                .upsert(
+                  {
+                    workspace_id: w.id,
+                    user_id: userId,
+                    perfil: 'Administrador',
+                    status: 'ativo',
+                  },
+                  { onConflict: 'workspace_id,user_id' },
+                )
+                .catch(() => null)
+            }
           }
         }
       }
@@ -199,6 +214,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   useEffect(() => {
+    let isMounted = true
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
@@ -207,32 +224,37 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const newUser = session?.user ?? null
       setUser(newUser)
       if (!newUser) {
+        setProfile(null)
+        setWorkspaces([])
+        setCurrentWorkspaceState(null)
         setLoading(false)
       }
     })
 
     supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return
       setSession(session)
       const newUser = session?.user ?? null
       setUser(newUser)
       if (newUser) {
-        fetchProfileAndWorkspaces(newUser.id).finally(() => setLoading(false))
+        fetchProfileAndWorkspaces(newUser.id).finally(() => {
+          if (isMounted) setLoading(false)
+        })
       } else {
         setLoading(false)
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      isMounted = false
+      subscription.unsubscribe()
+    }
   }, [])
 
-  // Effect para carregar perfil e workspaces sempre que user mudar
+  // Effect para atualizar workspaces sempre que user mudar (ex: login/logout)
   useEffect(() => {
     if (user?.id) {
       fetchProfileAndWorkspaces(user.id)
-    } else {
-      setProfile(null)
-      setWorkspaces([])
-      setCurrentWorkspaceState(null)
     }
   }, [user?.id])
 

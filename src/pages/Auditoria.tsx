@@ -12,11 +12,14 @@ export default function AuditoriaPage() {
   const [historico, setHistorico] = useState<AuditoriaOperacao[]>([])
   const [loading, setLoading] = useState(true)
 
+  const wsId =
+    currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
+
   const carregarHistorico = async () => {
-    if (!currentWorkspace?.workspace_id) return
+    if (!wsId) return
     setLoading(true)
     try {
-      const data = await auditoriaService.getHistorico(currentWorkspace.workspace_id, 50)
+      const data = await auditoriaService.getHistorico(wsId, 50)
       setHistorico(data)
     } catch (err) {
       console.error('Erro ao carregar auditoria:', err)
@@ -27,7 +30,7 @@ export default function AuditoriaPage() {
 
   useEffect(() => {
     carregarHistorico()
-  }, [currentWorkspace?.workspace_id])
+  }, [wsId])
 
   const formatarData = (iso: string) => {
     try {

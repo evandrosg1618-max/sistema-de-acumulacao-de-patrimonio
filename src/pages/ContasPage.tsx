@@ -157,7 +157,14 @@ export default function ContasPage() {
       return
     }
 
-    if (!wsId) {
+    // Garante resolução do ID do workspace atual
+    const activeWsId =
+      wsId ||
+      currentWorkspace?.workspace_id ||
+      localStorage.getItem('sap_active_workspace_id') ||
+      undefined
+
+    if (!activeWsId) {
       toast.error('Nenhum espaço familiar selecionado. Atualize a página.')
       return
     }
@@ -169,7 +176,7 @@ export default function ContasPage() {
       if (editingConta) {
         await contaService.update(
           editingConta.id,
-          wsId,
+          activeWsId,
           {
             nome: formNome,
             tipo,
@@ -180,7 +187,7 @@ export default function ContasPage() {
         toast.success(`Conta "${formNome}" atualizada com sucesso!`)
       } else {
         await contaService.create({
-          workspace_id: wsId,
+          workspace_id: activeWsId,
           nome: formNome,
           tipo,
           saldo_inicial: saldoNumerico,
