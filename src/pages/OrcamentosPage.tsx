@@ -49,7 +49,8 @@ export default function OrcamentosPage() {
   const [limite, setLimite] = useState('1.000,00')
   const [saving, setSaving] = useState(false)
 
-  const wsId = currentWorkspace?.workspace_id
+  const wsId =
+    currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
 
   const carregarDados = async () => {
     if (!wsId) return
@@ -99,20 +100,35 @@ export default function OrcamentosPage() {
     setModalOpen(true)
   }
 
-  const handleSalvar = async (e: React.FormEvent) => {
+  const handleSalvar = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!wsId || !categoriaId) {
-      toast.error('Selecione a categoria')
+
+    const formElement = e.currentTarget
+    const formData = new FormData(formElement)
+    const formLimite = (formData.get('limite') as string) ?? limite
+    const formCategoriaId = (formData.get('categoriaId') as string) || categoriaId
+
+    if (!formCategoriaId) {
+      toast.error('Selecione a categoria de despesa')
       return
     }
 
-    const limiteNum = parseFloat(limite.replace(/\./g, '').replace(',', '.')) || 0
+    if (!wsId) {
+      toast.error('Selecione um espaço familiar para continuar. Atualize a página.')
+      return
+    }
+
+    const limiteNum = parseFloat(String(formLimite).replace(/\./g, '').replace(',', '.'))
+    if (isNaN(limiteNum) || limiteNum < 0) {
+      toast.error('Informe um valor de limite válido')
+      return
+    }
 
     setSaving(true)
     try {
       await orcamentoService.upsert({
         workspace_id: wsId,
-        categoria_id: categoriaId,
+        categoria_id: formCategoriaId,
         ano_mes: anoMes,
         limite: limiteNum,
         created_by: user?.id,
@@ -372,8 +388,9 @@ export default function OrcamentosPage() {
                 <Label htmlFor="cat-orc" className="text-xs font-semibold text-slate-700">
                   Categoria de Despesa *
                 </Label>
+                <input type="hidden" name="categoriaId" value={categoriaId} />
                 <Select value={categoriaId} onValueChange={setCategoriaId}>
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger className="mt-1" id="cat-orc">
                     <SelectValue placeholder="Selecione a categoria" />
                   </SelectTrigger>
                   <SelectContent>
@@ -392,10 +409,12 @@ export default function OrcamentosPage() {
                 </Label>
                 <Input
                   id="limite-orc"
+                  name="limite"
                   placeholder="1.000,00"
                   value={limite}
                   onChange={(e) => setLimite(e.target.value)}
                   className="mt-1"
+                  autoFocus
                   required
                 />
                 <p className="text-[11px] text-slate-500 mt-1">

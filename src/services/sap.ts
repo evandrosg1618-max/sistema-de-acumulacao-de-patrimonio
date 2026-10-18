@@ -565,7 +565,56 @@ export const meioPagamentoService = {
     return data || []
   },
 
-  async createDinheiro(workspaceId: string, nome = 'Dinheiro em Espécie'): Promise<any> {
+  async listDinheiroComSaldo(workspaceId: string, apenasAtivos = true): Promise<any[]> {
+    let query = db
+      .from('meios_pagamento')
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('tipo', 'DINHEIRO')
+      .order('created_at', { ascending: true })
+
+    if (apenasAtivos) {
+      query = query.eq('ativo', true)
+    }
+
+    const { data, error } = await query
+    if (error) throw error
+
+    const carteiras = data || []
+    if (carteiras.length === 0) return []
+
+    // Buscar lançamentos de DINHEIRO para computar o saldo consolidado de espécie
+    // Entradas (receitas) aumentam o saldo físico, Saídas (despesas) diminuem
+    const { data: lancs } = await db
+      .from('lancamentos')
+      .select('tipo, valor, data, status_pagamento')
+      .eq('workspace_id', workspaceId)
+      .eq('meio_pagamento_tipo', 'DINHEIRO')
+      .is('deleted_at', null)
+
+    let totalDinheiroGeral = 0
+    for (const l of lancs || []) {
+      const v = Number(l.valor || 0)
+      if (l.tipo === 'receita') {
+        totalDinheiroGeral += v
+      } else if (l.tipo === 'despesa') {
+        totalDinheiroGeral -= v
+      }
+    }
+
+    // Se houver mais de uma carteira em espécie cadastrada, a primeira/principal reflete o saldo geral
+    return carteiras.map((c, index) => ({
+      ...c,
+      saldo_atual: index === 0 ? totalDinheiroGeral : 0,
+      cor: '#10B981', // Verde esmeralda característico do dinheiro/carteira
+    }))
+  },
+
+  async createDinheiro(
+    workspaceId: string,
+    nome = 'Dinheiro em Espécie',
+    userId?: string,
+  ): Promise<any> {
     const { data, error } = await db
       .from('meios_pagamento')
       .insert({
@@ -578,20 +627,62 @@ export const meioPagamentoService = {
       .single()
 
     if (error) throw error
+
+    await auditoriaService.registrar({
+      workspace_id: workspaceId,
+      entidade: 'meios_pagamento',
+      entidade_id: data.id,
+      acao: 'create',
+      estado_posterior: data,
+      created_by: userId,
+    })
+
     return data
   },
 
-  async toggleAtivo(id: string, workspaceId: string, ativo: boolean): Promise<any> {
+  async update(
+    id: string,
+    workspaceId: string,
+    updates: { nome?: string; ativo?: boolean },
+    userId?: string,
+  ): Promise<any> {
+    const { data: anterior } = await db
+      .from('meios_pagamento')
+      .select('*')
+      .eq('id', id)
+      .eq('workspace_id', workspaceId)
+      .single()
+
     const { data, error } = await db
       .from('meios_pagamento')
-      .update({ ativo })
+      .update(updates)
       .eq('id', id)
       .eq('workspace_id', workspaceId)
       .select()
       .single()
 
     if (error) throw error
+
+    await auditoriaService.registrar({
+      workspace_id: workspaceId,
+      entidade: 'meios_pagamento',
+      entidade_id: id,
+      acao: 'update',
+      estado_anterior: anterior,
+      estado_posterior: data,
+      created_by: userId,
+    })
+
     return data
+  },
+
+  async toggleAtivo(
+    id: string,
+    workspaceId: string,
+    ativo: boolean,
+    userId?: string,
+  ): Promise<any> {
+    return this.update(id, workspaceId, { ativo }, userId)
   },
 }
 

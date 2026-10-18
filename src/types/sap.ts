@@ -110,6 +110,17 @@ export interface Conta {
   deleted_at?: string | null
 }
 
+export interface CarteiraDinheiro {
+  id: string
+  workspace_id: string
+  nome: string
+  tipo: 'DINHEIRO'
+  ativo: boolean
+  saldo_atual: number
+  cor?: string
+  created_at: string
+}
+
 export interface Cartao {
   id: string
   workspace_id: string
@@ -136,6 +147,8 @@ export interface MeioPagamento {
   nome: string
   ativo: boolean
   created_at: string
+  saldo_atual?: number
+  cor?: string
   conta?: Conta | null
   cartao?: Cartao | null
 }

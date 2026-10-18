@@ -80,7 +80,7 @@ export default function MeiosPagamentoPage() {
     }
 
     if (!wsId) {
-      toast.error('Nenhum espaço familiar selecionado. Atualize a página.')
+      toast.error('Selecione um espaço familiar para continuar. Atualize a página.')
       return
     }
 

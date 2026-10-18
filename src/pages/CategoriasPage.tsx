@@ -91,7 +91,8 @@ export default function CategoriasPage() {
   const [nomeSub, setNomeSub] = useState('')
   const [obsSub, setObsSub] = useState('')
 
-  const wsId = currentWorkspace?.workspace_id
+  const wsId =
+    currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
 
   const carregarCategorias = async () => {
     if (!wsId) return
@@ -162,10 +163,20 @@ export default function CategoriasPage() {
   }
 
   // Handlers de Salvar
-  const handleSalvarCategoria = async (e: React.FormEvent) => {
+  const handleSalvarCategoria = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!wsId || !nomeCat.trim()) {
+
+    const formElement = e.currentTarget
+    const formData = new FormData(formElement)
+    const formNome = (formData.get('nome') as string)?.trim() || nomeCat.trim()
+
+    if (!formNome) {
       toast.error('Informe o nome da categoria')
+      return
+    }
+
+    if (!wsId) {
+      toast.error('Selecione um espaço familiar para continuar. Atualize a página.')
       return
     }
 
@@ -176,7 +187,7 @@ export default function CategoriasPage() {
           editingCat.id,
           wsId,
           {
-            nome: nomeCat.trim(),
+            nome: formNome,
             tipo: tipoCat,
             natureza: naturezaCat,
             classificacao_gerencial: classificacaoCat,
@@ -184,33 +195,49 @@ export default function CategoriasPage() {
           },
           user?.id,
         )
-        toast.success(`Categoria "${nomeCat.trim()}" atualizada!`)
+        toast.success(`Categoria "${formNome}" atualizada!`)
       } else {
         await categoriaService.createCategoria({
           workspace_id: wsId,
-          nome: nomeCat.trim(),
+          nome: formNome,
           tipo: tipoCat,
           natureza: naturezaCat,
           classificacao_gerencial: classificacaoCat,
           cor: corCat,
           created_by: user?.id,
         })
-        toast.success(`Categoria "${nomeCat.trim()}" criada!`)
+        toast.success(`Categoria "${formNome}" criada!`)
       }
 
       setModalCatOpen(false)
       await carregarCategorias()
     } catch (err: any) {
-      toast.error('Erro ao salvar: ' + (err.message || 'verifique os dados'))
+      toast.error('Erro ao salvar categoria: ' + (err.message || 'verifique os dados'))
     } finally {
       setSaving(false)
     }
   }
 
-  const handleSalvarSubcategoria = async (e: React.FormEvent) => {
+  const handleSalvarSubcategoria = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!wsId || !nomeSub.trim() || !parentCatId) {
+
+    const formElement = e.currentTarget
+    const formData = new FormData(formElement)
+    const formNomeSub = (formData.get('nome') as string)?.trim() || nomeSub.trim()
+    const formObsSub = (formData.get('observacao') as string)?.trim() ?? obsSub.trim()
+
+    if (!formNomeSub) {
       toast.error('Informe o nome da subcategoria')
+      return
+    }
+
+    if (!parentCatId) {
+      toast.error('Categoria pai não identificada. Tente novamente.')
+      return
+    }
+
+    if (!wsId) {
+      toast.error('Selecione um espaço familiar para continuar. Atualize a página.')
       return
     }
 
@@ -221,27 +248,27 @@ export default function CategoriasPage() {
           editingSub.id,
           wsId,
           {
-            nome: nomeSub.trim(),
-            observacao: obsSub.trim() || undefined,
+            nome: formNomeSub,
+            observacao: formObsSub || undefined,
           },
           user?.id,
         )
-        toast.success(`Subcategoria "${nomeSub.trim()}" atualizada!`)
+        toast.success(`Subcategoria "${formNomeSub}" atualizada!`)
       } else {
         await categoriaService.createSubcategoria({
           workspace_id: wsId,
           categoria_id: parentCatId,
-          nome: nomeSub.trim(),
-          observacao: obsSub.trim() || undefined,
+          nome: formNomeSub,
+          observacao: formObsSub || undefined,
           created_by: user?.id,
         })
-        toast.success(`Subcategoria "${nomeSub.trim()}" criada!`)
+        toast.success(`Subcategoria "${formNomeSub}" criada!`)
       }
 
       setModalSubOpen(false)
       await carregarCategorias()
     } catch (err: any) {
-      toast.error('Erro ao salvar: ' + (err.message || 'verifique os dados'))
+      toast.error('Erro ao salvar subcategoria: ' + (err.message || 'verifique os dados'))
     } finally {
       setSaving(false)
     }
@@ -523,10 +550,12 @@ export default function CategoriasPage() {
                 </Label>
                 <Input
                   id="nome-cat"
+                  name="nome"
                   placeholder="Ex: Alimentação, Moradia, Transporte, Lazer"
                   value={nomeCat}
                   onChange={(e) => setNomeCat(e.target.value)}
                   className="mt-1"
+                  autoFocus
                   required
                 />
               </div>
@@ -639,10 +668,12 @@ export default function CategoriasPage() {
                 </Label>
                 <Input
                   id="nome-sub"
+                  name="nome"
                   placeholder="Ex: Supermercado, Farmácia, Combustível"
                   value={nomeSub}
                   onChange={(e) => setNomeSub(e.target.value)}
                   className="mt-1"
+                  autoFocus
                   required
                 />
               </div>
@@ -653,6 +684,7 @@ export default function CategoriasPage() {
                 </Label>
                 <Input
                   id="obs-sub"
+                  name="observacao"
                   placeholder="Ex: Itens de higiene e limpeza"
                   value={obsSub}
                   onChange={(e) => setObsSub(e.target.value)}

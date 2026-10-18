@@ -4,11 +4,12 @@ import { useAuth } from '@/hooks/use-auth'
 import {
   contaService,
   cartaoService,
+  meioPagamentoService,
   orcamentoService,
   categoriaService,
   lancamentoRapidoService,
 } from '@/services/sap'
-import { Conta, Cartao, Orcamento, Categoria } from '@/types/sap'
+import { Conta, Cartao, Orcamento, Categoria, MeioPagamento } from '@/types/sap'
 import { formatMoneyBRL, getCurrentAnoMes } from '@/lib/formatters'
 import {
   Eye,
@@ -22,10 +23,12 @@ import {
   Target,
   CreditCard,
   Wallet,
+  Banknote,
   Landmark,
   ChevronRight,
   ShieldCheck,
   Sparkles,
+  Edit2,
   PieChart as PieIcon,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -54,6 +57,7 @@ export default function Index() {
   const { currentWorkspace, profile, user } = useAuth()
   const [ocultarSaldos, setOcultarSaldos] = useState(false)
   const [contas, setContas] = useState<Conta[]>([])
+  const [carteirasDinheiro, setCarteirasDinheiro] = useState<MeioPagamento[]>([])
   const [cartoes, setCartoes] = useState<Cartao[]>([])
   const [orcamentos, setOrcamentos] = useState<Orcamento[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
@@ -70,6 +74,12 @@ export default function Index() {
   })
   const [loading, setLoading] = useState(true)
 
+  // Modal para Criar/Editar Carteira em Espécie
+  const [modalDinheiroOpen, setModalDinheiroOpen] = useState(false)
+  const [carteiraEmEdicao, setCarteiraEmEdicao] = useState<MeioPagamento | null>(null)
+  const [nomeCarteira, setNomeCarteira] = useState('Dinheiro em Espécie / Carteira')
+  const [salvandoCarteira, setSalvandoCarteira] = useState(false)
+
   // Modais de Ação Rápida
   const [modalRapidoOpen, setModalRapidoOpen] = useState(false)
   const [tipoRapido, setTipoRapido] = useState<'despesa' | 'receita' | 'transferencia'>('despesa')
@@ -83,7 +93,8 @@ export default function Index() {
   const [rapidoSalvando, setRapidoSalvando] = useState(false)
 
   const anoMes = getCurrentAnoMes()
-  const wsId = currentWorkspace?.workspace_id
+  const wsId =
+    currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
 
   const carregarDashboard = async () => {
     if (!wsId) {
@@ -92,15 +103,18 @@ export default function Index() {
     }
     setLoading(true)
     try {
-      const [contasList, cartoesList, orcamentosList, resumo, catsList] = await Promise.all([
-        contaService.list(wsId, false),
-        cartaoService.list(wsId, false),
-        orcamentoService.listByMes(wsId, anoMes),
-        lancamentoRapidoService.getResumoMes(wsId, anoMes),
-        categoriaService.listComSubcategorias(wsId),
-      ])
+      const [contasList, dinheiroList, cartoesList, orcamentosList, resumo, catsList] =
+        await Promise.all([
+          contaService.list(wsId, false),
+          meioPagamentoService.listDinheiroComSaldo(wsId, true),
+          cartaoService.list(wsId, false),
+          orcamentoService.listByMes(wsId, anoMes),
+          lancamentoRapidoService.getResumoMes(wsId, anoMes),
+          categoriaService.listComSubcategorias(wsId),
+        ])
 
       setContas(contasList)
+      setCarteirasDinheiro(dinheiroList)
       setCartoes(cartoesList)
       setOrcamentos(orcamentosList)
       setResumoMes(resumo)
@@ -124,8 +138,59 @@ export default function Index() {
 
   const primeiroNome = profile?.nome?.split(' ')[0] || user?.email?.split('@')[0] || 'Evandro'
 
-  // Saldo Geral consolidado
-  const saldoGeral = contas.reduce((acc, c) => acc + (c.saldo_atual || 0), 0)
+  // Saldo Geral consolidado (soma contas + saldo de carteiras em dinheiro físico)
+  const saldoContas = contas.reduce((acc, c) => acc + (c.saldo_atual || 0), 0)
+  const saldoDinheiroTotal = carteirasDinheiro.reduce((acc, d) => acc + (d.saldo_atual || 0), 0)
+  const saldoGeral = saldoContas + saldoDinheiroTotal
+
+  // Abrir Modal de Carteira em Espécie
+  const abrirNovaCarteira = () => {
+    setCarteiraEmEdicao(null)
+    setNomeCarteira('Dinheiro em Espécie / Carteira')
+    setModalDinheiroOpen(true)
+  }
+
+  const abrirEdicaoCarteira = (m: MeioPagamento) => {
+    setCarteiraEmEdicao(m)
+    setNomeCarteira(m.nome)
+    setModalDinheiroOpen(true)
+  }
+
+  const handleSalvarCarteira = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+
+    const formElement = e.currentTarget
+    const formData = new FormData(formElement)
+    const formNome = (formData.get('nome') as string)?.trim() || nomeCarteira.trim()
+
+    if (!formNome) {
+      toast.error('Informe o nome da carteira')
+      return
+    }
+
+    if (!wsId) {
+      toast.error('Selecione um espaço familiar para continuar. Atualize a página.')
+      return
+    }
+
+    setSalvandoCarteira(true)
+    try {
+      if (carteiraEmEdicao) {
+        await meioPagamentoService.update(carteiraEmEdicao.id, wsId, { nome: formNome }, user?.id)
+        toast.success(`Carteira "${formNome}" atualizada com sucesso!`)
+      } else {
+        await meioPagamentoService.createDinheiro(wsId, formNome, user?.id)
+        toast.success(`Carteira "${formNome}" cadastrada com sucesso!`)
+      }
+
+      setModalDinheiroOpen(false)
+      await carregarDashboard()
+    } catch (err: any) {
+      toast.error('Erro ao salvar carteira: ' + (err.message || 'tente novamente'))
+    } finally {
+      setSalvandoCarteira(false)
+    }
+  }
 
   // Abrir Modal de Ação Rápida
   const abrirAcaoRapida = (tipo: 'despesa' | 'receita' | 'transferencia') => {
@@ -382,7 +447,103 @@ export default function Index() {
             </div>
           </div>
 
-          {/* Meus Cartões (LAYOUT PEDIDO PELO USUÁRIO: ABAIXO DE MINHAS CONTAS) */}
+          {/* Carteira / Dinheiro em Espécie (EXIBIDO ABAIXO DE MINHAS CONTAS CONFORME PEDIDO) */}
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="p-4 px-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Banknote className="w-4 h-4 text-emerald-600" />
+                <h2 className="text-sm font-bold text-slate-800">Carteira & Dinheiro em Espécie</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={abrirNovaCarteira}
+                  className="text-xs font-semibold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+                  title="Adicionar Carteira / Dinheiro em Espécie"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Adicionar</span>
+                </button>
+                <span className="text-slate-300">•</span>
+                <Link
+                  to="/meios-pagamento"
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1"
+                >
+                  <span>Gerenciar</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            </div>
+
+            <div className="divide-y divide-slate-100">
+              {carteirasDinheiro.length === 0 ? (
+                <div className="p-6 text-center space-y-2">
+                  <p className="text-xs text-slate-400">
+                    Nenhuma carteira física ou dinheiro em espécie cadastrado.
+                  </p>
+                  <Button
+                    onClick={abrirNovaCarteira}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs text-emerald-700 border-emerald-200 bg-emerald-50 hover:bg-emerald-100"
+                  >
+                    <Plus className="w-3.5 h-3.5 mr-1" />
+                    Adicionar Carteira
+                  </Button>
+                </div>
+              ) : (
+                carteirasDinheiro.map((carteira) => {
+                  const saldo = carteira.saldo_atual || 0
+                  const isNegativo = saldo < 0
+                  return (
+                    <div
+                      key={carteira.id}
+                      className="p-3.5 px-5 flex items-center justify-between hover:bg-slate-50/70 transition group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-2xs"
+                          style={{ backgroundColor: carteira.cor || '#10B981' }}
+                        >
+                          <Banknote className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs md:text-sm font-semibold text-slate-800">
+                              {carteira.nome}
+                            </span>
+                            <button
+                              onClick={() => abrirEdicaoCarteira(carteira)}
+                              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-700 transition"
+                              title="Editar nome da carteira"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <div className="text-[11px] text-slate-400">Dinheiro em espécie</div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={`text-xs md:text-sm font-bold ${
+                            isNegativo
+                              ? 'text-rose-600'
+                              : saldo > 0
+                                ? 'text-emerald-600'
+                                : 'text-slate-600'
+                          }`}
+                        >
+                          {ocultarSaldos ? '••••••' : formatMoneyBRL(saldo)}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Meus Cartões (LAYOUT PEDIDO PELO USUÁRIO: ABAIXO DE MINHAS CONTAS E CARTEIRAS) */}
           <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
             <div className="p-4 px-5 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -622,6 +783,57 @@ export default function Index() {
           </div>
         </div>
       </div>
+
+      {/* MODAL CADASTRO / EDIÇÃO DE CARTEIRA EM ESPÉCIE */}
+      <Dialog open={modalDinheiroOpen} onOpenChange={setModalDinheiroOpen}>
+        <DialogContent className="sm:max-w-md">
+          <form onSubmit={handleSalvarCarteira}>
+            <DialogHeader>
+              <DialogTitle>
+                {carteiraEmEdicao ? 'Editar Carteira em Espécie' : 'Adicionar Carteira em Espécie'}
+              </DialogTitle>
+              <DialogDescription>
+                Ideal para compras à vista em notas, feiras, pequenos trocos e pagamentos sem banco.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-4 space-y-3">
+              <div>
+                <Label htmlFor="carteira-nome" className="text-xs font-semibold text-slate-700">
+                  Nome da Carteira / Espécie *
+                </Label>
+                <Input
+                  id="carteira-nome"
+                  name="nome"
+                  value={nomeCarteira}
+                  onChange={(e) => setNomeCarteira(e.target.value)}
+                  placeholder="Ex: Dinheiro em Espécie, Carteira do Dia a Dia, Troco"
+                  className="mt-1"
+                  autoFocus
+                  required
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setModalDinheiroOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={salvandoCarteira}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {salvandoCarteira
+                  ? 'Salvando...'
+                  : carteiraEmEdicao
+                    ? 'Salvar Alterações'
+                    : 'Cadastrar'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* MODAL UNIFICADO DE AÇÃO RÁPIDA (DESPESA / ENTRADA / TRANSFERÊNCIA) */}
       <Dialog open={modalRapidoOpen} onOpenChange={setModalRapidoOpen}>
