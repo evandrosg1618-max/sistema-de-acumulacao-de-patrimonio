@@ -14,6 +14,7 @@ import CartoesPage from './pages/CartoesPage'
 import MeiosPagamentoPage from './pages/MeiosPagamentoPage'
 import CategoriasPage from './pages/CategoriasPage'
 import OrcamentosPage from './pages/OrcamentosPage'
+import LancamentosPage from './pages/LancamentosPage'
 import PlaceholderPage from './pages/PlaceholderPage'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -105,24 +106,8 @@ const AppRoutes = () => (
       <Route path="/categorias" element={<CategoriasPage />} />
       <Route path="/orcamento" element={<OrcamentosPage />} />
 
-      {/* Rotas de transição para as próximas Builds do PRD */}
-      <Route
-        path="/lancamentos"
-        element={
-          <PlaceholderPage
-            title="Lançamentos Financeiros"
-            description="Registro ágil de receitas, despesas e transferências com calculadora e histórico detalhado."
-            buildNumber={2}
-            buildName="Lançamentos Únicos & Transferências"
-            deliverables={[
-              'Formulário unificado (Despesa, Receita, Transferência) conforme VIS-07 e VIS-11',
-              'Calculadora integrada no valor confirmada pelo botão "="',
-              'Transferências com liquidez patrimonial neutra',
-              'Lista cronológica com filtros rápidos de conta e período conforme VIS-05',
-            ]}
-          />
-        }
-      />
+      {/* Build 2: Lançamentos Financeiros Reais */}
+      <Route path="/lancamentos" element={<LancamentosPage />} />
       <Route
         path="/relatorios"
         element={

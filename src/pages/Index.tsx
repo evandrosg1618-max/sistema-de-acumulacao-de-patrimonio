@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import {
   contaService,
-  cartaoService,
   meioPagamentoService,
+  cartaoService,
   orcamentoService,
   categoriaService,
+  lancamentoService,
   lancamentoRapidoService,
 } from '@/services/sap'
 import { Conta, Cartao, Orcamento, Categoria, MeioPagamento } from '@/types/sap'
@@ -36,6 +37,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { ModalLancamento } from '@/components/ModalLancamento'
 import {
   Dialog,
   DialogContent,
@@ -80,17 +82,11 @@ export default function Index() {
   const [nomeCarteira, setNomeCarteira] = useState('Dinheiro em Espécie / Carteira')
   const [salvandoCarteira, setSalvandoCarteira] = useState(false)
 
-  // Modais de Ação Rápida
-  const [modalRapidoOpen, setModalRapidoOpen] = useState(false)
-  const [tipoRapido, setTipoRapido] = useState<'despesa' | 'receita' | 'transferencia'>('despesa')
-  const [rapidoDescricao, setRapidoDescricao] = useState('')
-  const [rapidoValor, setRapidoValor] = useState('')
-  const [rapidoContaOrigem, setRapidoContaOrigem] = useState('')
-  const [rapidoContaDestino, setRapidoContaDestino] = useState('')
-  const [rapidoCartao, setRapidoCartao] = useState('')
-  const [rapidoMeio, setRapidoMeio] = useState<'CONTA' | 'CARTAO' | 'DINHEIRO'>('CONTA')
-  const [rapidoCategoria, setRapidoCategoria] = useState('')
-  const [rapidoSalvando, setRapidoSalvando] = useState(false)
+  // Modal de Lançamentos Completo da Build 2 acionado pela Visão Geral
+  const [modalLancamentoOpen, setModalLancamentoOpen] = useState(false)
+  const [tipoLancamentoSelecionado, setTipoLancamentoSelecionado] = useState<
+    'despesa' | 'receita' | 'transferencia'
+  >('despesa')
 
   const anoMes = getCurrentAnoMes()
   const wsId =
@@ -192,74 +188,33 @@ export default function Index() {
     }
   }
 
-  // Abrir Modal de Ação Rápida
+  // Abrir Modal Completo da Build 2
   const abrirAcaoRapida = (tipo: 'despesa' | 'receita' | 'transferencia') => {
-    setTipoRapido(tipo)
-    setRapidoDescricao('')
-    setRapidoValor('')
-    setRapidoContaOrigem(contas.length > 0 ? contas[0].id : '')
-    setRapidoContaDestino(contas.length > 1 ? contas[1].id : '')
-    setRapidoCartao(cartoes.length > 0 ? cartoes[0].id : '')
-    setRapidoMeio('CONTA')
-    const catsDoTipo = categorias.filter((c) =>
-      tipo === 'receita' ? c.tipo === 'receita' : c.tipo === 'despesa',
-    )
-    setRapidoCategoria(catsDoTipo.length > 0 ? catsDoTipo[0].id : '')
-    setModalRapidoOpen(true)
+    setTipoLancamentoSelecionado(tipo)
+    setModalLancamentoOpen(true)
   }
 
-  const handleSalvarLancamentoRapido = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!wsId || !rapidoDescricao.trim()) {
-      toast.error('Informe a descrição do lançamento')
-      return
-    }
-
-    const valorNum = parseFloat(rapidoValor.replace(/\./g, '').replace(',', '.'))
-    if (!valorNum || valorNum <= 0) {
-      toast.error('Informe um valor válido maior que zero')
-      return
-    }
-
-    if (tipoRapido === 'transferencia' && rapidoContaOrigem === rapidoContaDestino) {
-      toast.error('A conta de origem e destino devem ser diferentes')
-      return
-    }
-
-    setRapidoSalvando(true)
+  const handleSalvarLancamentoVisaoGeral = async (dados: any, criarOutro = false) => {
+    if (!wsId) return
     try {
-      const hoje = new Date().toISOString().split('T')[0]
-      await lancamentoRapidoService.criarRapido({
+      await lancamentoService.create({
+        ...dados,
         workspace_id: wsId,
-        tipo: tipoRapido,
-        descricao: rapidoDescricao.trim(),
-        valor: valorNum,
-        data: hoje,
-        competencia: anoMes,
-        meio_pagamento_tipo: rapidoMeio,
-        conta_origem_id:
-          rapidoMeio === 'CONTA' || tipoRapido === 'transferencia' ? rapidoContaOrigem : null,
-        conta_destino_id: tipoRapido === 'transferencia' ? rapidoContaDestino : null,
-        cartao_id: rapidoMeio === 'CARTAO' ? rapidoCartao : null,
-        categoria_id: tipoRapido !== 'transferencia' ? rapidoCategoria || null : null,
         created_by: user?.id,
       })
-
       toast.success(
         `${
-          tipoRapido === 'despesa'
-            ? 'Despesa'
-            : tipoRapido === 'receita'
-              ? 'Entrada'
-              : 'Transferência'
-        } lançada com sucesso!`,
+          dados.tipo === 'despesa'
+            ? 'Despesa registrada'
+            : dados.tipo === 'receita'
+              ? 'Receita registrada'
+              : 'Transferência registrada'
+        } com sucesso!`,
       )
-      setModalRapidoOpen(false)
       await carregarDashboard()
     } catch (err: any) {
-      toast.error('Erro ao registrar lançamento: ' + (err.message || 'verifique os dados'))
-    } finally {
-      setRapidoSalvando(false)
+      toast.error('Erro ao lançar: ' + (err.message || 'verifique os dados'))
+      throw err
     }
   }
 
@@ -835,219 +790,18 @@ export default function Index() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL UNIFICADO DE AÇÃO RÁPIDA (DESPESA / ENTRADA / TRANSFERÊNCIA) */}
-      <Dialog open={modalRapidoOpen} onOpenChange={setModalRapidoOpen}>
-        <DialogContent className="sm:max-w-md">
-          <form onSubmit={handleSalvarLancamentoRapido}>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                {tipoRapido === 'despesa' && (
-                  <>
-                    <TrendingDown className="w-5 h-5 text-rose-600" />
-                    <span>Nova Despesa</span>
-                  </>
-                )}
-                {tipoRapido === 'receita' && (
-                  <>
-                    <TrendingUp className="w-5 h-5 text-emerald-600" />
-                    <span>Nova Entrada</span>
-                  </>
-                )}
-                {tipoRapido === 'transferencia' && (
-                  <>
-                    <ArrowRightLeft className="w-5 h-5 text-slate-600" />
-                    <span>Transferência Entre Contas</span>
-                  </>
-                )}
-              </DialogTitle>
-              <DialogDescription>
-                Registro rápido com atualização em tempo real de saldos e extratos da Build 1.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="py-4 space-y-3.5">
-              <div>
-                <Label htmlFor="rapido-desc" className="text-xs font-semibold text-slate-700">
-                  Descrição *
-                </Label>
-                <Input
-                  id="rapido-desc"
-                  placeholder={
-                    tipoRapido === 'despesa'
-                      ? 'Ex: Supermercado, Almoço, Combustível'
-                      : tipoRapido === 'receita'
-                        ? 'Ex: Salário, Rendimentos, Pix recebido'
-                        : 'Ex: Transferência para Poupança'
-                  }
-                  value={rapidoDescricao}
-                  onChange={(e) => setRapidoDescricao(e.target.value)}
-                  className="mt-1"
-                  required
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="rapido-val" className="text-xs font-semibold text-slate-700">
-                  Valor (R$) *
-                </Label>
-                <Input
-                  id="rapido-val"
-                  placeholder="0,00"
-                  value={rapidoValor}
-                  onChange={(e) => setRapidoValor(e.target.value)}
-                  className="mt-1 font-bold text-base"
-                  required
-                />
-              </div>
-
-              {tipoRapido !== 'transferencia' && (
-                <>
-                  <div>
-                    <Label htmlFor="rapido-meio" className="text-xs font-semibold text-slate-700">
-                      Meio de Pagamento
-                    </Label>
-                    <Select value={rapidoMeio} onValueChange={(val: any) => setRapidoMeio(val)}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="CONTA">Conta Bancária</SelectItem>
-                        <SelectItem value="CARTAO">Cartão de Crédito</SelectItem>
-                        <SelectItem value="DINHEIRO">Dinheiro em Espécie</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {rapidoMeio === 'CONTA' && (
-                    <div>
-                      <Label
-                        htmlFor="rapido-conta"
-                        className="text-xs font-semibold text-slate-700"
-                      >
-                        Conta
-                      </Label>
-                      <Select value={rapidoContaOrigem} onValueChange={setRapidoContaOrigem}>
-                        <SelectTrigger className="mt-1">
-                          <SelectValue placeholder="Selecione a conta" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {contas.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.nome} ({formatMoneyBRL(c.saldo_atual)})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  {rapidoMeio === 'CARTAO' && (
-                    <div>
-                      <Label
-                        htmlFor="rapido-cartao"
-                        className="text-xs font-semibold text-slate-700"
-                      >
-                        Cartão de Crédito
-                      </Label>
-                      <Select value={rapidoCartao} onValueChange={setRapidoCartao}>
-                        <SelectTrigger className="mt-1">
-                          <SelectValue placeholder="Selecione o cartão" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {cartoes.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.nome} (Limite: {formatMoneyBRL(c.limite)})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-
-                  <div>
-                    <Label htmlFor="rapido-cat" className="text-xs font-semibold text-slate-700">
-                      Categoria
-                    </Label>
-                    <Select value={rapidoCategoria} onValueChange={setRapidoCategoria}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue placeholder="Selecione a categoria" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categorias
-                          .filter((c) =>
-                            tipoRapido === 'receita' ? c.tipo === 'receita' : c.tipo === 'despesa',
-                          )
-                          .map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.nome}
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
-
-              {tipoRapido === 'transferencia' && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label htmlFor="t-origem" className="text-xs font-semibold text-slate-700">
-                      Conta Origem (Saída)
-                    </Label>
-                    <Select value={rapidoContaOrigem} onValueChange={setRapidoContaOrigem}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {contas.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <Label htmlFor="t-destino" className="text-xs font-semibold text-slate-700">
-                      Conta Destino (Entrada)
-                    </Label>
-                    <Select value={rapidoContaDestino} onValueChange={setRapidoContaDestino}>
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {contas.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setModalRapidoOpen(false)}>
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                disabled={rapidoSalvando}
-                className={
-                  tipoRapido === 'despesa'
-                    ? 'bg-rose-600 hover:bg-rose-700 text-white'
-                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                }
-              >
-                {rapidoSalvando ? 'Gravando...' : 'Confirmar Lançamento'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      {/* MODAL COMPLETO DE LANÇAMENTOS (BUILD 2) */}
+      <ModalLancamento
+        open={modalLancamentoOpen}
+        onOpenChange={setModalLancamentoOpen}
+        onSave={handleSalvarLancamentoVisaoGeral}
+        tipoPadrao={tipoLancamentoSelecionado}
+        contas={contas}
+        cartoes={cartoes}
+        categorias={categorias}
+        workspaceId={wsId || ''}
+        userId={user?.id}
+      />
     </div>
   )
 }

@@ -94,7 +94,7 @@ export default function Layout() {
     { label: 'cartões', path: '/cartoes' },
     { label: 'orçamento', path: '/orcamento' },
     { label: 'categorias', path: '/categorias' },
-    { label: 'lançamentos', path: '/lancamentos', badge: 'Build 2' },
+    { label: 'lançamentos', path: '/lancamentos' },
     { label: 'relatórios', path: '/relatorios', badge: 'Build 7' },
   ]
 

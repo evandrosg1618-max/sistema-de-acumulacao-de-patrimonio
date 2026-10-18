@@ -216,12 +216,63 @@ export interface Lancamento {
   data_pagamento?: string | null
   observacao?: string | null
   quantidade_parcelas?: number
+  conciliado?: boolean
+  data_conciliacao?: string | null
+  conciliado_por?: string | null
   idempotency_key?: string | null
   created_by?: string | null
   created_at: string
   updated_at: string
   deleted_at?: string | null
   categoria?: Categoria | null
+  subcategoria?: Subcategoria | null
   conta_origem?: Conta | null
+  conta_destino?: Conta | null
   cartao?: Cartao | null
+}
+
+export interface Fatura {
+  id: string
+  workspace_id: string
+  cartao_id: string
+  competencia: string
+  data_fechamento: string
+  data_vencimento: string
+  status: StatusFatura
+  valor_total: number
+  created_at: string
+  updated_at: string
+  cartao?: Cartao | null
+}
+
+export interface PagamentoFatura {
+  id: string
+  workspace_id: string
+  fatura_id: string
+  conta_id: string
+  valor: number
+  data_pagamento: string
+  status: 'efetivado' | 'estornado'
+  idempotency_key?: string | null
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+  conta?: Conta | null
+  fatura?: Fatura | null
+}
+
+export interface ConciliacaoConta {
+  id: string
+  workspace_id: string
+  conta_id: string
+  data_extrato: string
+  saldo_sistema: number
+  saldo_extrato: number
+  divergencia: number
+  ajustado: boolean
+  lancamento_ajuste_id?: string | null
+  observacao?: string | null
+  created_by?: string | null
+  created_at: string
+  conta?: Conta | null
 }
