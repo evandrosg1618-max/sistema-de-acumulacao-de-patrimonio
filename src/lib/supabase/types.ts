@@ -216,6 +216,73 @@ export type Database = {
           },
         ]
       }
+      conciliacoes_conta: {
+        Row: {
+          ajustado: boolean
+          conta_id: string
+          created_at: string
+          created_by: string | null
+          data_extrato: string
+          divergencia: number
+          id: string
+          lancamento_ajuste_id: string | null
+          observacao: string | null
+          saldo_extrato: number
+          saldo_sistema: number
+          workspace_id: string
+        }
+        Insert: {
+          ajustado?: boolean
+          conta_id: string
+          created_at?: string
+          created_by?: string | null
+          data_extrato: string
+          divergencia: number
+          id?: string
+          lancamento_ajuste_id?: string | null
+          observacao?: string | null
+          saldo_extrato: number
+          saldo_sistema: number
+          workspace_id: string
+        }
+        Update: {
+          ajustado?: boolean
+          conta_id?: string
+          created_at?: string
+          created_by?: string | null
+          data_extrato?: string
+          divergencia?: number
+          id?: string
+          lancamento_ajuste_id?: string | null
+          observacao?: string | null
+          saldo_extrato?: number
+          saldo_sistema?: number
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'conciliacoes_conta_conta_id_fkey'
+            columns: ['conta_id']
+            isOneToOne: false
+            referencedRelation: 'contas'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'conciliacoes_conta_lancamento_ajuste_id_fkey'
+            columns: ['lancamento_ajuste_id']
+            isOneToOne: false
+            referencedRelation: 'lancamentos'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'conciliacoes_conta_workspace_id_fkey'
+            columns: ['workspace_id']
+            isOneToOne: false
+            referencedRelation: 'workspaces'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       contas: {
         Row: {
           ativa: boolean
@@ -424,11 +491,14 @@ export type Database = {
           cartao_id: string | null
           categoria_id: string | null
           competencia: string
+          conciliado: boolean
+          conciliado_por: string | null
           conta_destino_id: string | null
           conta_origem_id: string | null
           created_at: string
           created_by: string | null
           data: string
+          data_conciliacao: string | null
           data_pagamento: string | null
           deleted_at: string | null
           descricao: string
@@ -450,11 +520,14 @@ export type Database = {
           cartao_id?: string | null
           categoria_id?: string | null
           competencia: string
+          conciliado?: boolean
+          conciliado_por?: string | null
           conta_destino_id?: string | null
           conta_origem_id?: string | null
           created_at?: string
           created_by?: string | null
           data: string
+          data_conciliacao?: string | null
           data_pagamento?: string | null
           deleted_at?: string | null
           descricao: string
@@ -476,11 +549,14 @@ export type Database = {
           cartao_id?: string | null
           categoria_id?: string | null
           competencia?: string
+          conciliado?: boolean
+          conciliado_por?: string | null
           conta_destino_id?: string | null
           conta_origem_id?: string | null
           created_at?: string
           created_by?: string | null
           data?: string
+          data_conciliacao?: string | null
           data_pagamento?: string | null
           deleted_at?: string | null
           descricao?: string

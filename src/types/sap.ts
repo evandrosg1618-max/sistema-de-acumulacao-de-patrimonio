@@ -136,6 +136,7 @@ export interface Cartao {
   updated_at: string
   deleted_at?: string | null
   fatura_atual?: number
+  total_comprometido?: number
 }
 
 export interface MeioPagamento {
@@ -224,6 +225,9 @@ export interface Lancamento {
   created_at: string
   updated_at: string
   deleted_at?: string | null
+  numero_parcela?: number | null
+  total_parcelas?: number | null
+  lancamento_pai_id?: string | null
   categoria?: Categoria | null
   subcategoria?: Subcategoria | null
   conta_origem?: Conta | null

@@ -1,7 +1,8 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Calculator, Check, Delete } from 'lucide-react'
+import { Calculator, Delete, X } from 'lucide-react'
+import { useIsMobile } from '@/hooks/use-mobile'
 
 interface ValorCalculadoraInputProps {
   id?: string
@@ -22,9 +23,12 @@ export function ValorCalculadoraInput({
   required = true,
   placeholder = '0,00',
 }: ValorCalculadoraInputProps) {
+  const isMobile = useIsMobile()
   const [showCalc, setShowCalc] = useState(false)
   const [expression, setExpression] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
 
+  // Ao abrir o popover no mobile ou alternar
   const abrirCalc = () => {
     setExpression(value ? value.replace(/\./g, '').replace(',', '.') : '')
     setShowCalc(!showCalc)
@@ -42,64 +46,132 @@ export function ValorCalculadoraInput({
     setExpression((prev) => prev.slice(0, -1))
   }
 
-  const handleCalcular = () => {
+  const calcularExpressao = (expString: string): string | null => {
     try {
-      // Validação de expressão aritmética segura (somente números e +, -, *, /, .)
-      const cleanExp = expression.replace(/,/g, '.')
-      if (!/^[0-9+\-*/. ]+$/.test(cleanExp)) {
-        throw new Error('Expressão inválida')
+      const cleanExp = expString.replace(/,/g, '.').replace(/\s+/g, '')
+      if (!cleanExp) return null
+      // Somente números e operadores aritméticos básicos
+      if (!/^[0-9+\-*/.()]+$/.test(cleanExp)) {
+        return null
       }
-      // Avaliação aritmética segura com Function isolada
+      // Avaliação aritmética segura
       // eslint-disable-next-line no-new-func
       const result = Function(`"use strict"; return (${cleanExp})`)()
       if (typeof result === 'number' && !isNaN(result) && isFinite(result)) {
-        const formatado = result.toFixed(2).replace('.', ',')
-        onChange(formatado)
-        setShowCalc(false)
-      } else {
-        throw new Error('Resultado inválido')
+        return result.toFixed(2).replace('.', ',')
       }
+      return null
     } catch {
-      // Deixar na tela
+      return null
     }
   }
+
+  const handleCalcular = () => {
+    const res = calcularExpressao(expression)
+    if (res !== null) {
+      onChange(res)
+      setShowCalc(false)
+    }
+  }
+
+  // Teclado do PC no input principal (desktop)
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Se o usuário apertar Enter ou '=', tenta avaliar a expressão contida no input
+    if (e.key === 'Enter' || e.key === '=') {
+      const valAtual = value || ''
+      // Se tiver operador aritmético, calcula
+      if (/[+\-*/]/.test(valAtual)) {
+        e.preventDefault()
+        const res = calcularExpressao(valAtual)
+        if (res !== null) {
+          onChange(res)
+        }
+      }
+    }
+  }
+
+  // Teclado do PC quando o modal/popup da calculadora está aberto
+  useEffect(() => {
+    if (!showCalc) return
+
+    const handleWindowKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowCalc(false)
+        return
+      }
+      if (e.key === 'Enter' || e.key === '=') {
+        e.preventDefault()
+        handleCalcular()
+        return
+      }
+      if (e.key === 'Backspace') {
+        e.preventDefault()
+        handleBackspace()
+        return
+      }
+      if (/^[0-9+\-*/.,]$/.test(e.key)) {
+        e.preventDefault()
+        handleAppend(e.key === ',' ? '.' : e.key)
+      }
+    }
+
+    window.addEventListener('keydown', handleWindowKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleWindowKeyDown)
+    }
+  }, [showCalc, expression])
 
   return (
     <div className="space-y-1.5 relative">
       <div className="relative flex items-center">
-        <span className="absolute left-3 text-sm font-semibold text-slate-400">R$</span>
+        <span className="absolute left-3 text-sm font-bold text-sky-800 z-10">R$</span>
         <Input
+          ref={inputRef}
           id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={handleInputKeyDown}
           disabled={disabled}
           required={required}
           placeholder={placeholder}
-          className={`pl-10 pr-10 font-bold text-base text-slate-900 ${className}`}
+          title="Em desktop: digite números e operadores (+, -, *, /) e aperte Enter para calcular"
+          className={`pl-10 pr-10 font-bold text-base bg-sky-50/80 border-sky-300 text-sky-950 placeholder:text-sky-400 focus-visible:ring-sky-500 focus-visible:border-sky-500 hover:bg-sky-50 ${className}`}
         />
         <button
           type="button"
           onClick={abrirCalc}
-          title="Abrir calculadora integrada (PRD: confirmada pelo botão '=')"
-          className="absolute right-2.5 p-1 text-slate-400 hover:text-emerald-600 transition"
+          title="Abrir calculadora integrada (botão = para aplicar)"
+          className="absolute right-2.5 p-1 text-sky-700 hover:text-sky-950 transition hover:bg-sky-100 rounded"
         >
           <Calculator className="w-4 h-4" />
         </button>
       </div>
 
       {showCalc && (
-        <div className="absolute right-0 top-12 z-50 bg-white rounded-xl shadow-xl border border-slate-200 p-3 w-64 space-y-2 animate-in fade-in-50 zoom-in-95">
-          <div className="flex items-center justify-between pb-1 border-b border-slate-100">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+        <div className="absolute right-0 top-12 z-50 bg-white rounded-xl shadow-2xl border border-sky-200 p-3 w-72 space-y-2 animate-in fade-in-50 zoom-in-95">
+          <div className="flex items-center justify-between pb-1 border-b border-sky-100">
+            <span className="text-[11px] font-bold text-sky-900 uppercase tracking-wider flex items-center gap-1">
+              <Calculator className="w-3.5 h-3.5 text-sky-700" />
               Calculadora SAP
             </span>
-            <span className="text-[10px] text-slate-400">Pressione = para aplicar</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-sky-600 hidden sm:inline">Teclado PC ativo</span>
+              <button
+                type="button"
+                onClick={() => setShowCalc(false)}
+                className="text-slate-400 hover:text-slate-600 p-0.5"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
-          <div className="bg-slate-50 p-2 rounded-lg text-right font-mono text-sm font-bold text-slate-800 break-all min-h-[32px] border border-slate-200">
+          {/* Visor em tonalidade azul claro com texto de alto contraste */}
+          <div className="bg-sky-50/90 p-2.5 rounded-lg text-right font-mono text-base font-bold text-sky-950 break-all min-h-[38px] border border-sky-200 shadow-inner">
             {expression || '0'}
           </div>
 
+          {/* Teclado da Calculadora: sempre disponível; no mobile é o teclado grande na tela */}
           <div className="grid grid-cols-4 gap-1.5 text-xs">
             <Button
               type="button"

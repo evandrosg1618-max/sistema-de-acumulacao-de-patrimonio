@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/use-auth'
 import { cartaoService, faturaService, contaService, lancamentoService } from '@/services/sap'
-import { Cartao, Fatura, Conta, Lancamento } from '@/types/sap'
-import { formatMoneyBRL, getCurrentAnoMes } from '@/lib/formatters'
+import { Cartao, Fatura, Conta, Lancamento, TipoLancamento } from '@/types/sap'
+import { formatMoneyBRL, getCurrentAnoMes, formatAnoMesPT } from '@/lib/formatters'
 import {
   CreditCard,
   Plus,
@@ -19,7 +19,11 @@ import {
   RotateCcw,
   ChevronRight,
   ChevronDown,
+  Layers,
+  ChevronLeft,
+  RefreshCw,
 } from 'lucide-react'
+import { ModalLancamento } from '@/components/ModalLancamento'
 import { ModalPagamentoFatura } from '@/components/ModalPagamentoFatura'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -67,13 +71,18 @@ export default function CartoesPage() {
   const [editingCartao, setEditingCartao] = useState<Cartao | null>(null)
   const [saving, setSaving] = useState(false)
 
-  // Gestão de faturas
+  // Gestão de faturas e competências (Build 3)
   const [cartaoExpandido, setCartaoExpandido] = useState<string | null>(null)
   const [faturaParaPagar, setFaturaParaPagar] = useState<Fatura | null>(null)
   const [cartaoFaturaPagar, setCartaoFaturaPagar] = useState<Cartao | null>(null)
   const [modalPagamentoOpen, setModalPagamentoOpen] = useState(false)
   const [lancamentosFatura, setLancamentosFatura] = useState<Record<string, Lancamento[]>>({})
   const [carregandoDetalheFatura, setCarregandoDetalheFatura] = useState<string | null>(null)
+
+  // Competência selecionada para visualização detalhada em cada cartão
+  const [competenciaFiltro, setCompetenciaFiltro] = useState<string>(getCurrentAnoMes())
+  const [resumosFatura, setResumosFatura] = useState<Record<string, any>>({})
+  const [recalculando, setRecalculando] = useState(false)
 
   // Form
   const [nome, setNome] = useState('')
@@ -99,15 +108,79 @@ export default function CartoesPage() {
 
       // Carregar histórico de faturas para cada cartão
       const faturasTemp: Record<string, Fatura[]> = {}
+      const resumosTemp: Record<string, any> = {}
+
       for (const c of data) {
         const fats = await faturaService.listFaturasCartao(wsId, c.id)
         faturasTemp[c.id] = fats
+
+        // Build 3: Recálculo dinâmico da competência selecionada
+        try {
+          const resumo = await faturaService.getResumoFaturaCompetencia(
+            wsId,
+            c.id,
+            competenciaFiltro,
+          )
+          resumosTemp[c.id] = resumo
+        } catch (e) {
+          console.warn('Erro ao carregar resumo da fatura:', e)
+        }
       }
       setFaturasMap(faturasTemp)
+      setResumosFatura(resumosTemp)
     } catch (err: any) {
       toast.error('Erro ao carregar cartões: ' + (err.message || 'tente novamente'))
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Navegar competência (mês anterior/próximo)
+  const mudarCompetencia = async (deltaMeses: number) => {
+    const [anoStr, mesStr] = competenciaFiltro.split('-')
+    let a = parseInt(anoStr, 10)
+    let m = parseInt(mesStr, 10) + deltaMeses
+    if (m > 12) {
+      m = 1
+      a += 1
+    } else if (m < 1) {
+      m = 12
+      a -= 1
+    }
+    const novaComp = `${a}-${String(m).padStart(2, '0')}`
+    setCompetenciaFiltro(novaComp)
+
+    if (!wsId) return
+    setRecalculando(true)
+    try {
+      const resumosTemp: Record<string, any> = {}
+      for (const c of cartoes) {
+        const resumo = await faturaService.getResumoFaturaCompetencia(wsId, c.id, novaComp)
+        resumosTemp[c.id] = resumo
+      }
+      setResumosFatura(resumosTemp)
+    } finally {
+      setRecalculando(false)
+    }
+  }
+
+  // Forçar recálculo dinâmico manual
+  const forcarRecalculo = async () => {
+    if (!wsId) return
+    setRecalculando(true)
+    try {
+      const resumosTemp: Record<string, any> = {}
+      for (const c of cartoes) {
+        await faturaService.recalcularValorFatura(wsId, c.id, competenciaFiltro)
+        const resumo = await faturaService.getResumoFaturaCompetencia(wsId, c.id, competenciaFiltro)
+        resumosTemp[c.id] = resumo
+      }
+      setResumosFatura(resumosTemp)
+      toast.success('Faturas recalculadas dinamicamente!')
+    } catch (e: any) {
+      toast.error('Erro ao recalcular: ' + (e.message || ''))
+    } finally {
+      setRecalculando(false)
     }
   }
 
@@ -300,6 +373,10 @@ export default function CartoesPage() {
 
   const limiteTotal = cartoes.reduce((acc, c) => acc + (c.limite || 0), 0)
   const faturaTotal = cartoes.reduce((acc, c) => acc + (c.fatura_atual || 0), 0)
+  const totalComprometidoGeral = cartoes.reduce(
+    (acc, c) => acc + (c.total_comprometido || c.fatura_atual || 0),
+    0,
+  )
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6">
@@ -308,25 +385,63 @@ export default function CartoesPage() {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
-              Meus Cartões de Crédito
+              Gestão de Cartões de Crédito
             </h1>
             <Badge
               variant="outline"
-              className="text-indigo-700 bg-indigo-50 border-indigo-200 text-xs"
+              className="text-indigo-700 bg-indigo-50 border-indigo-200 text-xs font-semibold"
             >
-              Build 1
+              Build 3 • Faturas & Parcelas
             </Badge>
           </div>
           <p className="text-xs md:text-sm text-slate-500 mt-1">
-            Cadastre cartões com dia de fechamento, vencimento e limite de crédito para faturamento
-            familiar.
+            Competências dinâmicas por dia de fechamento, parcelas futuras e recálculo em tempo real
+            sem valores congelados.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Seletor de Competência da Fatura */}
+          <div className="flex items-center bg-white border border-slate-200 rounded-lg shadow-xs p-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-slate-600"
+              onClick={() => mudarCompetencia(-1)}
+              title="Competência anterior"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <div className="px-2 text-xs font-bold text-slate-800 flex items-center gap-1.5 min-w-[130px] justify-center">
+              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+              <span>{formatAnoMesPT(competenciaFiltro)}</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-slate-600"
+              onClick={() => mudarCompetencia(1)}
+              title="Próxima competência"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={forcarRecalculo}
+            disabled={recalculando}
+            className="text-xs text-slate-700 h-9"
+            title="Recalcular totais e parcelas dinamicamente"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${recalculando ? 'animate-spin' : ''}`} />
+            Recalcular
+          </Button>
+
           <Button
             onClick={abrirNovo}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs sm:text-sm flex items-center gap-2 shadow-sm"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs sm:text-sm flex items-center gap-2 shadow-sm h-9"
           >
             <Plus className="w-4 h-4" />
             Novo Cartão
@@ -335,7 +450,7 @@ export default function CartoesPage() {
       </div>
 
       {/* Cards de Resumo */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <Card className="border-slate-200 shadow-sm bg-white">
           <CardHeader className="pb-2">
             <CardDescription className="text-xs font-medium text-slate-500 uppercase tracking-wider">
@@ -356,28 +471,47 @@ export default function CartoesPage() {
         <Card className="border-slate-200 shadow-sm bg-white">
           <CardHeader className="pb-2">
             <CardDescription className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-              Faturas Abertas (Atual)
+              Fatura de {competenciaFiltro}
             </CardDescription>
             <CardTitle className="text-2xl font-bold text-rose-600">
-              {formatMoneyBRL(faturaTotal)}
+              {formatMoneyBRL(
+                Object.values(resumosFatura).reduce(
+                  (acc: number, r: any) => acc + (r?.saldoDevedor ?? r?.totalCompras ?? 0),
+                  0,
+                ),
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-slate-500">Consumido no mês corrente</p>
+            <p className="text-xs text-slate-500">Compras + parcelas na competência</p>
           </CardContent>
         </Card>
 
         <Card className="border-slate-200 shadow-sm bg-white">
           <CardHeader className="pb-2">
             <CardDescription className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-              Limite Disponível Geral
+              Total Comprometido
             </CardDescription>
-            <CardTitle className="text-2xl font-bold text-emerald-600">
-              {formatMoneyBRL(Math.max(0, limiteTotal - faturaTotal))}
+            <CardTitle className="text-2xl font-bold text-amber-600">
+              {formatMoneyBRL(totalComprometidoGeral)}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-slate-500">Margem livre para gastos familiares</p>
+            <p className="text-xs text-slate-500">Fatura atual + parcelas futuras</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200 shadow-sm bg-white">
+          <CardHeader className="pb-2">
+            <CardDescription className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+              Limite Disponível Real
+            </CardDescription>
+            <CardTitle className="text-2xl font-bold text-emerald-600">
+              {formatMoneyBRL(Math.max(0, limiteTotal - totalComprometidoGeral))}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500">Descontando parcelas ativas</p>
           </CardContent>
         </Card>
       </div>
@@ -422,6 +556,9 @@ export default function CartoesPage() {
             <div className="divide-y divide-slate-100">
               {cartoes.map((cartao) => {
                 const fatura = cartao.fatura_atual || 0
+                const resumo = resumosFatura[cartao.id]
+                const totalComp = cartao.total_comprometido || fatura
+
                 return (
                   <div key={cartao.id} className="transition">
                     <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80">
@@ -449,8 +586,12 @@ export default function CartoesPage() {
                             <span>•</span>
                             <span>Limite: {formatMoneyBRL(cartao.limite)}</span>
                             <span>•</span>
+                            <span className="text-amber-700 font-medium">
+                              Comprometido: {formatMoneyBRL(totalComp)}
+                            </span>
+                            <span>•</span>
                             <span className="text-emerald-700 font-medium">
-                              Disponível: {formatMoneyBRL(Math.max(0, cartao.limite - fatura))}
+                              Disponível: {formatMoneyBRL(Math.max(0, cartao.limite - totalComp))}
                             </span>
                           </div>
                         </div>
@@ -459,19 +600,22 @@ export default function CartoesPage() {
                       <div className="flex items-center justify-between sm:justify-end gap-3 self-end sm:self-auto w-full sm:w-auto">
                         <div className="text-right">
                           <div className="font-bold text-sm md:text-base text-rose-600">
-                            {formatMoneyBRL(fatura)}
+                            {formatMoneyBRL(resumo?.saldoDevedor ?? fatura)}
                           </div>
-                          <div className="text-[11px] text-slate-400">Fatura aberta</div>
+                          <div className="text-[11px] text-slate-400">
+                            Fatura {competenciaFiltro}{' '}
+                            {resumo?.status === 'paga' ? '(Paga)' : '(Aberta)'}
+                          </div>
                         </div>
 
                         <button
                           onClick={() =>
                             setCartaoExpandido(cartaoExpandido === cartao.id ? null : cartao.id)
                           }
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition"
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-md border border-indigo-200 bg-indigo-50/50 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition"
                         >
                           <Receipt className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>Faturas</span>
+                          <span>Fatura & Parcelas</span>
                           {cartaoExpandido === cartao.id ? (
                             <ChevronDown className="w-3.5 h-3.5" />
                           ) : (
@@ -502,145 +646,199 @@ export default function CartoesPage() {
                       </div>
                     </div>
 
-                    {/* Detalhes das faturas abertas e fechadas deste cartão */}
+                    {/* Detalhes das faturas abertas e fechadas deste cartão (Build 3) */}
                     {cartaoExpandido === cartao.id && (
-                      <div className="bg-slate-50/80 p-4 border-t border-slate-200 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                            Histórico de Faturas & Fechamentos
-                          </span>
-                          <span className="text-[11px] text-slate-500">
-                            Ciclo de corte dia {cartao.dia_fechamento} • Vencimento dia{' '}
-                            {cartao.dia_vencimento}
-                          </span>
+                      <div className="bg-slate-50/90 p-4 border-t border-slate-200 space-y-4">
+                        {/* Painel da Competência Ativa */}
+                        <div className="bg-white rounded-xl border border-indigo-100 p-4 shadow-xs space-y-3">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                            <div className="flex items-center gap-2">
+                              <Receipt className="w-4 h-4 text-indigo-600" />
+                              <span className="text-sm font-bold text-slate-800">
+                                Fatura da Competência {formatAnoMesPT(competenciaFiltro)} (
+                                {competenciaFiltro})
+                              </span>
+                              <Badge
+                                className={`text-[10px] py-0 ${
+                                  resumo?.status === 'paga'
+                                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                    : 'bg-amber-100 text-amber-800 border-amber-200'
+                                }`}
+                              >
+                                {resumo?.status === 'paga' ? 'Quitada' : 'Aberta'}
+                              </Badge>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <span className="text-xs text-slate-400 block">
+                                  Total da fatura
+                                </span>
+                                <span className="text-sm font-bold text-slate-900">
+                                  {formatMoneyBRL(resumo?.totalCompras ?? 0)}
+                                </span>
+                              </div>
+
+                              {resumo?.totalPago > 0 && (
+                                <div className="text-right border-l border-slate-200 pl-3">
+                                  <span className="text-xs text-emerald-600 block">Pago</span>
+                                  <span className="text-sm font-bold text-emerald-700">
+                                    {formatMoneyBRL(resumo.totalPago)}
+                                  </span>
+                                </div>
+                              )}
+
+                              <div className="text-right border-l border-slate-200 pl-3">
+                                <span className="text-xs text-rose-500 block">A Pagar</span>
+                                <span className="text-base font-bold text-rose-600">
+                                  {formatMoneyBRL(resumo?.saldoDevedor ?? 0)}
+                                </span>
+                              </div>
+
+                              {resumo?.fatura &&
+                                resumo?.status !== 'paga' &&
+                                resumo?.saldoDevedor > 0 && (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => abrirModalPagarFatura(resumo.fatura, cartao)}
+                                    className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold ml-2"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                                    Pagar Fatura
+                                  </Button>
+                                )}
+                            </div>
+                          </div>
+
+                          {/* Lista de compras e parcelas da competência (Build 3 Especificação) */}
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
+                              <span className="flex items-center gap-1.5">
+                                <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                                Compras e Parcelas desta Fatura ({resumo?.itens?.length || 0}):
+                              </span>
+                              <span className="text-[11px] text-slate-400 font-normal">
+                                Corte dia {cartao.dia_fechamento} • Compras após este dia entram no
+                                próximo mês
+                              </span>
+                            </div>
+
+                            {!resumo?.itens || resumo.itens.length === 0 ? (
+                              <div className="p-4 bg-slate-50 rounded-lg text-center text-xs text-slate-400">
+                                Nenhuma compra ou parcela caindo nesta competência (
+                                {competenciaFiltro}).
+                              </div>
+                            ) : (
+                              <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto border border-slate-100 rounded-lg">
+                                {resumo.itens.map((l: any) => {
+                                  const numP = l.numero_parcela || 1
+                                  const totP = l.total_parcelas || l.quantidade_parcelas || 1
+                                  const ehParcela = totP > 1
+
+                                  return (
+                                    <div
+                                      key={l.id}
+                                      className="flex items-center justify-between p-2.5 hover:bg-slate-50 text-xs transition"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-slate-400 text-[11px] min-w-[70px]">
+                                          {l.data ? l.data.split('-').reverse().join('/') : ''}
+                                        </span>
+                                        <div className="flex flex-col">
+                                          <div className="flex items-center gap-1.5">
+                                            <span className="font-semibold text-slate-800">
+                                              {l.descricao}
+                                            </span>
+                                            {ehParcela && (
+                                              <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] py-0 px-1.5 font-bold">
+                                                {numP}/{totP}
+                                              </Badge>
+                                            )}
+                                          </div>
+                                          {l.categorias?.nome && (
+                                            <span className="text-[10px] text-slate-400">
+                                              {l.categorias.nome}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      <div className="text-right">
+                                        <span className="font-bold text-rose-600">
+                                          {formatMoneyBRL(l.valor)}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
                         </div>
 
-                        {!faturasMap[cartao.id] || faturasMap[cartao.id].length === 0 ? (
-                          <div className="p-4 bg-white rounded-lg border border-slate-200 text-center text-xs text-slate-500">
-                            Nenhuma fatura gerada para este cartão. Ao lançar despesas no cartão, a
-                            fatura correspondente é gerada automaticamente.
+                        {/* Histórico Geral de Faturas */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
+                              Outras Competências Cadastradas
+                            </span>
                           </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {faturasMap[cartao.id].map((fat) => {
-                              const isPaga = fat.status === 'paga'
-                              const lancs = lancamentosFatura[fat.id]
-                              const estaCarregando = carregandoDetalheFatura === fat.id
 
-                              return (
-                                <div
-                                  key={fat.id}
-                                  className="bg-white rounded-lg border border-slate-200 p-3 space-y-2"
-                                >
-                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                    <div className="flex items-center gap-2">
-                                      <Receipt className="w-4 h-4 text-indigo-600" />
-                                      <span className="text-xs font-bold text-slate-800">
-                                        Fatura {fat.competencia}
-                                      </span>
-                                      <Badge
-                                        className={`text-[10px] py-0 ${
-                                          isPaga
-                                            ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                            : 'bg-amber-100 text-amber-800 border-amber-200'
-                                        }`}
-                                      >
-                                        {isPaga ? 'Paga' : 'Aberta'}
-                                      </Badge>
-                                      <span className="text-[11px] text-slate-400">
-                                        Vencimento:{' '}
-                                        {fat.data_vencimento
-                                          ? fat.data_vencimento.split('-').reverse().join('/')
-                                          : 'N/D'}
-                                      </span>
-                                    </div>
-
-                                    <div className="flex items-center gap-3 self-end sm:self-auto">
-                                      <span className="text-xs font-bold text-slate-900">
+                          {!faturasMap[cartao.id] || faturasMap[cartao.id].length === 0 ? (
+                            <div className="p-3 bg-white rounded-lg border border-slate-200 text-center text-xs text-slate-400">
+                              Nenhuma outra fatura gerada para este cartão.
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                              {faturasMap[cartao.id].map((fat) => {
+                                const isPaga = fat.status === 'paga'
+                                return (
+                                  <div
+                                    key={fat.id}
+                                    className="bg-white rounded-lg border border-slate-200 p-2.5 flex items-center justify-between text-xs"
+                                  >
+                                    <div>
+                                      <div className="flex items-center gap-1.5 font-semibold text-slate-800">
+                                        <span>Fatura {fat.competencia}</span>
+                                        <Badge
+                                          className={`text-[9px] py-0 px-1 ${
+                                            isPaga
+                                              ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                              : 'bg-amber-100 text-amber-800 border-amber-200'
+                                          }`}
+                                        >
+                                          {isPaga ? 'Paga' : 'Aberta'}
+                                        </Badge>
+                                      </div>
+                                      <span className="text-[10px] text-slate-400">
                                         {formatMoneyBRL(fat.valor_total)}
                                       </span>
+                                    </div>
 
-                                      {!isPaga ? (
-                                        <Button
-                                          size="sm"
-                                          onClick={() => abrirModalPagarFatura(fat, cartao)}
-                                          className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                                        >
-                                          <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                                          Pagar Fatura
-                                        </Button>
-                                      ) : (
-                                        <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={() => handleEstornarFatura(fat.id)}
-                                          className="h-7 text-xs text-rose-700 border-rose-200 hover:bg-rose-50"
-                                        >
-                                          <RotateCcw className="w-3.5 h-3.5 mr-1" />
-                                          Reabrir
-                                        </Button>
-                                      )}
-
+                                    {!isPaga ? (
                                       <Button
-                                        variant="ghost"
                                         size="sm"
-                                        onClick={() =>
-                                          verLancamentosDaFatura(cartao.id, fat.id, fat.competencia)
-                                        }
-                                        className="h-7 text-[11px] text-slate-500"
+                                        onClick={() => abrirModalPagarFatura(fat, cartao)}
+                                        className="h-6 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2"
                                       >
-                                        {lancs ? 'Ocultar compras' : 'Ver compras'}
+                                        Pagar
                                       </Button>
-                                    </div>
+                                    ) : (
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handleEstornarFatura(fat.id)}
+                                        className="h-6 text-[10px] text-rose-700 border-rose-200 hover:bg-rose-50 px-2"
+                                      >
+                                        Reabrir
+                                      </Button>
+                                    )}
                                   </div>
-
-                                  {/* Detalhes dos lançamentos desta fatura */}
-                                  {estaCarregando && (
-                                    <div className="text-xs text-slate-400 py-2">
-                                      Carregando compras desta fatura...
-                                    </div>
-                                  )}
-
-                                  {lancs && (
-                                    <div className="pt-2 border-t border-slate-100 space-y-1">
-                                      <div className="text-[10px] font-bold text-slate-400 uppercase">
-                                        Compras na fatura ({lancs.length}):
-                                      </div>
-                                      {lancs.length === 0 ? (
-                                        <div className="text-xs text-slate-400">
-                                          Nenhuma compra ativa nesta fatura.
-                                        </div>
-                                      ) : (
-                                        <div className="space-y-1 max-h-48 overflow-y-auto">
-                                          {lancs.map((l) => (
-                                            <div
-                                              key={l.id}
-                                              className="flex items-center justify-between text-xs py-1 px-2 rounded bg-slate-50"
-                                            >
-                                              <div className="flex items-center gap-2">
-                                                <span className="text-slate-400 text-[10px]">
-                                                  {l.data
-                                                    ? l.data.split('-').reverse().join('/')
-                                                    : ''}
-                                                </span>
-                                                <span className="font-medium text-slate-800">
-                                                  {l.descricao}
-                                                </span>
-                                              </div>
-                                              <span className="font-bold text-rose-600">
-                                                {formatMoneyBRL(l.valor)}
-                                              </span>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>

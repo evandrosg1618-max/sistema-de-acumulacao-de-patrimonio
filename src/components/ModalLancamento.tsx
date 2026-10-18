@@ -26,9 +26,11 @@ import {
   Calendar,
   CreditCard,
   Wallet,
+  Banknote,
   Tag,
   FileText,
   AlertCircle,
+  Layers,
 } from 'lucide-react'
 import { formatMoneyBRL } from '@/lib/formatters'
 import {
@@ -39,7 +41,7 @@ import {
   MeioPagamentoTipo,
   TipoLancamento,
 } from '@/types/sap'
-import { orcamentoService } from '@/services/sap'
+import { orcamentoService, faturaService } from '@/services/sap'
 
 interface ModalLancamentoProps {
   open: boolean
@@ -70,10 +72,18 @@ export function ModalLancamento({
   const [descricao, setDescricao] = useState('')
   const [valor, setValor] = useState('')
   const [data, setData] = useState(() => new Date().toISOString().split('T')[0])
-  const [meioPagamento, setMeioPagamento] = useState<MeioPagamentoTipo>('CONTA')
+
+  // Seletor unificado "Pago com" (despesa) / "Recebido em" (receita)
+  // Formato: "conta:<id>" | "cartao:<id>" | "dinheiro:principal"
+  const [pagoComDestino, setPagoComDestino] = useState<string>('')
+
+  // Para transferências:
   const [contaOrigemId, setContaOrigemId] = useState('')
   const [contaDestinoId, setContaDestinoId] = useState('')
-  const [cartaoId, setCartaoId] = useState('')
+
+  // Parcelamento (Build 3)
+  const [quantidadeParcelas, setQuantidadeParcelas] = useState<number>(1)
+
   const [categoriaId, setCategoriaId] = useState('')
   const [subcategoriaId, setSubcategoriaId] = useState('')
   const [pago, setPago] = useState(true)
@@ -88,6 +98,13 @@ export function ModalLancamento({
     percentual: number
   } | null>(null)
 
+  // Helper para inicializar valor padrão de pagoComDestino
+  const getValorPadraoOrigem = () => {
+    if (contas.length > 0) return `conta:${contas[0].id}`
+    if (cartoes.length > 0) return `cartao:${cartoes[0].id}`
+    return 'dinheiro:principal'
+  }
+
   // Resetar/Inicializar formulário
   useEffect(() => {
     if (!open) return
@@ -97,23 +114,32 @@ export function ModalLancamento({
       setDescricao(initialData.descricao || '')
       setValor(initialData.valor ? initialData.valor.toFixed(2).replace('.', ',') : '')
       setData(initialData.data || new Date().toISOString().split('T')[0])
-      setMeioPagamento(initialData.meio_pagamento_tipo || 'CONTA')
-      setContaOrigemId(initialData.conta_origem_id || '')
-      setContaDestinoId(initialData.conta_destino_id || '')
-      setCartaoId(initialData.cartao_id || '')
+
+      if (initialData.cartao_id) {
+        setPagoComDestino(`cartao:${initialData.cartao_id}`)
+      } else if (initialData.conta_origem_id) {
+        setPagoComDestino(`conta:${initialData.conta_origem_id}`)
+      } else if (initialData.meio_pagamento_tipo === 'DINHEIRO') {
+        setPagoComDestino('dinheiro:principal')
+      } else {
+        setPagoComDestino(getValorPadraoOrigem())
+      }
+
+      setContaOrigemId(initialData.conta_origem_id || (contas.length > 0 ? contas[0].id : ''))
+      setContaDestinoId(initialData.conta_destino_id || (contas.length > 1 ? contas[1].id : ''))
       setCategoriaId(initialData.categoria_id || '')
       setSubcategoriaId(initialData.subcategoria_id || '')
       setPago(initialData.status_pagamento === 'pago')
       setObservacao(initialData.observacao || '')
+      setQuantidadeParcelas(initialData.total_parcelas || initialData.quantidade_parcelas || 1)
     } else {
       setTipo(tipoPadrao)
       setDescricao('')
       setValor('')
       setData(new Date().toISOString().split('T')[0])
-      setMeioPagamento('CONTA')
+      setPagoComDestino(getValorPadraoOrigem())
       setContaOrigemId(contas.length > 0 ? contas[0].id : '')
       setContaDestinoId(contas.length > 1 ? contas[1].id : '')
-      setCartaoId(cartoes.length > 0 ? cartoes[0].id : '')
       const catsDoTipo = categorias.filter((c) =>
         tipoPadrao === 'receita' ? c.tipo === 'receita' : c.tipo === 'despesa',
       )
@@ -121,13 +147,13 @@ export function ModalLancamento({
       setSubcategoriaId('')
       setPago(true)
       setObservacao('')
+      setQuantidadeParcelas(1)
     }
   }, [open, initialData, tipoPadrao])
 
-  // Ajustar meio de pagamento e categorias ao mudar o tipo
+  // Ajustar categorias ao mudar o tipo
   useEffect(() => {
     if (tipo === 'transferencia') {
-      setMeioPagamento('CONTA')
       setCategoriaId('')
       setSubcategoriaId('')
     } else {
@@ -203,6 +229,26 @@ export function ModalLancamento({
       }
     }
 
+    // Decompor o seletor unificado "Pago com" / "Recebido em"
+    let meioFinal: MeioPagamentoTipo = 'CONTA'
+    let resolvedContaOrigemId: string | null = null
+    let resolvedCartaoId: string | null = null
+
+    if (tipo === 'transferencia') {
+      meioFinal = 'CONTA'
+      resolvedContaOrigemId = contaOrigemId
+    } else {
+      if (pagoComDestino.startsWith('cartao:')) {
+        meioFinal = 'CARTAO'
+        resolvedCartaoId = pagoComDestino.replace('cartao:', '')
+      } else if (pagoComDestino.startsWith('conta:')) {
+        meioFinal = 'CONTA'
+        resolvedContaOrigemId = pagoComDestino.replace('conta:', '')
+      } else if (pagoComDestino.startsWith('dinheiro:')) {
+        meioFinal = 'DINHEIRO'
+      }
+    }
+
     setSalvando(true)
     try {
       await onSave(
@@ -212,17 +258,17 @@ export function ModalLancamento({
           descricao: descricao.trim(),
           valor: valorNumerico,
           data,
-          meio_pagamento_tipo: tipo === 'transferencia' ? 'CONTA' : meioPagamento,
-          conta_origem_id:
-            meioPagamento === 'CONTA' || tipo === 'transferencia' ? contaOrigemId || null : null,
+          meio_pagamento_tipo: meioFinal,
+          conta_origem_id: resolvedContaOrigemId,
           conta_destino_id: tipo === 'transferencia' ? contaDestinoId || null : null,
-          cartao_id:
-            meioPagamento === 'CARTAO' && tipo !== 'transferencia' ? cartaoId || null : null,
+          cartao_id: resolvedCartaoId,
           categoria_id: tipo !== 'transferencia' ? categoriaId || null : null,
           subcategoria_id: tipo !== 'transferencia' && subcategoriaId ? subcategoriaId : null,
-          status_pagamento: meioPagamento === 'CARTAO' ? 'pendente' : pago ? 'pago' : 'pendente',
+          status_pagamento: meioFinal === 'CARTAO' ? 'pendente' : pago ? 'pago' : 'pendente',
           data_pagamento: pago ? data : null,
           observacao: observacao.trim() || null,
+          quantidade_parcelas:
+            meioFinal === 'CARTAO' && tipo === 'despesa' ? quantidadeParcelas : 1,
         },
         criarOutro,
       )
@@ -231,6 +277,7 @@ export function ModalLancamento({
         setDescricao('')
         setValor('')
         setObservacao('')
+        setQuantidadeParcelas(1)
       } else {
         onOpenChange(false)
       }
@@ -335,7 +382,7 @@ export function ModalLancamento({
               </div>
             </div>
 
-            {/* Data e Meio de Pagamento */}
+            {/* Data e Pago com / Recebido em (Substituição unificada do Meio de Pagamento) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="lan-data" className="text-xs font-semibold text-slate-700">
@@ -355,20 +402,66 @@ export function ModalLancamento({
 
               {tipo !== 'transferencia' ? (
                 <div>
-                  <Label htmlFor="lan-meio" className="text-xs font-semibold text-slate-700">
-                    Meio de Pagamento *
-                  </Label>
-                  <Select
-                    value={meioPagamento}
-                    onValueChange={(v: MeioPagamentoTipo) => setMeioPagamento(v)}
+                  <Label
+                    htmlFor="lan-pago-com"
+                    className="text-xs font-semibold text-slate-700 flex items-center justify-between"
                   >
-                    <SelectTrigger className="mt-1 text-xs">
-                      <SelectValue />
+                    <span>{tipo === 'despesa' ? 'Pago com *' : 'Recebido em *'}</span>
+                    <span className="text-[10px] text-slate-400 font-normal">
+                      vincula meio automaticamente
+                    </span>
+                  </Label>
+                  <Select value={pagoComDestino} onValueChange={setPagoComDestino}>
+                    <SelectTrigger id="lan-pago-com" className="mt-1 text-xs">
+                      <SelectValue placeholder="Selecione conta, cartão ou dinheiro" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="CONTA">Conta Bancária</SelectItem>
-                      <SelectItem value="CARTAO">Cartão de Crédito</SelectItem>
-                      <SelectItem value="DINHEIRO">Dinheiro em Espécie / Carteira</SelectItem>
+                    <SelectContent className="max-h-64">
+                      {/* Grupo: Contas Bancárias */}
+                      {contas.length > 0 && (
+                        <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                          Contas Bancárias
+                        </div>
+                      )}
+                      {contas.map((c) => (
+                        <SelectItem key={`conta:${c.id}`} value={`conta:${c.id}`}>
+                          <div className="flex items-center gap-2">
+                            <Wallet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>{c.nome}</span>
+                            <span className="text-slate-400 text-[11px]">
+                              ({formatMoneyBRL(c.saldo_atual)})
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+
+                      {/* Grupo: Cartões de Crédito */}
+                      {cartoes.length > 0 && (
+                        <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                          Cartões de Crédito
+                        </div>
+                      )}
+                      {cartoes.map((c) => (
+                        <SelectItem key={`cartao:${c.id}`} value={`cartao:${c.id}`}>
+                          <div className="flex items-center gap-2">
+                            <CreditCard className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                            <span>{c.nome}</span>
+                            <span className="text-slate-400 text-[11px]">
+                              (Fecha dia {c.dia_fechamento})
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+
+                      {/* Grupo: Dinheiro em Espécie */}
+                      <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                        Espécie
+                      </div>
+                      <SelectItem value="dinheiro:principal">
+                        <div className="flex items-center gap-2">
+                          <Banknote className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                          <span>Dinheiro em Espécie / Carteira</span>
+                        </div>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -383,53 +476,51 @@ export function ModalLancamento({
               )}
             </div>
 
-            {/* Seleção de Conta / Cartão dependendo do meio */}
-            {tipo !== 'transferencia' && (
-              <>
-                {meioPagamento === 'CONTA' && (
-                  <div>
-                    <Label htmlFor="lan-conta" className="text-xs font-semibold text-slate-700">
-                      Conta Bancária
-                    </Label>
-                    <Select value={contaOrigemId} onValueChange={setContaOrigemId}>
-                      <SelectTrigger className="mt-1 text-xs">
-                        <SelectValue placeholder="Selecione a conta" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {contas.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.nome} ({formatMoneyBRL(c.saldo_atual)})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+            {/* SE FOR CARTÃO DE CRÉDITO: SELEÇÃO DE PARCELAS (BUILD 3) */}
+            {tipo === 'despesa' && pagoComDestino.startsWith('cartao:') && (
+              <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label
+                    htmlFor="lan-parcelas"
+                    className="text-xs font-semibold text-indigo-900 flex items-center gap-1.5"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Parcelamento no Cartão (Build 3)</span>
+                  </Label>
+                  {quantidadeParcelas > 1 && valor && (
+                    <span className="text-xs font-bold text-indigo-700">
+                      {quantidadeParcelas}x de{' '}
+                      {formatMoneyBRL(
+                        parseFloat(valor.replace(/\./g, '').replace(',', '.')) / quantidadeParcelas,
+                      )}
+                    </span>
+                  )}
+                </div>
 
-                {meioPagamento === 'CARTAO' && (
-                  <div>
-                    <Label htmlFor="lan-cartao" className="text-xs font-semibold text-slate-700">
-                      Cartão de Crédito
-                    </Label>
-                    <Select value={cartaoId} onValueChange={setCartaoId}>
-                      <SelectTrigger className="mt-1 text-xs">
-                        <SelectValue placeholder="Selecione o cartão" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {cartoes.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.nome} (Fecha dia {c.dia_fechamento} • Limite:{' '}
-                            {formatMoneyBRL(c.limite)})
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-[11px] text-slate-500 mt-1">
-                      Lançamento no cartão não baixa a conta de imediato; compõe a fatura do cartão.
-                    </p>
-                  </div>
-                )}
-              </>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                  <Select
+                    value={quantidadeParcelas.toString()}
+                    onValueChange={(v) => setQuantidadeParcelas(parseInt(v, 10))}
+                  >
+                    <SelectTrigger id="lan-parcelas" className="h-8 text-xs bg-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1x (À vista na fatura)</SelectItem>
+                      {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24].map((n) => (
+                        <SelectItem key={n} value={n.toString()}>
+                          {n}x parcelas mensais consecutivas
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <p className="text-[11px] text-indigo-700 leading-tight">
+                    Cada parcela é atribuída à competência correta a partir da data de corte e
+                    compõe a respectiva fatura.
+                  </p>
+                </div>
+              </div>
             )}
 
             {/* Se for transferência, contas de Origem e Destino */}
@@ -571,14 +662,15 @@ export function ModalLancamento({
             )}
 
             {/* Toggle de Pago (se não for cartão) */}
-            {tipo !== 'transferencia' && meioPagamento !== 'CARTAO' && (
+            {tipo !== 'transferencia' && !pagoComDestino.startsWith('cartao:') && (
               <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
                 <div className="space-y-0.5">
                   <Label className="text-xs font-semibold text-slate-800">
-                    {tipo === 'despesa' ? 'Despesa paga' : 'Receita recebida'}
+                    {tipo === 'despesa' ? 'Despesa já paga' : 'Receita já recebida'}
                   </Label>
                   <p className="text-[11px] text-slate-500">
-                    Se desmarcado, fica como previsto/pendente e não baixa o saldo bancário.
+                    Se desmarcado, fica como previsto/pendente e não afeta o saldo bancário de
+                    imediato.
                   </p>
                 </div>
                 <Switch checked={pago} onCheckedChange={setPago} />

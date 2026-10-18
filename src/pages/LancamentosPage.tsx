@@ -163,6 +163,36 @@ export default function LancamentosPage() {
 
   const handleExcluirLancamento = async (l: Lancamento) => {
     if (!wsId) return
+
+    // Se fizer parte de uma compra parcelada no cartão, perguntar se quer cancelar a série inteira
+    const ehParcelado =
+      (l.total_parcelas && l.total_parcelas > 1) ||
+      (l.quantidade_parcelas && l.quantidade_parcelas > 1) ||
+      Boolean(l.lancamento_pai_id)
+
+    if (ehParcelado) {
+      const paiId = l.lancamento_pai_id || l.id
+      const cancelarTudo = window.confirm(
+        `Este lançamento faz parte de uma compra parcelada (${l.numero_parcela || 1}/${
+          l.total_parcelas || l.quantidade_parcelas
+        }).\n\nClique em [OK] para cancelar TODAS as parcelas da série,\nou [Cancelar] para excluir apenas esta parcela individual.`,
+      )
+
+      try {
+        if (cancelarTudo) {
+          await lancamentoService.softDeleteSerie(paiId, wsId, user?.id)
+          toast.success('Todas as parcelas da série foram canceladas!')
+        } else {
+          await lancamentoService.softDelete(l.id, wsId, user?.id)
+          toast.success('Parcela individual cancelada!')
+        }
+        await carregarDados()
+      } catch (err: any) {
+        toast.error('Erro ao excluir lançamento: ' + (err.message || ''))
+      }
+      return
+    }
+
     const confirmou = window.confirm(`Deseja realmente cancelar/estornar "${l.descricao}"?`)
     if (!confirmou) return
 

@@ -496,15 +496,17 @@ export const cartaoService = {
     const { data, error } = await query
     if (error) throw error
 
-    // Buscar faturas abertas do mês corrente para calcular consumo
+    // Buscar consumo total do cartão: compras ativas pendentes (incluindo parcelas futuras)
+    // O limite disponível considera o valor total comprometido (Build 2 e 3)
     const cartoes = (data || []).map((c: any) => ({
       ...c,
       limite: Number(c.limite || 0),
       fatura_atual: 0,
+      total_comprometido: 0,
     }))
 
-    // Buscar total de faturas abertas para cada cartão
     try {
+      // 1. Somar compras de faturas abertas
       const { data: faturas } = await db
         .from('faturas')
         .select('cartao_id, valor_total, status')
@@ -522,8 +524,30 @@ export const cartaoService = {
           }
         }
       }
+
+      // 2. Somar todos os lançamentos pendentes no cartão (todas as competências, incluindo parcelas futuras)
+      const { data: lancsComprometidos } = await db
+        .from('lancamentos')
+        .select('cartao_id, valor, tipo')
+        .eq('workspace_id', workspaceId)
+        .eq('meio_pagamento_tipo', 'CARTAO')
+        .eq('status_pagamento', 'pendente')
+        .is('deleted_at', null)
+
+      const mapComprometido: Record<string, number> = {}
+      for (const l of lancsComprometidos || []) {
+        if (l.cartao_id) {
+          const v = Number(l.valor || 0)
+          mapComprometido[l.cartao_id] =
+            (mapComprometido[l.cartao_id] || 0) + (l.tipo === 'despesa' ? v : -v)
+        }
+      }
+
+      for (const c of cartoes) {
+        c.total_comprometido = Math.max(0, mapComprometido[c.id] || c.fatura_atual || 0)
+      }
     } catch (e) {
-      console.warn('Erro ao carregar faturas de cartões:', e)
+      console.warn('Erro ao carregar totais de cartões:', e)
     }
 
     return cartoes
@@ -1454,6 +1478,9 @@ export const faturaService = {
     cartaoId: string,
     competencia: string,
   ): Promise<number> {
+    // Busca ou cria a fatura para a competência se não existir
+    await this.getOrCreateFatura(workspaceId, cartaoId, competencia)
+
     // Soma todos os lançamentos ativos no cartão para esta competência
     const { data: lancs, error } = await db
       .from('lancamentos')
@@ -1484,6 +1511,75 @@ export const faturaService = {
       .eq('competencia', competencia)
 
     return total
+  },
+
+  // Retorna os dados calculados dinamicamente de uma fatura específica
+  // (total de compras, pagamentos realizados, saldo devedor e lista de itens)
+  async getResumoFaturaCompetencia(
+    workspaceId: string,
+    cartaoId: string,
+    competencia: string,
+  ): Promise<{
+    fatura: any
+    totalCompras: number
+    totalPago: number
+    saldoDevedor: number
+    status: 'aberta' | 'fechada' | 'paga'
+    itens: any[]
+  }> {
+    const fatura = await this.getOrCreateFatura(workspaceId, cartaoId, competencia)
+    await this.recalcularValorFatura(workspaceId, cartaoId, competencia)
+
+    // Buscar lançamentos da competência
+    const { data: lancs } = await db
+      .from('lancamentos')
+      .select(`
+        id,
+        descricao,
+        valor,
+        data,
+        tipo,
+        numero_parcela,
+        total_parcelas,
+        quantidade_parcelas,
+        lancamento_pai_id,
+        categorias (nome, cor, icone)
+      `)
+      .eq('workspace_id', workspaceId)
+      .eq('cartao_id', cartaoId)
+      .eq('competencia', competencia)
+      .is('deleted_at', null)
+      .order('data', { ascending: false })
+
+    let totalCompras = 0
+    for (const l of lancs || []) {
+      if (l.tipo === 'despesa') totalCompras += Number(l.valor || 0)
+      else if (l.tipo === 'receita') totalCompras -= Number(l.valor || 0)
+    }
+    totalCompras = Math.max(0, totalCompras)
+
+    // Buscar pagamentos realizados para esta fatura
+    const { data: pags } = await db
+      .from('pagamentos_fatura')
+      .select('valor, status')
+      .eq('workspace_id', workspaceId)
+      .eq('fatura_id', fatura.id)
+      .eq('status', 'efetivado')
+
+    const totalPago = (pags || []).reduce((acc: number, p: any) => acc + Number(p.valor || 0), 0)
+    const saldoDevedor = Math.max(0, totalCompras - totalPago)
+
+    // Determina status dinâmico: se pago integralmente, 'paga'; caso contrário, segue fatura.status
+    const statusDinamico = totalPago >= totalCompras && totalCompras > 0 ? 'paga' : fatura.status
+
+    return {
+      fatura,
+      totalCompras,
+      totalPago,
+      saldoDevedor,
+      status: statusDinamico,
+      itens: lancs || [],
+    }
   },
 
   async listFaturasCartao(workspaceId: string, cartaoId: string): Promise<any[]> {
@@ -1776,166 +1872,367 @@ export const lancamentoService = {
     const valorNum = Number(dados.valor)
     if (valorNum <= 0) throw new Error('O valor do lançamento deve ser maior que zero')
 
-    // Determinar competência:
-    // Se for cartão, a competência é calculada conforme o dia de fechamento do cartão
-    let competencia = dados.data.substring(0, 7) // 'YYYY-MM'
+    const qtdParcelas = Math.max(1, Math.floor(Number(dados.quantidade_parcelas || 1)))
+    const ehParcelado =
+      qtdParcelas > 1 && dados.meio_pagamento_tipo === 'CARTAO' && dados.tipo === 'despesa'
+
+    // Determinar competência base da 1ª parcela / lançamento único:
+    let competenciaInicial = dados.data.substring(0, 7) // 'YYYY-MM'
+    let cartaoObj: any = null
     if (dados.meio_pagamento_tipo === 'CARTAO' && dados.cartao_id) {
-      const cartao = await cartaoService.getById(dados.cartao_id)
-      if (cartao) {
-        competencia = faturaService.calcularCompetenciaCartao(dados.data, cartao.dia_fechamento)
+      cartaoObj = await cartaoService.getById(dados.cartao_id)
+      if (cartaoObj) {
+        competenciaInicial = faturaService.calcularCompetenciaCartao(
+          dados.data,
+          cartaoObj.dia_fechamento,
+        )
       }
     }
 
-    // Regra: se for CARTAO, status é sempre liquidado via fatura (não baixa conta imediata)
-    // Se for CONTA/DINHEIRO, pode ser 'pago' ou 'pendente'
-    const statusFinal =
-      dados.meio_pagamento_tipo === 'CARTAO' ? 'pendente' : dados.status_pagamento || 'pago'
+    // Se NÃO for parcelado no cartão, segue fluxo simples
+    if (!ehParcelado) {
+      const statusFinal =
+        dados.meio_pagamento_tipo === 'CARTAO' ? 'pendente' : dados.status_pagamento || 'pago'
 
-    const dataPagamentoFinal = statusFinal === 'pago' ? dados.data_pagamento || dados.data : null
+      const dataPagamentoFinal = statusFinal === 'pago' ? dados.data_pagamento || dados.data : null
 
-    // 1. Inserir lançamento
-    const { data: lanc, error } = await db
+      const { data: lanc, error } = await db
+        .from('lancamentos')
+        .insert({
+          workspace_id: dados.workspace_id,
+          tipo: dados.tipo,
+          regime: dados.regime || 'unico',
+          data: dados.data,
+          competencia: competenciaInicial,
+          descricao: dados.descricao.trim(),
+          valor: valorNum,
+          meio_pagamento_tipo: dados.meio_pagamento_tipo,
+          conta_origem_id: dados.conta_origem_id || null,
+          conta_destino_id: dados.conta_destino_id || null,
+          cartao_id: dados.cartao_id || null,
+          categoria_id: dados.categoria_id || null,
+          subcategoria_id: dados.subcategoria_id || null,
+          status_pagamento: statusFinal,
+          data_pagamento: dataPagamentoFinal,
+          observacao: dados.observacao || null,
+          quantidade_parcelas: 1,
+          numero_parcela: 1,
+          total_parcelas: 1,
+          conciliado: false,
+          created_by: dados.created_by,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+
+      if (dados.meio_pagamento_tipo === 'CARTAO' && dados.cartao_id) {
+        await faturaService.getOrCreateFatura(
+          dados.workspace_id,
+          dados.cartao_id,
+          competenciaInicial,
+        )
+        await faturaService.recalcularValorFatura(
+          dados.workspace_id,
+          dados.cartao_id,
+          competenciaInicial,
+        )
+      }
+
+      if (statusFinal === 'pago') {
+        if (dados.tipo === 'despesa' && dados.conta_origem_id) {
+          const c = await contaService.getById(dados.conta_origem_id)
+          if (c) {
+            await db
+              .from('contas')
+              .update({
+                saldo_atual: Number(c.saldo_atual) - valorNum,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', dados.conta_origem_id)
+
+            await db.from('movimentacoes_conta').insert({
+              workspace_id: dados.workspace_id,
+              conta_id: dados.conta_origem_id,
+              lancamento_id: lanc.id,
+              tipo: 'saida',
+              valor: valorNum,
+              data: dados.data,
+              descricao: dados.descricao,
+              created_by: dados.created_by,
+            })
+          }
+        } else if (dados.tipo === 'receita' && dados.conta_origem_id) {
+          const c = await contaService.getById(dados.conta_origem_id)
+          if (c) {
+            await db
+              .from('contas')
+              .update({
+                saldo_atual: Number(c.saldo_atual) + valorNum,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', dados.conta_origem_id)
+
+            await db.from('movimentacoes_conta').insert({
+              workspace_id: dados.workspace_id,
+              conta_id: dados.conta_origem_id,
+              lancamento_id: lanc.id,
+              tipo: 'entrada',
+              valor: valorNum,
+              data: dados.data,
+              descricao: dados.descricao,
+              created_by: dados.created_by,
+            })
+          }
+        } else if (
+          dados.tipo === 'transferencia' &&
+          dados.conta_origem_id &&
+          dados.conta_destino_id
+        ) {
+          const cOrigem = await contaService.getById(dados.conta_origem_id)
+          const cDestino = await contaService.getById(dados.conta_destino_id)
+          if (cOrigem && cDestino) {
+            await db
+              .from('contas')
+              .update({
+                saldo_atual: Number(cOrigem.saldo_atual) - valorNum,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', dados.conta_origem_id)
+
+            await db
+              .from('contas')
+              .update({
+                saldo_atual: Number(cDestino.saldo_atual) + valorNum,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', dados.conta_destino_id)
+
+            await db.from('movimentacoes_conta').insert([
+              {
+                workspace_id: dados.workspace_id,
+                conta_id: dados.conta_origem_id,
+                lancamento_id: lanc.id,
+                tipo: 'transferencia_saida',
+                valor: valorNum,
+                data: dados.data,
+                descricao: `Transf. saída para ${cDestino.nome}`,
+                created_by: dados.created_by,
+              },
+              {
+                workspace_id: dados.workspace_id,
+                conta_id: dados.conta_destino_id,
+                lancamento_id: lanc.id,
+                tipo: 'transferencia_entrada',
+                valor: valorNum,
+                data: dados.data,
+                descricao: `Transf. entrada de ${cOrigem.nome}`,
+                created_by: dados.created_by,
+              },
+            ])
+          }
+        }
+      }
+
+      await auditoriaService.registrar({
+        workspace_id: dados.workspace_id,
+        entidade: 'lancamentos',
+        entidade_id: lanc.id,
+        acao: 'create',
+        estado_posterior: lanc,
+        created_by: dados.created_by,
+      })
+
+      return lanc
+    }
+
+    // ==========================================
+    // PARCELAMENTO NO CARTÃO (BUILD 3):
+    // 1. Dividir valor em parcelas com centavos residuais na última
+    // 2. Criar série de lançamentos para competências consecutivas
+    // 3. Criar registro na tabela 'parcelas'
+    // 4. Recalcular faturas de todas as competências envolvidas
+    // ==========================================
+    const valorParcelaBase = Math.floor((valorNum / qtdParcelas) * 100) / 100
+    const diferencaCentavos = Math.round((valorNum - valorParcelaBase * qtdParcelas) * 100) / 100
+
+    // Função auxiliar para somar meses a uma competência YYYY-MM
+    const somarMesesCompetencia = (comp: string, meses: number): string => {
+      const [anoStr, mesStr] = comp.split('-')
+      let a = parseInt(anoStr, 10)
+      let m = parseInt(mesStr, 10) + meses
+      while (m > 12) {
+        m -= 12
+        a += 1
+      }
+      return `${a}-${String(m).padStart(2, '0')}`
+    }
+
+    // 1. Cria o lançamento pai (representante do total da compra)
+    const { data: lancPai, error: paiErr } = await db
       .from('lancamentos')
       .insert({
         workspace_id: dados.workspace_id,
-        tipo: dados.tipo,
-        regime: dados.regime || 'unico',
+        tipo: 'despesa',
+        regime: 'parcelado',
         data: dados.data,
-        competencia: competencia,
-        descricao: dados.descricao.trim(),
-        valor: valorNum,
-        meio_pagamento_tipo: dados.meio_pagamento_tipo,
-        conta_origem_id: dados.conta_origem_id || null,
-        conta_destino_id: dados.conta_destino_id || null,
-        cartao_id: dados.cartao_id || null,
+        competencia: competenciaInicial,
+        descricao: `${dados.descricao.trim()} (1/${qtdParcelas})`,
+        valor: Number((valorParcelaBase + (qtdParcelas === 1 ? diferencaCentavos : 0)).toFixed(2)),
+        meio_pagamento_tipo: 'CARTAO',
+        cartao_id: dados.cartao_id,
         categoria_id: dados.categoria_id || null,
         subcategoria_id: dados.subcategoria_id || null,
-        status_pagamento: statusFinal,
-        data_pagamento: dataPagamentoFinal,
+        status_pagamento: 'pendente',
         observacao: dados.observacao || null,
-        quantidade_parcelas: dados.quantidade_parcelas || 1,
+        quantidade_parcelas: qtdParcelas,
+        numero_parcela: 1,
+        total_parcelas: qtdParcelas,
         conciliado: false,
         created_by: dados.created_by,
       })
       .select()
       .single()
 
-    if (error) throw error
+    if (paiErr) throw paiErr
 
-    // 2. Se for cartão, assegura que a fatura existe e recalcula o valor da fatura
-    if (dados.meio_pagamento_tipo === 'CARTAO' && dados.cartao_id) {
-      await faturaService.getOrCreateFatura(dados.workspace_id, dados.cartao_id, competencia)
-      await faturaService.recalcularValorFatura(dados.workspace_id, dados.cartao_id, competencia)
-    }
+    // Vincula o pai a si mesmo como raiz
+    await db.from('lancamentos').update({ lancamento_pai_id: lancPai.id }).eq('id', lancPai.id)
 
-    // 3. Se for CONTA e estiver pago, atualiza saldo_atual e grava movimentação
-    if (statusFinal === 'pago') {
-      if (dados.tipo === 'despesa' && dados.conta_origem_id) {
-        const c = await contaService.getById(dados.conta_origem_id)
-        if (c) {
-          await db
-            .from('contas')
-            .update({
-              saldo_atual: Number(c.saldo_atual) - valorNum,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', dados.conta_origem_id)
+    // Cria a 1ª parcela na tabela parcelas
+    await db.from('parcelas').insert({
+      workspace_id: dados.workspace_id,
+      lancamento_id: lancPai.id,
+      numero_parcela: 1,
+      total_parcelas: qtdParcelas,
+      valor: lancPai.valor,
+      competencia: competenciaInicial,
+      data_vencimento: dados.data,
+    })
 
-          await db.from('movimentacoes_conta').insert({
-            workspace_id: dados.workspace_id,
-            conta_id: dados.conta_origem_id,
-            lancamento_id: lanc.id,
-            tipo: 'saida',
-            valor: valorNum,
-            data: dados.data,
-            descricao: dados.descricao,
-            created_by: dados.created_by,
-          })
-        }
-      } else if (dados.tipo === 'receita' && dados.conta_origem_id) {
-        const c = await contaService.getById(dados.conta_origem_id)
-        if (c) {
-          await db
-            .from('contas')
-            .update({
-              saldo_atual: Number(c.saldo_atual) + valorNum,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', dados.conta_origem_id)
+    const competenciasAfetadas = new Set<string>([competenciaInicial])
 
-          await db.from('movimentacoes_conta').insert({
-            workspace_id: dados.workspace_id,
-            conta_id: dados.conta_origem_id,
-            lancamento_id: lanc.id,
-            tipo: 'entrada',
-            valor: valorNum,
-            data: dados.data,
-            descricao: dados.descricao,
-            created_by: dados.created_by,
-          })
-        }
-      } else if (
-        dados.tipo === 'transferencia' &&
-        dados.conta_origem_id &&
-        dados.conta_destino_id
-      ) {
-        const cOrigem = await contaService.getById(dados.conta_origem_id)
-        const cDestino = await contaService.getById(dados.conta_destino_id)
-        if (cOrigem && cDestino) {
-          await db
-            .from('contas')
-            .update({
-              saldo_atual: Number(cOrigem.saldo_atual) - valorNum,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', dados.conta_origem_id)
+    // Cria as parcelas 2 a N como lançamentos filhos
+    for (let p = 2; p <= qtdParcelas; p++) {
+      const compParcela = somarMesesCompetencia(competenciaInicial, p - 1)
+      competenciasAfetadas.add(compParcela)
 
-          await db
-            .from('contas')
-            .update({
-              saldo_atual: Number(cDestino.saldo_atual) + valorNum,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', dados.conta_destino_id)
+      const valorDestaParcela =
+        p === qtdParcelas
+          ? Number((valorParcelaBase + diferencaCentavos).toFixed(2))
+          : valorParcelaBase
 
-          // Registros auditáveis dos dois lados da transferência
-          await db.from('movimentacoes_conta').insert([
-            {
-              workspace_id: dados.workspace_id,
-              conta_id: dados.conta_origem_id,
-              lancamento_id: lanc.id,
-              tipo: 'transferencia_saida',
-              valor: valorNum,
-              data: dados.data,
-              descricao: `Transf. saída para ${cDestino.nome}`,
-              created_by: dados.created_by,
-            },
-            {
-              workspace_id: dados.workspace_id,
-              conta_id: dados.conta_destino_id,
-              lancamento_id: lanc.id,
-              tipo: 'transferencia_entrada',
-              valor: valorNum,
-              data: dados.data,
-              descricao: `Transf. entrada de ${cOrigem.nome}`,
-              created_by: dados.created_by,
-            },
-          ])
-        }
+      const { data: lancFilho, error: filhoErr } = await db
+        .from('lancamentos')
+        .insert({
+          workspace_id: dados.workspace_id,
+          tipo: 'despesa',
+          regime: 'parcelado',
+          data: dados.data,
+          competencia: compParcela,
+          descricao: `${dados.descricao.trim()} (${p}/${qtdParcelas})`,
+          valor: valorDestaParcela,
+          meio_pagamento_tipo: 'CARTAO',
+          cartao_id: dados.cartao_id,
+          categoria_id: dados.categoria_id || null,
+          subcategoria_id: dados.subcategoria_id || null,
+          status_pagamento: 'pendente',
+          observacao: dados.observacao || null,
+          quantidade_parcelas: qtdParcelas,
+          numero_parcela: p,
+          total_parcelas: qtdParcelas,
+          lancamento_pai_id: lancPai.id,
+          conciliado: false,
+          created_by: dados.created_by,
+        })
+        .select()
+        .single()
+
+      if (!filhoErr && lancFilho) {
+        await db.from('parcelas').insert({
+          workspace_id: dados.workspace_id,
+          lancamento_id: lancFilho.id,
+          numero_parcela: p,
+          total_parcelas: qtdParcelas,
+          valor: valorDestaParcela,
+          competencia: compParcela,
+          data_vencimento: dados.data,
+        })
       }
     }
 
-    // Auditoria
+    // Recalcular faturas de cada competência afetada
+    if (dados.cartao_id) {
+      for (const comp of Array.from(competenciasAfetadas)) {
+        await faturaService.getOrCreateFatura(dados.workspace_id, dados.cartao_id, comp)
+        await faturaService.recalcularValorFatura(dados.workspace_id, dados.cartao_id, comp)
+      }
+    }
+
     await auditoriaService.registrar({
       workspace_id: dados.workspace_id,
       entidade: 'lancamentos',
-      entidade_id: lanc.id,
-      acao: 'create',
-      estado_posterior: lanc,
+      entidade_id: lancPai.id,
+      acao: 'create_installment_series',
+      estado_posterior: {
+        pai_id: lancPai.id,
+        total_parcelas: qtdParcelas,
+        valor_total: valorNum,
+        competencia_inicial: competenciaInicial,
+      },
       created_by: dados.created_by,
     })
 
-    return lanc
+    return lancPai
+  },
+
+  // Excluir série completa ou parcela individual (Build 3)
+  async softDeleteSerie(
+    lancamentoPaiId: string,
+    workspaceId: string,
+    userId?: string,
+  ): Promise<void> {
+    // Buscar todos os lançamentos pertencentes à série
+    const { data: serie, error } = await db
+      .from('lancamentos')
+      .select('id, cartao_id, competencia, valor')
+      .eq('workspace_id', workspaceId)
+      .or(`id.eq.${lancamentoPaiId},lancamento_pai_id.eq.${lancamentoPaiId}`)
+      .is('deleted_at', null)
+
+    if (error) throw error
+
+    const competenciasAfetadas = new Map<string, string>() // competencia -> cartao_id
+    for (const l of serie || []) {
+      if (l.cartao_id && l.competencia) {
+        competenciasAfetadas.set(l.competencia, l.cartao_id)
+      }
+    }
+
+    // Soft delete em todos
+    await db
+      .from('lancamentos')
+      .update({
+        deleted_at: new Date().toISOString(),
+        status_pagamento: 'cancelado',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('workspace_id', workspaceId)
+      .or(`id.eq.${lancamentoPaiId},lancamento_pai_id.eq.${lancamentoPaiId}`)
+
+    // Recalcular faturas afetadas
+    for (const [comp, cartaoId] of competenciasAfetadas.entries()) {
+      await faturaService.recalcularValorFatura(workspaceId, cartaoId, comp)
+    }
+
+    await auditoriaService.registrar({
+      workspace_id: workspaceId,
+      entidade: 'lancamentos',
+      entidade_id: lancamentoPaiId,
+      acao: 'cancel_installment_series',
+      estado_posterior: { serie_id: lancamentoPaiId, total_cancelados: (serie || []).length },
+      created_by: userId,
+    })
   },
 
   async update(
@@ -2234,6 +2531,9 @@ export const lancamentoService = {
       .eq('workspace_id', workspaceId)
 
     if (error) throw error
+
+    // Remover da tabela parcelas se existir
+    await db.from('parcelas').delete().eq('lancamento_id', id)
 
     // Recalcular fatura do cartão se aplicável
     if (anterior.cartao_id && anterior.competencia) {
