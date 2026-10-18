@@ -62,7 +62,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       // 2. Busca memberships com o nome do workspace
-      const { data: members } = await db
+      const { data: members, error: memErr } = await db
         .from('workspace_members')
         .select(`
           id,
@@ -79,16 +79,94 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         .eq('user_id', userId)
         .eq('status', 'ativo')
 
-      const wsList: WorkspaceMemberInfo[] = (members || [])
-        .filter((m: any) => m.workspaces && m.workspaces.ativo)
-        .map((m: any) => ({
-          id: m.id,
-          workspace_id: m.workspace_id,
-          workspace_nome: m.workspaces.nome,
-          perfil: m.perfil,
-          status: m.status,
-          is_owner: m.workspaces.owner_user_id === userId,
-        }))
+      let wsList: WorkspaceMemberInfo[] = (members || [])
+        .map((m: any) => {
+          const wsObj = Array.isArray(m.workspaces) ? m.workspaces[0] : m.workspaces
+          if (!wsObj || wsObj.ativo === false) return null
+          return {
+            id: m.id,
+            workspace_id: m.workspace_id,
+            workspace_nome: wsObj.nome,
+            perfil: m.perfil || 'Administrador',
+            status: m.status || 'ativo',
+            is_owner: wsObj.owner_user_id === userId,
+          }
+        })
+        .filter(Boolean) as WorkspaceMemberInfo[]
+
+      // Se nenhum workspace foi retornado via join, busca diretamente na tabela workspaces
+      if (wsList.length === 0) {
+        const { data: directWs } = await db
+          .from('workspaces')
+          .select('*')
+          .eq('owner_user_id', userId)
+          .eq('ativo', true)
+
+        if (directWs && directWs.length > 0) {
+          wsList = directWs.map((w: any) => ({
+            id: w.id,
+            workspace_id: w.id,
+            workspace_nome: w.nome,
+            perfil: 'Administrador' as const,
+            status: 'ativo' as const,
+            is_owner: true,
+          }))
+
+          // Garante registro em workspace_members
+          for (const w of directWs) {
+            await db
+              .from('workspace_members')
+              .upsert(
+                {
+                  workspace_id: w.id,
+                  user_id: userId,
+                  perfil: 'Administrador',
+                  status: 'ativo',
+                },
+                { onConflict: 'workspace_id,user_id' },
+              )
+              .catch(() => null)
+          }
+        }
+      }
+
+      // Se ainda assim não existir nenhum workspace, cria um automaticamente para o usuário
+      if (wsList.length === 0) {
+        const defaultNome = `Família ${prof?.nome || user?.email?.split('@')[0] || 'Principal'}`
+        try {
+          const { data: newWs } = await db
+            .from('workspaces')
+            .insert({
+              nome: defaultNome,
+              owner_user_id: userId,
+              ativo: true,
+            })
+            .select()
+            .single()
+
+          if (newWs) {
+            await db.from('workspace_members').insert({
+              workspace_id: newWs.id,
+              user_id: userId,
+              perfil: 'Administrador',
+              status: 'ativo',
+            })
+
+            wsList = [
+              {
+                id: newWs.id,
+                workspace_id: newWs.id,
+                workspace_nome: newWs.nome,
+                perfil: 'Administrador',
+                status: 'ativo',
+                is_owner: true,
+              },
+            ]
+          }
+        } catch (e) {
+          console.warn('Erro ao auto-provisionar workspace:', e)
+        }
+      }
 
       setWorkspaces(wsList)
 
@@ -97,6 +175,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const found = wsList.find((w) => w.workspace_id === savedWsId)
       if (found) {
         setCurrentWorkspaceState(found)
+        localStorage.setItem('sap_active_workspace_id', found.workspace_id)
       } else if (wsList.length > 0) {
         setCurrentWorkspaceState(wsList[0])
         localStorage.setItem('sap_active_workspace_id', wsList[0].workspace_id)
@@ -127,13 +206,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setSession(session)
       const newUser = session?.user ?? null
       setUser(newUser)
-      setLoading(false)
+      if (!newUser) {
+        setLoading(false)
+      }
     })
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      setUser(session?.user ?? null)
-      setLoading(false)
+      const newUser = session?.user ?? null
+      setUser(newUser)
+      if (newUser) {
+        fetchProfileAndWorkspaces(newUser.id).finally(() => setLoading(false))
+      } else {
+        setLoading(false)
+      }
     })
 
     return () => subscription.unsubscribe()

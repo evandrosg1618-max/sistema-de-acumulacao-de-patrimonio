@@ -36,7 +36,8 @@ export default function MeiosPagamentoPage() {
   const [nomeDinheiro, setNomeDinheiro] = useState('Dinheiro em Espécie / Carteira')
   const [saving, setSaving] = useState(false)
 
-  const wsId = currentWorkspace?.workspace_id
+  const wsId =
+    currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
 
   const carregarMeios = async () => {
     if (!wsId) return
@@ -66,14 +67,29 @@ export default function MeiosPagamentoPage() {
     }
   }
 
-  const handleCriarDinheiro = async (e: React.FormEvent) => {
+  const handleCriarDinheiro = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!wsId || !nomeDinheiro.trim()) return
+
+    const formElement = e.currentTarget
+    const formData = new FormData(formElement)
+    const formNome = (formData.get('nome') as string)?.trim() || nomeDinheiro.trim()
+
+    if (!formNome) {
+      toast.error('Informe o nome da carteira em espécie')
+      return
+    }
+
+    if (!wsId) {
+      toast.error('Nenhum espaço familiar selecionado. Atualize a página.')
+      return
+    }
+
     setSaving(true)
     try {
-      await meioPagamentoService.createDinheiro(wsId, nomeDinheiro.trim())
-      toast.success('Meio em Dinheiro cadastrado com sucesso!')
+      await meioPagamentoService.createDinheiro(wsId, formNome)
+      toast.success(`Carteira "${formNome}" cadastrada com sucesso!`)
       setModalDinheiroOpen(false)
+      setNomeDinheiro('Dinheiro em Espécie / Carteira')
       await carregarMeios()
     } catch (err: any) {
       toast.error('Erro ao cadastrar: ' + (err.message || 'tente novamente'))
@@ -311,9 +327,11 @@ export default function MeiosPagamentoPage() {
                 </Label>
                 <Input
                   id="nome-dinheiro"
+                  name="nome"
                   value={nomeDinheiro}
                   onChange={(e) => setNomeDinheiro(e.target.value)}
                   className="mt-1"
+                  autoFocus
                   required
                 />
               </div>

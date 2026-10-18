@@ -66,7 +66,8 @@ export default function CartoesPage() {
   const [limite, setLimite] = useState('5.000,00')
   const [cor, setCor] = useState('#4F46E5')
 
-  const wsId = currentWorkspace?.workspace_id
+  const wsId =
+    currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
 
   const carregarCartoes = async () => {
     if (!wsId) return
@@ -107,21 +108,34 @@ export default function CartoesPage() {
     setModalOpen(true)
   }
 
-  const handleSalvar = async (e: React.FormEvent) => {
+  const handleSalvar = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!wsId || !nome.trim()) {
+
+    const formElement = e.currentTarget
+    const formData = new FormData(formElement)
+    const formNome = (formData.get('nome') as string)?.trim() || nome.trim()
+    const formLimite = (formData.get('limite') as string) ?? limite
+    const formFechamento = (formData.get('fechamento') as string) ?? diaFechamento
+    const formVencimento = (formData.get('vencimento') as string) ?? diaVencimento
+
+    if (!formNome) {
       toast.error('Informe o nome do cartão')
       return
     }
 
-    const df = parseInt(diaFechamento, 10)
-    const dv = parseInt(diaVencimento, 10)
+    if (!wsId) {
+      toast.error('Nenhum espaço familiar selecionado. Atualize a página.')
+      return
+    }
+
+    const df = parseInt(String(formFechamento), 10)
+    const dv = parseInt(String(formVencimento), 10)
     if (isNaN(df) || df < 1 || df > 31 || isNaN(dv) || dv < 1 || dv > 31) {
       toast.error('Dias de fechamento e vencimento devem estar entre 1 e 31')
       return
     }
 
-    const limiteNum = parseFloat(limite.replace(/\./g, '').replace(',', '.')) || 0
+    const limiteNum = parseFloat(String(formLimite).replace(/\./g, '').replace(',', '.')) || 0
 
     setSaving(true)
     try {
@@ -130,7 +144,7 @@ export default function CartoesPage() {
           editingCartao.id,
           wsId,
           {
-            nome: nome.trim(),
+            nome: formNome,
             bandeira,
             dia_fechamento: df,
             dia_vencimento: dv,
@@ -139,11 +153,11 @@ export default function CartoesPage() {
           },
           user?.id,
         )
-        toast.success(`Cartão "${nome.trim()}" atualizado com sucesso!`)
+        toast.success(`Cartão "${formNome}" atualizado com sucesso!`)
       } else {
         await cartaoService.create({
           workspace_id: wsId,
-          nome: nome.trim(),
+          nome: formNome,
           bandeira,
           dia_fechamento: df,
           dia_vencimento: dv,
@@ -151,7 +165,7 @@ export default function CartoesPage() {
           cor,
           created_by: user?.id,
         })
-        toast.success(`Cartão "${nome.trim()}" cadastrado com sucesso!`)
+        toast.success(`Cartão "${formNome}" cadastrado com sucesso!`)
       }
 
       setModalOpen(false)
@@ -392,10 +406,12 @@ export default function CartoesPage() {
                 </Label>
                 <Input
                   id="nome-cartao"
+                  name="nome"
                   placeholder="Ex: Nubank Ultravioleta, C6 Black, XP Infinite"
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
                   className="mt-1"
+                  autoFocus
                   required
                 />
               </div>
@@ -425,6 +441,7 @@ export default function CartoesPage() {
                   </Label>
                   <Input
                     id="limite"
+                    name="limite"
                     placeholder="5.000,00"
                     value={limite}
                     onChange={(e) => setLimite(e.target.value)}
@@ -441,6 +458,7 @@ export default function CartoesPage() {
                   </Label>
                   <Input
                     id="fechamento"
+                    name="fechamento"
                     type="number"
                     min="1"
                     max="31"
@@ -458,6 +476,7 @@ export default function CartoesPage() {
                   </Label>
                   <Input
                     id="vencimento"
+                    name="vencimento"
                     type="number"
                     min="1"
                     max="31"

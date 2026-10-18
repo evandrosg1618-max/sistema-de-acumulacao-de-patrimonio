@@ -104,7 +104,8 @@ export default function ContasPage() {
   const [saldoInicial, setSaldoInicial] = useState('0,00')
   const [cor, setCor] = useState('#10B981')
 
-  const wsId = currentWorkspace?.workspace_id
+  const wsId =
+    currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
   const isAdmin = currentWorkspace?.perfil === 'Administrador'
 
   const carregarContas = async () => {
@@ -142,40 +143,52 @@ export default function ContasPage() {
     setModalOpen(true)
   }
 
-  const handleSalvar = async (e: React.FormEvent) => {
+  const handleSalvar = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    if (!wsId || !nome.trim()) {
+
+    // Captura tanto pelo state do React quanto diretamente pelo FormData nativo para máxima resiliência
+    const formElement = e.currentTarget
+    const formData = new FormData(formElement)
+    const formNome = (formData.get('nome') as string)?.trim() || nome.trim()
+    const formSaldo = (formData.get('saldoInicial') as string) ?? saldoInicial
+
+    if (!formNome) {
       toast.error('Informe o nome da conta')
+      return
+    }
+
+    if (!wsId) {
+      toast.error('Nenhum espaço familiar selecionado. Atualize a página.')
       return
     }
 
     setSaving(true)
     try {
-      const saldoNumerico = parseFloat(saldoInicial.replace(/\./g, '').replace(',', '.')) || 0
+      const saldoNumerico = parseFloat(String(formSaldo).replace(/\./g, '').replace(',', '.')) || 0
 
       if (editingConta) {
         await contaService.update(
           editingConta.id,
           wsId,
           {
-            nome: nome.trim(),
+            nome: formNome,
             tipo,
             cor,
           },
           user?.id,
         )
-        toast.success(`Conta "${nome.trim()}" atualizada com sucesso!`)
+        toast.success(`Conta "${formNome}" atualizada com sucesso!`)
       } else {
         await contaService.create({
           workspace_id: wsId,
-          nome: nome.trim(),
+          nome: formNome,
           tipo,
           saldo_inicial: saldoNumerico,
           cor,
           icone: 'wallet',
           created_by: user?.id,
         })
-        toast.success(`Conta "${nome.trim()}" cadastrada com sucesso!`)
+        toast.success(`Conta "${formNome}" cadastrada com sucesso!`)
       }
 
       setModalOpen(false)
@@ -418,10 +431,12 @@ export default function ContasPage() {
                 </Label>
                 <Input
                   id="nome"
+                  name="nome"
                   placeholder="Ex: SICOOB CONTA CORRENTE, Reserva de Emergência, Bradesco"
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
                   className="mt-1"
+                  autoFocus
                   required
                 />
               </div>
@@ -457,6 +472,7 @@ export default function ContasPage() {
                   </Label>
                   <Input
                     id="saldoInicial"
+                    name="saldoInicial"
                     placeholder="0,00"
                     value={saldoInicial}
                     onChange={(e) => setSaldoInicial(e.target.value)}
