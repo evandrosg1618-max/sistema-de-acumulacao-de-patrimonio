@@ -93,3 +93,122 @@ export interface UserInvitation {
   convidado_por?: string | null
   created_at: string
 }
+
+export interface Conta {
+  id: string
+  workspace_id: string
+  nome: string
+  tipo: TipoConta
+  saldo_inicial: number
+  saldo_atual: number
+  cor?: string | null
+  icone?: string | null
+  ativa: boolean
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+  deleted_at?: string | null
+}
+
+export interface Cartao {
+  id: string
+  workspace_id: string
+  nome: string
+  bandeira: string
+  dia_fechamento: number
+  dia_vencimento: number
+  limite: number
+  cor?: string | null
+  ativo: boolean
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+  deleted_at?: string | null
+  fatura_atual?: number
+}
+
+export interface MeioPagamento {
+  id: string
+  workspace_id: string
+  tipo: MeioPagamentoTipo
+  conta_id?: string | null
+  cartao_id?: string | null
+  nome: string
+  ativo: boolean
+  created_at: string
+  conta?: Conta | null
+  cartao?: Cartao | null
+}
+
+export interface Categoria {
+  id: string
+  workspace_id: string
+  nome: string
+  tipo: CategoriaTipo
+  natureza: NaturezaCategoria
+  classificacao_gerencial: ClassificacaoGerencial
+  cor?: string | null
+  icone?: string | null
+  ativo: boolean
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+  deleted_at?: string | null
+  subcategorias?: Subcategoria[]
+}
+
+export interface Subcategoria {
+  id: string
+  workspace_id: string
+  categoria_id: string
+  nome: string
+  observacao?: string | null
+  ativo: boolean
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+  deleted_at?: string | null
+}
+
+export interface Orcamento {
+  id: string
+  workspace_id: string
+  categoria_id: string
+  ano_mes: string
+  limite: number
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+  categoria?: Categoria | null
+  consumo_atual?: number
+}
+
+export interface Lancamento {
+  id: string
+  workspace_id: string
+  tipo: TipoLancamento
+  regime: RegimeLancamento
+  serie_id?: string | null
+  data: string
+  competencia: string
+  descricao: string
+  valor: number
+  meio_pagamento_tipo: MeioPagamentoTipo
+  conta_origem_id?: string | null
+  conta_destino_id?: string | null
+  cartao_id?: string | null
+  categoria_id?: string | null
+  subcategoria_id?: string | null
+  status_pagamento: StatusPagamento
+  data_pagamento?: string | null
+  observacao?: string | null
+  quantidade_parcelas?: number
+  idempotency_key?: string | null
+  created_by?: string | null
+  created_at: string
+  updated_at: string
+  deleted_at?: string | null
+  categoria?: Categoria | null
+  conta_origem?: Conta | null
+  cartao?: Cartao | null
+}

@@ -9,6 +9,11 @@ import Index from './pages/Index'
 import Settings from './pages/Settings'
 import Auditoria from './pages/Auditoria'
 import Usuarios from './pages/Usuarios'
+import ContasPage from './pages/ContasPage'
+import CartoesPage from './pages/CartoesPage'
+import MeiosPagamentoPage from './pages/MeiosPagamentoPage'
+import CategoriasPage from './pages/CategoriasPage'
+import OrcamentosPage from './pages/OrcamentosPage'
 import PlaceholderPage from './pages/PlaceholderPage'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -93,30 +98,20 @@ const AppRoutes = () => (
       <Route path="/auditoria" element={<Auditoria />} />
       <Route path="/usuarios" element={<Usuarios />} />
 
+      {/* Build 1: Cadastros Essenciais Reais (CRUDs completos conectados ao Supabase) */}
+      <Route path="/contas" element={<ContasPage />} />
+      <Route path="/cartoes" element={<CartoesPage />} />
+      <Route path="/meios-pagamento" element={<MeiosPagamentoPage />} />
+      <Route path="/categorias" element={<CategoriasPage />} />
+      <Route path="/orcamento" element={<OrcamentosPage />} />
+
       {/* Rotas de transição para as próximas Builds do PRD */}
-      <Route
-        path="/contas"
-        element={
-          <PlaceholderPage
-            title="Contas & Cartões de Crédito"
-            description="Gestão de contas correntes, poupanças, reservas (Emergência, Investimento, Sonhos) e cartões."
-            buildNumber={1}
-            buildName="Cadastros Essenciais"
-            deliverables={[
-              'Cadastro de Contas com saldo inicial auditado',
-              'Classificação de contas por tipo (movimento, provisão, reservas do PRD)',
-              'Cartões de crédito com corte, vencimento e limite',
-              'Vínculo exclusivo de meios de pagamento (CONTA / CARTÃO / DINHEIRO)',
-            ]}
-          />
-        }
-      />
       <Route
         path="/lancamentos"
         element={
           <PlaceholderPage
             title="Lançamentos Financeiros"
-            description="Registro ágil de receitas, despesas e transferências com calculadora e histórico."
+            description="Registro ágil de receitas, despesas e transferências com calculadora e histórico detalhado."
             buildNumber={2}
             buildName="Lançamentos Únicos & Transferências"
             deliverables={[
@@ -129,17 +124,17 @@ const AppRoutes = () => (
         }
       />
       <Route
-        path="/orcamento"
+        path="/relatorios"
         element={
           <PlaceholderPage
-            title="Orçamento Familiar Mensal"
-            description="Reconhecimento integral na data da compra com acompanhamento visual 60% / 80%."
-            buildNumber={6}
-            buildName="Orçamento Familiar"
+            title="Relatórios & Gráficos Gerenciais"
+            description="Distribuição por categorias, fluxo de caixa, evolução de patrimônio e comparativos."
+            buildNumber={7}
+            buildName="Relatórios & Metas"
             deliverables={[
-              'Reconhecimento do valor integral da compra no mês de aquisição',
-              'Barras de consumo dinâmicas (verde ≤60%, amarelo 60-80%, vermelho >80%)',
-              'Cálculo de Disponível, Estouro de Orçamento ou Ganho de Liberdade',
+              'Comprometimento geral da renda familiar',
+              'Acumulação de Capital e Liberdade Financeira',
+              'Relatórios detalhados com gráficos por período e centro de custo',
             ]}
           />
         }
