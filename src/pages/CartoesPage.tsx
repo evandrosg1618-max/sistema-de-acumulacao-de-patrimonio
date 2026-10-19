@@ -299,10 +299,10 @@ export default function CartoesPage() {
     // Se o item for uma parcela ou pertencer a um lançamento original (pai),
     // carrega o lançamento original completo para que a edição ocorra exclusivamente sobre o original.
     let alvoParaEdicao = item
-    const paiId = item.lancamento_pai_id || item.id
-    if (wsId && paiId && paiId !== item.id) {
+    const paiId = item.lancamento_pai_id || item.lancamento_id || item.id
+    if (paiId) {
       try {
-        const { data: pai } = await lancamentoService.getById(paiId, wsId)
+        const pai = await lancamentoService.getById(paiId)
         if (pai) {
           alvoParaEdicao = pai
         }
@@ -360,10 +360,10 @@ export default function CartoesPage() {
     // Se o item for uma parcela ou pertencer a um lançamento original (pai),
     // a exclusão deve direcionar e impactar o lançamento original.
     let alvoParaExclusao = item
-    const paiId = item.lancamento_pai_id || item.id
-    if (wsId && paiId && paiId !== item.id) {
+    const paiId = item.lancamento_pai_id || item.lancamento_id || item.id
+    if (paiId) {
       try {
-        const { data: pai } = await lancamentoService.getById(paiId, wsId)
+        const pai = await lancamentoService.getById(paiId)
         if (pai) {
           alvoParaExclusao = pai
         }

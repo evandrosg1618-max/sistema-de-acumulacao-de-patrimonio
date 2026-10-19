@@ -559,17 +559,35 @@ export const cartaoService = {
         }
       }
 
-      // 2. Somar todos os lançamentos pendentes no cartão (todas as competências, incluindo parcelas futuras)
-      const { data: lancsComprometidos } = await db
+      // 2. Somar todas as parcelas pendentes na tabela parcelas e compras avulsas no cartão
+      // (Frente 4: parcelas de compras parceladas moram na tabela 'parcelas' somando as cotas de cada competência,
+      // e compras à vista únicas moram em 'lancamentos' com regime='unico')
+      const { data: parcelasComprometidas } = await db
+        .from('parcelas')
+        .select('cartao_id, valor, status, lancamentos!inner(deleted_at)')
+        .eq('workspace_id', workspaceId)
+        .eq('status', 'pendente')
+        .is('lancamentos.deleted_at', null)
+
+      const mapComprometido: Record<string, number> = {}
+      for (const p of parcelasComprometidas || []) {
+        if (p.cartao_id) {
+          const v = Number(p.valor || 0)
+          mapComprometido[p.cartao_id] = (mapComprometido[p.cartao_id] || 0) + v
+        }
+      }
+
+      // Adiciona compras à vista (regime unico) pendentes
+      const { data: lancsAvulsosComprometidos } = await db
         .from('lancamentos')
         .select('cartao_id, valor, tipo')
         .eq('workspace_id', workspaceId)
         .eq('meio_pagamento_tipo', 'CARTAO')
+        .eq('regime', 'unico')
         .eq('status_pagamento', 'pendente')
         .is('deleted_at', null)
 
-      const mapComprometido: Record<string, number> = {}
-      for (const l of lancsComprometidos || []) {
+      for (const l of lancsAvulsosComprometidos || []) {
         if (l.cartao_id) {
           const v = Number(l.valor || 0)
           mapComprometido[l.cartao_id] =
@@ -1611,8 +1629,71 @@ export const faturaService = {
       await this.recalcularValorFatura(workspaceId, cartaoId, competencia)
     }
 
-    // Leitura rápida via query de itens da competência
-    const { data: lancs } = await db
+    // 1. Buscar parcelas da tabela 'parcelas' pertencentes a este cartão e competência
+    // vinculando aos dados do lançamento original (pai)
+    const { data: parcelasComp } = await db
+      .from('parcelas')
+      .select(`
+        id,
+        lancamento_id,
+        numero_parcela,
+        total_parcelas,
+        valor,
+        competencia,
+        data_vencimento,
+        cartao_id,
+        status,
+        lancamentos!inner(
+          id,
+          descricao,
+          data,
+          categoria_id,
+          subcategoria_id,
+          observacao,
+          deleted_at,
+          categorias (id, nome, cor, icone),
+          subcategorias (id, nome)
+        )
+      `)
+      .eq('workspace_id', workspaceId)
+      .eq('cartao_id', cartaoId)
+      .eq('competencia', competencia)
+      .is('lancamentos.deleted_at', null)
+      .order('data_vencimento', { ascending: false })
+
+    const itensFatura: any[] = []
+    let totalCompras = 0
+
+    for (const p of parcelasComp || []) {
+      const v = Number(p.valor || 0)
+      totalCompras += v
+      const orig = p.lancamentos as any
+      itensFatura.push({
+        id: p.id,
+        parcela_id: p.id,
+        lancamento_id: p.lancamento_id,
+        lancamento_pai_id: p.lancamento_id, // aponta para o lançamento original
+        descricao: orig?.descricao || 'Despesa no Cartão',
+        valor: v,
+        data: p.data_vencimento || orig?.data,
+        competencia: p.competencia,
+        tipo: 'despesa',
+        meio_pagamento_tipo: 'CARTAO',
+        cartao_id: p.cartao_id,
+        numero_parcela: p.numero_parcela,
+        total_parcelas: p.total_parcelas,
+        quantidade_parcelas: p.total_parcelas,
+        status_pagamento: p.status || 'pendente',
+        observacao: orig?.observacao,
+        categoria_id: orig?.categoria_id,
+        subcategoria_id: orig?.subcategoria_id,
+        categorias: orig?.categorias,
+        subcategorias: orig?.subcategorias,
+      })
+    }
+
+    // 2. Buscar compras à vista no cartão (regime = 'unico')
+    const { data: avulsosComp } = await db
       .from('lancamentos')
       .select(`
         id,
@@ -1638,14 +1719,17 @@ export const faturaService = {
       .eq('workspace_id', workspaceId)
       .eq('cartao_id', cartaoId)
       .eq('competencia', competencia)
+      .eq('regime', 'unico')
       .is('deleted_at', null)
       .order('data', { ascending: false })
 
-    let totalCompras = 0
-    for (const l of lancs || []) {
-      if (l.tipo === 'despesa') totalCompras += Number(l.valor || 0)
-      else if (l.tipo === 'receita') totalCompras -= Number(l.valor || 0)
+    for (const a of avulsosComp || []) {
+      const v = Number(a.valor || 0)
+      if (a.tipo === 'despesa') totalCompras += v
+      else if (a.tipo === 'receita') totalCompras -= v
+      itensFatura.push(a)
     }
+
     totalCompras = Math.max(0, totalCompras)
 
     // Buscar pagamentos realizados para esta fatura
@@ -1668,7 +1752,7 @@ export const faturaService = {
       totalPago,
       saldoDevedor,
       status: statusDinamico,
-      itens: lancs || [],
+      itens: itensFatura,
     }
   },
 
@@ -2238,7 +2322,7 @@ export const lancamentoService = {
           ? Number((valorParcelaBase + diferencaCentavos).toFixed(2))
           : valorParcelaBase
 
-      const { data: lancFilho, error: filhoErr } = await db
+      const { data: lancFilho } = await db
         .from('lancamentos')
         .insert({
           workspace_id: dados.workspace_id,
@@ -2264,19 +2348,17 @@ export const lancamentoService = {
         .select()
         .single()
 
-      if (!filhoErr && lancFilho) {
-        await db.from('parcelas').insert({
-          workspace_id: dados.workspace_id,
-          lancamento_id: lancPai.id,
-          numero_parcela: p,
-          total_parcelas: qtdParcelas,
-          valor: valorDestaParcela,
-          competencia: compParcela,
-          data_vencimento: dados.data,
-          cartao_id: dados.cartao_id,
-          status: 'pendente',
-        })
-      }
+      await db.from('parcelas').insert({
+        workspace_id: dados.workspace_id,
+        lancamento_id: lancPai.id,
+        numero_parcela: p,
+        total_parcelas: qtdParcelas,
+        valor: valorDestaParcela,
+        competencia: compParcela,
+        data_vencimento: dados.data,
+        cartao_id: dados.cartao_id,
+        status: 'pendente',
+      })
     }
 
     // Recalcular faturas de cada competência afetada
@@ -2989,6 +3071,21 @@ export const lancamentoService = {
     // Excluir movimentações da conta
     await db.from('movimentacoes_conta').delete().eq('lancamento_id', id)
 
+    // Identificar lançamento pai / série caso seja um lançamento parcelado
+    const paiId = anterior.lancamento_pai_id || anterior.id
+    const idsParaExcluir = [id]
+    if (paiId && paiId === anterior.id) {
+      // Se estamos excluindo o lançamento original (pai), marcar também os filhos
+      const { data: filhos } = await db
+        .from('lancamentos')
+        .select('id')
+        .eq('lancamento_pai_id', paiId)
+        .eq('workspace_id', workspaceId)
+      if (filhos && filhos.length > 0) {
+        filhos.forEach((f) => idsParaExcluir.push(f.id))
+      }
+    }
+
     // Soft delete
     const { error } = await db
       .from('lancamentos')
@@ -2997,13 +3094,13 @@ export const lancamentoService = {
         status_pagamento: 'cancelado',
         updated_at: new Date().toISOString(),
       })
-      .eq('id', id)
+      .in('id', idsParaExcluir)
       .eq('workspace_id', workspaceId)
 
     if (error) throw error
 
-    // Remover da tabela parcelas se existir
-    await db.from('parcelas').delete().eq('lancamento_id', id)
+    // Remover da tabela parcelas se existir (tanto sob o id quanto sob o pai)
+    await db.from('parcelas').delete().in('lancamento_id', [id, paiId])
 
     // Recalcular fatura do cartão se aplicável
     if (anterior.cartao_id && anterior.competencia) {
