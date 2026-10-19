@@ -636,6 +636,33 @@ export const cartaoService = {
     userId?: string,
   ): Promise<any> {
     const anterior = await this.getById(id)
+
+    // Se houve alteração no dia_fechamento ou dia_vencimento, invocar a RPC atualizar_fechamento_cartao_rpc
+    // Ela realinha as competências de faturas abertas, bloqueando faturas pagas e recalculando tudo
+    const mudouFechamento =
+      updates.dia_fechamento !== undefined &&
+      Number(updates.dia_fechamento) !== Number(anterior?.dia_fechamento)
+    const mudouVencimento =
+      updates.dia_vencimento !== undefined &&
+      Number(updates.dia_vencimento) !== Number(anterior?.dia_vencimento)
+
+    if (mudouFechamento || mudouVencimento) {
+      const novoFech = updates.dia_fechamento ?? anterior?.dia_fechamento
+      const novoVenc = updates.dia_vencimento ?? anterior?.dia_vencimento
+
+      try {
+        await db.rpc('atualizar_fechamento_cartao_rpc', {
+          p_workspace_id: workspaceId,
+          p_cartao_id: id,
+          p_novo_dia_fechamento: Number(novoFech),
+          p_novo_dia_vencimento: Number(novoVenc),
+          p_user_id: userId || null,
+        })
+      } catch (rpcErr) {
+        console.warn('Erro ao chamar atualizar_fechamento_cartao_rpc:', rpcErr)
+      }
+    }
+
     const { data, error } = await db
       .from('cartoes')
       .update({
@@ -1396,21 +1423,34 @@ export const lancamentoRapidoService = {
 // BUILD 2: SERVIÇO DE FATURAS & PAGAMENTOS DE CARTÃO
 // ----------------------------------------------------
 export const faturaService = {
-  // Obter competência da compra no cartão com base na data da compra e dia de fechamento
-  calcularCompetenciaCartao(dataCompra: string, diaFechamento: number): string {
+  // Obter competência da fatura (MÊS DO VENCIMENTO) com base na data da compra, dia de fechamento e dia de vencimento
+  calcularCompetenciaCartao(dataCompra: string, diaFechamento: number, diaVencimento = 20): string {
     const dt = new Date(dataCompra + 'T12:00:00')
     const dia = dt.getDate()
     let ano = dt.getFullYear()
     let mes = dt.getMonth() + 1 // 1 a 12
 
-    // Se comprou no dia de fechamento ou após, cai na fatura do mês seguinte
-    if (dia >= diaFechamento) {
+    const fech = diaFechamento || 10
+    const venc = diaVencimento || 20
+
+    // Se vencimento é <= fechamento (ex: fecha 17, vence 01), o vencimento deste fechamento é no mês seguinte
+    if (venc <= fech) {
       mes += 1
       if (mes > 12) {
         mes = 1
         ano += 1
       }
     }
+
+    // Se a compra foi após o dia de fechamento, cai no ciclo seguinte (+1 mês)
+    if (dia > fech) {
+      mes += 1
+      if (mes > 12) {
+        mes = 1
+        ano += 1
+      }
+    }
+
     return `${ano}-${String(mes).padStart(2, '0')}`
   },
 
@@ -2013,6 +2053,7 @@ export const lancamentoService = {
         competenciaInicial = faturaService.calcularCompetenciaCartao(
           dados.data,
           cartaoObj.dia_fechamento,
+          cartaoObj.dia_vencimento,
         )
       }
     }
@@ -2681,7 +2722,11 @@ export const lancamentoService = {
     // Se for 'este', recalcula para a data específica deste
     // Se for 'este_e_proximos', a partir do número da parcela atual
     const compInicialNova = atual.cartao_id
-      ? faturaService.calcularCompetenciaCartao(novaDataBase, diaFechamento)
+      ? faturaService.calcularCompetenciaCartao(
+          novaDataBase,
+          diaFechamento,
+          cartaoObj?.dia_vencimento,
+        )
       : novaDataBase.substring(0, 7)
 
     for (const l of alvos) {
@@ -2692,7 +2737,11 @@ export const lancamentoService = {
         if (escopo === 'este' || !ehSerie) {
           novaDataParcela = novosDados.data
           novaComp = atual.cartao_id
-            ? faturaService.calcularCompetenciaCartao(novosDados.data, diaFechamento)
+            ? faturaService.calcularCompetenciaCartao(
+                novosDados.data,
+                diaFechamento,
+                cartaoObj?.dia_vencimento,
+              )
             : novosDados.data.substring(0, 7)
         } else if (escopo === 'todos') {
           const idx = (l.numero_parcela || 1) - 1
@@ -2933,7 +2982,11 @@ export const lancamentoService = {
     if (meioFinal === 'CARTAO' && cartaoFinal) {
       const cartao = await cartaoService.getById(cartaoFinal)
       if (cartao) {
-        novaCompetencia = faturaService.calcularCompetenciaCartao(dataFinal, cartao.dia_fechamento)
+        novaCompetencia = faturaService.calcularCompetenciaCartao(
+          dataFinal,
+          cartao.dia_fechamento,
+          cartao.dia_vencimento,
+        )
       }
     }
 

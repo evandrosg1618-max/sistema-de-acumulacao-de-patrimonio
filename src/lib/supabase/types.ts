@@ -1418,9 +1418,64 @@ export type Database = {
         Args: { token_input: string }
         Returns: Json
       }
+      calcular_competencia_cartao: {
+        Args: { p_data: string; p_dia_fechamento: number }
+        Returns: string
+      }
+      excluir_lancamento_parcelado_rpc: {
+        Args: {
+          p_lancamento_id: string
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       get_invitation_by_token: { Args: { token_input: string }; Returns: Json }
       is_admin_of_workspace: { Args: { ws_id: string }; Returns: boolean }
       is_member_of_workspace: { Args: { ws_id: string }; Returns: boolean }
+      obter_cartoes_consolidado_rpc: {
+        Args: { p_incluir_inativos?: boolean; p_workspace_id: string }
+        Returns: {
+          ativo: boolean
+          bandeira: string
+          cor: string
+          dia_fechamento: number
+          dia_vencimento: number
+          fatura_atual: number
+          id: string
+          limite: number
+          nome: string
+          total_comprometido: number
+          workspace_id: string
+        }[]
+      }
+      recalcular_fatura_rpc: {
+        Args: {
+          p_cartao_id: string
+          p_competencia: string
+          p_workspace_id: string
+        }
+        Returns: number
+      }
+      regenerar_parcelas_lancamento: {
+        Args: {
+          p_categoria_id?: string
+          p_lancamento_id: string
+          p_nova_data: string
+          p_nova_descricao: string
+          p_nova_quantidade_parcelas: number
+          p_novo_valor: number
+          p_observacao?: string
+          p_subcategoria_id?: string
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      somar_meses_competencia: {
+        Args: { p_competencia: string; p_meses: number }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

@@ -489,17 +489,17 @@ export function ModalLancamento({
 
             {/* SE FOR CARTÃO DE CRÉDITO: SELEÇÃO DE PARCELAS (BUILD 3) */}
             {tipo === 'despesa' && pagoComDestino.startsWith('cartao:') && (
-              <div className="p-3 bg-indigo-50/70 border border-indigo-200 rounded-lg space-y-2">
+              <div className="p-3.5 bg-slate-900/95 dark:bg-slate-900 border border-slate-700 rounded-xl space-y-2.5 shadow-sm text-slate-100">
                 <div className="flex items-center justify-between">
                   <Label
                     htmlFor="lan-parcelas"
-                    className="text-xs font-semibold text-indigo-900 flex items-center gap-1.5"
+                    className="text-xs font-bold text-indigo-300 flex items-center gap-1.5"
                   >
-                    <Layers className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Parcelamento no Cartão (Build 3)</span>
+                    <Layers className="w-4 h-4 text-indigo-400" />
+                    <span>Parcelamento no Cartão</span>
                   </Label>
                   {quantidadeParcelas > 1 && valor && (
-                    <span className="text-xs font-bold text-indigo-700">
+                    <span className="text-xs font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
                       {quantidadeParcelas}x de{' '}
                       {formatMoneyBRL(
                         parseFloat(valor.replace(/\./g, '').replace(',', '.')) / quantidadeParcelas,
@@ -513,20 +513,32 @@ export function ModalLancamento({
                     value={quantidadeParcelas.toString()}
                     onValueChange={(v) => setQuantidadeParcelas(parseInt(v, 10))}
                   >
-                    <SelectTrigger id="lan-parcelas" className="h-8 text-xs bg-white">
-                      <SelectValue />
+                    <SelectTrigger
+                      id="lan-parcelas"
+                      className="h-9 text-xs bg-slate-800 text-white font-semibold border-slate-600 focus:ring-indigo-500 shadow-inner"
+                    >
+                      <SelectValue placeholder="Selecione as parcelas" />
                     </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1">1x (À vista na fatura)</SelectItem>
+                    <SelectContent className="bg-slate-900 text-white border-slate-700">
+                      <SelectItem
+                        value="1"
+                        className="text-slate-100 hover:bg-slate-800 focus:bg-slate-800 focus:text-white"
+                      >
+                        1x (À vista na fatura)
+                      </SelectItem>
                       {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24].map((n) => (
-                        <SelectItem key={n} value={n.toString()}>
+                        <SelectItem
+                          key={n}
+                          value={n.toString()}
+                          className="text-slate-100 hover:bg-slate-800 focus:bg-slate-800 focus:text-white"
+                        >
                           {n}x parcelas mensais consecutivas
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
 
-                  <p className="text-[11px] text-indigo-700 leading-tight">
+                  <p className="text-[11px] text-slate-300 leading-tight">
                     Cada parcela é atribuída à competência correta a partir da data de corte e
                     compõe a respectiva fatura.
                   </p>

@@ -173,8 +173,12 @@ export default function CartoesPage() {
       a -= 1
     }
     const novaComp = `${a}-${String(m).padStart(2, '0')}`
-    setCompetenciaFiltro(novaComp)
+    await selecionarCompetencia(novaComp)
+  }
 
+  // Selecionar competência específica (ao clicar em card de fatura em Outras Competências)
+  const selecionarCompetencia = async (novaComp: string) => {
+    setCompetenciaFiltro(novaComp)
     if (!wsId) return
     setRecalculando(true)
     try {
@@ -997,14 +1001,21 @@ export default function CartoesPage() {
                                             )}
                                           </div>
                                           {l.categorias?.nome && (
-                                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                                            <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600">
                                               <span
-                                                className="w-1.5 h-1.5 rounded-full inline-block"
+                                                className="w-2 h-2 rounded-full inline-block ring-1 ring-black/10 shrink-0"
                                                 style={{
-                                                  backgroundColor: l.categorias.cor || '#64748B',
+                                                  backgroundColor: l.categorias.cor || '#4F46E5',
                                                 }}
                                               />
-                                              {l.categorias.nome}
+                                              <span className="text-slate-900 dark:text-white font-bold">
+                                                {l.categorias.nome}
+                                              </span>
+                                              {l.subcategorias?.nome && (
+                                                <span className="text-slate-600 dark:text-slate-300">
+                                                  / {l.subcategorias.nome}
+                                                </span>
+                                              )}
                                             </span>
                                           )}
                                         </div>
@@ -1049,8 +1060,11 @@ export default function CartoesPage() {
                         {/* Histórico Geral de Faturas */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">
-                              Outras Competências Cadastradas
+                            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                              OUTRAS COMPETÊNCIAS CADASTRADAS
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              Clique no card para abrir os lançamentos daquela fatura
                             </span>
                           </div>
 
@@ -1059,53 +1073,83 @@ export default function CartoesPage() {
                               Nenhuma outra fatura gerada para este cartão.
                             </div>
                           ) : (
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                              {faturasMap[cartao.id].map((fat) => {
-                                const isPaga = fat.status === 'paga'
-                                return (
-                                  <div
-                                    key={fat.id}
-                                    className="bg-white rounded-lg border border-slate-200 p-2.5 flex items-center justify-between text-xs"
-                                  >
-                                    <div>
-                                      <div className="flex items-center gap-1.5 font-semibold text-slate-800">
-                                        <span>Fatura {fat.competencia}</span>
-                                        <Badge
-                                          className={`text-[9px] py-0 px-1 ${
-                                            isPaga
-                                              ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                              : 'bg-amber-100 text-amber-800 border-amber-200'
-                                          }`}
-                                        >
-                                          {isPaga ? 'Paga' : 'Aberta'}
-                                        </Badge>
-                                      </div>
-                                      <span className="text-[10px] text-slate-400">
-                                        {formatMoneyBRL(fat.valor_total)}
-                                      </span>
-                                    </div>
-
-                                    {!isPaga ? (
-                                      <Button
-                                        size="sm"
-                                        onClick={() => abrirModalPagarFatura(fat, cartao)}
-                                        className="h-6 text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2"
-                                      >
-                                        Pagar
-                                      </Button>
-                                    ) : (
-                                      <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => handleEstornarFatura(fat.id)}
-                                        className="h-6 text-[10px] text-rose-700 border-rose-200 hover:bg-rose-50 px-2"
-                                      >
-                                        Reabrir
-                                      </Button>
-                                    )}
-                                  </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                              {(() => {
+                                // Mês anterior ao atual para recorte cronológico inicial
+                                const hoje = new Date()
+                                const mesAnterior = new Date(
+                                  hoje.getFullYear(),
+                                  hoje.getMonth() - 1,
+                                  1,
                                 )
-                              })}
+                                const compMesAnterior = `${mesAnterior.getFullYear()}-${String(mesAnterior.getMonth() + 1).padStart(2, '0')}`
+
+                                const lista = [...faturasMap[cartao.id]]
+                                // Ordenação cronológica CRESCENTE
+                                lista.sort((a, b) => a.competencia.localeCompare(b.competencia))
+                                // Filtrar a partir do mês anterior (se houver; senão mostra todas em ordem crescente)
+                                const aPartirDoMesAnterior = lista.filter(
+                                  (f) => f.competencia >= compMesAnterior,
+                                )
+                                const listaFinal =
+                                  aPartirDoMesAnterior.length > 0 ? aPartirDoMesAnterior : lista
+
+                                return listaFinal.map((fat) => {
+                                  const isPaga = fat.status === 'paga'
+                                  const isAtiva = fat.competencia === competenciaFiltro
+                                  return (
+                                    <div
+                                      key={fat.id}
+                                      onClick={() => selecionarCompetencia(fat.competencia)}
+                                      className={`rounded-xl border p-3 flex items-center justify-between text-xs transition cursor-pointer shadow-2xs hover:shadow-sm ${
+                                        isAtiva
+                                          ? 'bg-indigo-50/70 border-indigo-300 ring-2 ring-indigo-400'
+                                          : 'bg-white border-slate-200/90 hover:border-indigo-200 hover:bg-slate-50/80'
+                                      }`}
+                                      title={`Clique para abrir a fatura de ${fat.competencia}`}
+                                    >
+                                      <div className="space-y-0.5">
+                                        <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                                          <span>Fatura {fat.competencia}</span>
+                                          <Badge
+                                            className={`text-[9px] py-0 px-1 font-semibold ${
+                                              isPaga
+                                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                                : 'bg-amber-100 text-amber-900 border-amber-300'
+                                            }`}
+                                          >
+                                            {isPaga ? 'Paga' : 'Aberta'}
+                                          </Badge>
+                                        </div>
+                                        <span className="text-xs font-semibold text-slate-600 block">
+                                          {formatMoneyBRL(fat.valor_total)}
+                                        </span>
+                                      </div>
+
+                                      <div className="pl-2" onClick={(e) => e.stopPropagation()}>
+                                        {!isPaga ? (
+                                          <Button
+                                            size="sm"
+                                            onClick={() => abrirModalPagarFatura(fat, cartao)}
+                                            className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 rounded-lg shadow-2xs"
+                                          >
+                                            Pagar
+                                          </Button>
+                                        ) : (
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => handleEstornarFatura(fat.id)}
+                                            className="h-7 text-xs text-rose-700 border-rose-200 hover:bg-rose-50 px-2.5 rounded-lg"
+                                          >
+                                            Reabrir
+                                          </Button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
+                                })
+                              })()}
                             </div>
                           )}
                         </div>

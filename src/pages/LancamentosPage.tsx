@@ -789,19 +789,23 @@ export default function LancamentosPage() {
                             </Badge>
                           )}
 
-                        {/* Badges de Categoria */}
+                        {/* Badges de Categoria com alto contraste */}
                         {l.categoria && (
                           <Badge
                             variant="outline"
-                            className="text-[10px] py-0 px-2 flex items-center gap-1 border-slate-200"
+                            className="text-[11px] font-semibold py-0.5 px-2.5 flex items-center gap-1.5 bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 shadow-2xs"
                           >
                             <span
-                              className="w-1.5 h-1.5 rounded-full"
-                              style={{ backgroundColor: l.categoria.cor || '#64748B' }}
+                              className="w-2 h-2 rounded-full shrink-0 ring-1 ring-black/10"
+                              style={{ backgroundColor: l.categoria.cor || '#4F46E5' }}
                             />
-                            <span>{l.categoria.nome}</span>
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {l.categoria.nome}
+                            </span>
                             {l.subcategoria && (
-                              <span className="text-slate-400">/ {l.subcategoria.nome}</span>
+                              <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                / {l.subcategoria.nome}
+                              </span>
                             )}
                           </Badge>
                         )}
