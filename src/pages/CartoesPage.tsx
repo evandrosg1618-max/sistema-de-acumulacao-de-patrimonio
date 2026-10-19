@@ -320,7 +320,6 @@ export default function CartoesPage() {
     if (!wsId) return
     try {
       if (dados.id) {
-        // Se for série parcelada, abre modal de escopo
         const ehParcelado =
           (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
           (lancamentoFaturaEmEdicao?.total_parcelas &&
@@ -328,16 +327,27 @@ export default function CartoesPage() {
           Boolean(lancamentoFaturaEmEdicao?.lancamento_pai_id)
 
         if (ehParcelado) {
-          setDadosEdicaoPendentes(dados)
-          setLancamentoAlvoEscopo(lancamentoFaturaEmEdicao)
-          setAcaoEscopo('editar')
-          setModalLancamentoOpen(false)
-          setModalEscopoOpen(true)
-          return
+          // Frente 4: Opera SEMPRE sobre o original, regenerando atomicamente via RPC
+          const paiId = lancamentoFaturaEmEdicao?.lancamento_pai_id || dados.id
+          await lancamentoService.regenerarCompraParcelada(
+            wsId,
+            paiId,
+            {
+              valor: Number(dados.valor),
+              data: dados.data,
+              quantidade_parcelas: Number(dados.quantidade_parcelas || 1),
+              descricao: dados.descricao,
+              categoria_id: dados.categoria_id,
+              subcategoria_id: dados.subcategoria_id,
+              observacao: dados.observacao,
+            },
+            user?.id,
+          )
+          toast.success('Compra parcelada regenerada com sucesso!')
+        } else {
+          await lancamentoService.update(dados.id, wsId, dados, user?.id)
+          toast.success('Lançamento atualizado com sucesso!')
         }
-
-        await lancamentoService.update(dados.id, wsId, dados, user?.id)
-        toast.success('Lançamento atualizado com sucesso!')
       } else {
         await lancamentoService.create({
           ...dados,
@@ -347,6 +357,8 @@ export default function CartoesPage() {
         toast.success('Compra incluída na fatura do cartão com sucesso!')
       }
 
+      setModalLancamentoOpen(false)
+      setLancamentoFaturaEmEdicao(null)
       await carregarCartoes()
     } catch (err: any) {
       toast.error('Erro ao salvar lançamento: ' + (err.message || ''))
@@ -378,9 +390,19 @@ export default function CartoesPage() {
       Boolean(alvoParaExclusao.lancamento_pai_id)
 
     if (ehParcelado) {
-      setLancamentoAlvoEscopo(alvoParaExclusao)
-      setAcaoEscopo('excluir')
-      setModalEscopoOpen(true)
+      // Frente 4: Sem modal de escopo para parcelados. Excluir o original e regenerar faturas.
+      const confirma = window.confirm(
+        `Excluir a compra parcelada "${alvoParaExclusao.descricao}"? Todas as parcelas vinculadas serão removidas e as faturas recalculadas.`,
+      )
+      if (!confirma) return
+
+      try {
+        await lancamentoService.excluirCompraParcelada(wsId, alvoParaExclusao.id, user?.id)
+        toast.success('Compra parcelada excluída e faturas recalculadas!')
+        await carregarCartoes()
+      } catch (err: any) {
+        toast.error(err.message || 'Erro ao excluir')
+      }
       return
     }
 

@@ -176,24 +176,50 @@ export default function LancamentosPage() {
     if (!wsId) return
     try {
       if (dados.id) {
-        // Verifica se é série parcelada
-        const ehParcelado =
-          (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
-          (lancamentoEmEdicao?.total_parcelas && lancamentoEmEdicao.total_parcelas > 1) ||
-          Boolean(lancamentoEmEdicao?.lancamento_pai_id)
+        // Frente 4: Se for compra parcelada em cartão, operar SEMPRE sobre o original e regenerar
+        const ehParceladoCartao =
+          (dados.meio_pagamento_tipo === 'CARTAO' ||
+            lancamentoEmEdicao?.meio_pagamento_tipo === 'CARTAO') &&
+          ((dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
+            (lancamentoEmEdicao?.total_parcelas && lancamentoEmEdicao.total_parcelas > 1) ||
+            Boolean(lancamentoEmEdicao?.lancamento_pai_id))
 
-        if (ehParcelado) {
-          // Guarda os dados pendentes e abre modal de escopo
-          setDadosEdicaoPendentes(dados)
-          setLancamentoAlvoEscopo(lancamentoEmEdicao)
-          setAcaoEscopo('editar')
-          setModalLancamentoOpen(false)
-          setModalEscopoOpen(true)
-          return
+        if (ehParceladoCartao) {
+          const paiId = lancamentoEmEdicao?.lancamento_pai_id || dados.id
+          await lancamentoService.regenerarCompraParcelada(
+            wsId,
+            paiId,
+            {
+              valor: Number(dados.valor),
+              data: dados.data,
+              quantidade_parcelas: Number(dados.quantidade_parcelas || 1),
+              descricao: dados.descricao,
+              categoria_id: dados.categoria_id,
+              subcategoria_id: dados.subcategoria_id,
+              observacao: dados.observacao,
+            },
+            user?.id,
+          )
+          toast.success('Compra parcelada regenerada com sucesso!')
+        } else {
+          // Outras séries parceladas (recorrentes/contas) mantêm escopo se aplicável
+          const ehOutroParcelado =
+            (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
+            (lancamentoEmEdicao?.total_parcelas && lancamentoEmEdicao.total_parcelas > 1) ||
+            Boolean(lancamentoEmEdicao?.lancamento_pai_id)
+
+          if (ehOutroParcelado) {
+            setDadosEdicaoPendentes(dados)
+            setLancamentoAlvoEscopo(lancamentoEmEdicao)
+            setAcaoEscopo('editar')
+            setModalLancamentoOpen(false)
+            setModalEscopoOpen(true)
+            return
+          }
+
+          await lancamentoService.update(dados.id, wsId, dados, user?.id)
+          toast.success('Lançamento atualizado com sucesso!')
         }
-
-        await lancamentoService.update(dados.id, wsId, dados, user?.id)
-        toast.success('Lançamento atualizado com sucesso!')
       } else {
         await lancamentoService.create({
           ...dados,
@@ -210,6 +236,8 @@ export default function LancamentosPage() {
           } com sucesso!`,
         )
       }
+      setModalLancamentoOpen(false)
+      setLancamentoEmEdicao(null)
       await carregarDados()
     } catch (err: any) {
       toast.error('Erro ao salvar lançamento: ' + (err.message || 'verifique os dados'))
@@ -220,13 +248,37 @@ export default function LancamentosPage() {
   const handleExcluirLancamento = async (l: Lancamento) => {
     if (!wsId) return
 
-    // Se fizer parte de uma compra parcelada, abre modal de escopo (este, este e próximos, todos)
-    const ehParcelado =
+    // Frente 4: Se for compra parcelada em cartão, exclusão total do original sem modal de escopo
+    const ehParceladoCartao =
+      l.meio_pagamento_tipo === 'CARTAO' &&
+      ((l.total_parcelas && l.total_parcelas > 1) ||
+        (l.quantidade_parcelas && l.quantidade_parcelas > 1) ||
+        Boolean(l.lancamento_pai_id))
+
+    if (ehParceladoCartao) {
+      const confirma = window.confirm(
+        `Excluir a compra parcelada "${l.descricao}"? Todas as parcelas serão removidas e as faturas do cartão recalculadas.`,
+      )
+      if (!confirma) return
+
+      try {
+        const paiId = l.lancamento_pai_id || l.id
+        await lancamentoService.excluirCompraParcelada(wsId, paiId, user?.id)
+        toast.success('Compra parcelada excluída e faturas recalculadas!')
+        await carregarDados()
+      } catch (err: any) {
+        toast.error('Erro ao excluir: ' + (err.message || ''))
+      }
+      return
+    }
+
+    // Séries de outros tipos
+    const ehOutroParcelado =
       (l.total_parcelas && l.total_parcelas > 1) ||
       (l.quantidade_parcelas && l.quantidade_parcelas > 1) ||
       Boolean(l.lancamento_pai_id)
 
-    if (ehParcelado) {
+    if (ehOutroParcelado) {
       setLancamentoAlvoEscopo(l)
       setAcaoEscopo('excluir')
       setModalEscopoOpen(true)

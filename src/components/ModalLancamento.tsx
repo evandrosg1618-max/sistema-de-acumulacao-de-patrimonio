@@ -135,6 +135,9 @@ export function ModalLancamento({
       setSubcategoriaId(initialData.subcategoria_id || '')
       setPago(initialData.status_pagamento === 'pago')
       setObservacao(initialData.observacao || '')
+      // Se for lançamento com parcelas, limpa eventual sufixo '(x/y)' do título
+      const descLimpa = (initialData.descricao || '').replace(/\s*\(\d+\/\d+\)$/, '').trim()
+      setDescricao(descLimpa)
       setQuantidadeParcelas(initialData.total_parcelas || initialData.quantidade_parcelas || 1)
     } else {
       setTipo(tipoPadrao)

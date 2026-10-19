@@ -516,6 +516,26 @@ export const contaService = {
 // ----------------------------------------------------
 export const cartaoService = {
   async list(workspaceId: string, incluirInativos = false): Promise<any[]> {
+    // Desempenho (Frente 4): Chamada única à RPC consolidada do PostgreSQL
+    try {
+      const { data: rpcData, error: rpcError } = await db.rpc('obter_cartoes_consolidado_rpc', {
+        p_workspace_id: workspaceId,
+        p_incluir_inativos: incluirInativos,
+      })
+
+      if (!rpcError && rpcData) {
+        return rpcData.map((c: any) => ({
+          ...c,
+          limite: Number(c.limite || 0),
+          fatura_atual: Number(c.fatura_atual || 0),
+          total_comprometido: Number(c.total_comprometido || 0),
+        }))
+      }
+    } catch (err) {
+      console.warn('Fallback na listagem consolidada de cartões:', err)
+    }
+
+    // Fallback seguro caso a RPC falhe
     let query = db
       .from('cartoes')
       .select('*')
@@ -530,79 +550,12 @@ export const cartaoService = {
     const { data, error } = await query
     if (error) throw error
 
-    // Buscar consumo total do cartão: compras ativas pendentes (incluindo parcelas futuras)
-    // O limite disponível considera o valor total comprometido (Build 2 e 3)
-    const cartoes = (data || []).map((c: any) => ({
+    return (data || []).map((c: any) => ({
       ...c,
       limite: Number(c.limite || 0),
       fatura_atual: 0,
       total_comprometido: 0,
     }))
-
-    try {
-      // 1. Somar compras de faturas abertas
-      const { data: faturas } = await db
-        .from('faturas')
-        .select('cartao_id, valor_total, status')
-        .eq('workspace_id', workspaceId)
-        .eq('status', 'aberta')
-
-      if (faturas && faturas.length > 0) {
-        const mapFaturas: Record<string, number> = {}
-        for (const f of faturas) {
-          mapFaturas[f.cartao_id] = (mapFaturas[f.cartao_id] || 0) + Number(f.valor_total || 0)
-        }
-        for (const c of cartoes) {
-          if (mapFaturas[c.id]) {
-            c.fatura_atual = mapFaturas[c.id]
-          }
-        }
-      }
-
-      // 2. Somar todas as parcelas pendentes na tabela parcelas e compras avulsas no cartão
-      // (Frente 4: parcelas de compras parceladas moram na tabela 'parcelas' somando as cotas de cada competência,
-      // e compras à vista únicas moram em 'lancamentos' com regime='unico')
-      const { data: parcelasComprometidas } = await db
-        .from('parcelas')
-        .select('cartao_id, valor, status, lancamentos!inner(deleted_at)')
-        .eq('workspace_id', workspaceId)
-        .eq('status', 'pendente')
-        .is('lancamentos.deleted_at', null)
-
-      const mapComprometido: Record<string, number> = {}
-      for (const p of parcelasComprometidas || []) {
-        if (p.cartao_id) {
-          const v = Number(p.valor || 0)
-          mapComprometido[p.cartao_id] = (mapComprometido[p.cartao_id] || 0) + v
-        }
-      }
-
-      // Adiciona compras à vista (regime unico) pendentes
-      const { data: lancsAvulsosComprometidos } = await db
-        .from('lancamentos')
-        .select('cartao_id, valor, tipo')
-        .eq('workspace_id', workspaceId)
-        .eq('meio_pagamento_tipo', 'CARTAO')
-        .eq('regime', 'unico')
-        .eq('status_pagamento', 'pendente')
-        .is('deleted_at', null)
-
-      for (const l of lancsAvulsosComprometidos || []) {
-        if (l.cartao_id) {
-          const v = Number(l.valor || 0)
-          mapComprometido[l.cartao_id] =
-            (mapComprometido[l.cartao_id] || 0) + (l.tipo === 'despesa' ? v : -v)
-        }
-      }
-
-      for (const c of cartoes) {
-        c.total_comprometido = Math.max(0, mapComprometido[c.id] || c.fatura_atual || 0)
-      }
-    } catch (e) {
-      console.warn('Erro ao carregar totais de cartões:', e)
-    }
-
-    return cartoes
   },
 
   async getById(id: string): Promise<any | null> {
@@ -1530,10 +1483,22 @@ export const faturaService = {
     cartaoId: string,
     competencia: string,
   ): Promise<number> {
-    // Busca ou cria a fatura para a competência se não existir
+    try {
+      const { data, error } = await db.rpc('recalcular_fatura_rpc', {
+        p_workspace_id: workspaceId,
+        p_cartao_id: cartaoId,
+        p_competencia: competencia,
+      })
+      if (!error && data !== null && data !== undefined) {
+        return Number(data)
+      }
+    } catch (err) {
+      console.warn('Erro ao chamar recalcular_fatura_rpc, usando fallback:', err)
+    }
+
+    // Fallback legado se a RPC falhar
     await this.getOrCreateFatura(workspaceId, cartaoId, competencia)
 
-    // 1. Soma parcelas da competência cadastradas na tabela parcelas
     const { data: parcList } = await db
       .from('parcelas')
       .select('valor, lancamentos!inner(deleted_at)')
@@ -1549,7 +1514,6 @@ export const faturaService = {
       }
     }
 
-    // 2. Soma lançamentos de cartão que NÃO são parcelados (compras à vista no cartão)
     const { data: lancsAvulso } = await db
       .from('lancamentos')
       .select('valor, tipo')
@@ -1565,36 +1529,7 @@ export const faturaService = {
       else if (l.tipo === 'receita') totalAvulso -= Number(l.valor || 0)
     }
 
-    // Se não houver itens na tabela parcelas, fallback para soma direta dos lançamentos da competência
-    let total = 0
-    if (parcList && parcList.length > 0) {
-      total = totalParcelas + totalAvulso
-    } else {
-      const { data: todosLancs } = await db
-        .from('lancamentos')
-        .select('valor, tipo, total_parcelas, lancamento_pai_id, id')
-        .eq('workspace_id', workspaceId)
-        .eq('cartao_id', cartaoId)
-        .eq('competencia', competencia)
-        .is('deleted_at', null)
-
-      for (const l of todosLancs || []) {
-        // Se for lançamento pai com valor total que agora tem parcelas, não soma valor cheio
-        const ehPaiComTotal =
-          (l.total_parcelas || 1) > 1 && (!l.lancamento_pai_id || l.lancamento_pai_id === l.id)
-        if (ehPaiComTotal) {
-          // O valor de 1 parcela
-          const valParcela = Number(l.valor || 0) / Number(l.total_parcelas || 1)
-          total += valParcela
-        } else if (l.tipo === 'despesa') {
-          total += Number(l.valor || 0)
-        } else if (l.tipo === 'receita') {
-          total -= Number(l.valor || 0)
-        }
-      }
-    }
-
-    total = Math.max(0, total)
+    const total = Math.max(0, Math.round((totalParcelas + totalAvulso) * 100) / 100)
 
     await db
       .from('faturas')
@@ -2415,6 +2350,22 @@ export const lancamentoService = {
     const atual = await this.getById(lancamentoId)
     if (!atual) throw new Error('Lançamento não encontrado')
 
+    // Frente 4: Se for compra parcelada em cartão, operar SEMPRE sobre o original e excluir atomicamente via RPC
+    const ehParceladoCartao =
+      atual.meio_pagamento_tipo === 'CARTAO' &&
+      (atual.regime === 'parcelado' ||
+        (atual.total_parcelas || 1) > 1 ||
+        Boolean(atual.lancamento_pai_id))
+
+    if (ehParceladoCartao) {
+      const paiId = atual.lancamento_pai_id || atual.id
+      const res = await this.excluirCompraParcelada(workspaceId, paiId, userId)
+      return {
+        excluidos: 1,
+        faturasRecalculadas: (res as any)?.faturas_recalculadas || [],
+      }
+    }
+
     const serieCompleta = await this.getSerieParcelas(lancamentoId, workspaceId)
     const ehSerie = serieCompleta.length > 1
 
@@ -2530,6 +2481,60 @@ export const lancamentoService = {
     return { excluidos: idsAlvo.length, faturasRecalculadas: recalcs }
   },
 
+  // Frente 4: Regeneração atômica de compra parcelada de cartão via RPC
+  async regenerarCompraParcelada(
+    workspaceId: string,
+    lancamentoId: string,
+    dados: {
+      valor: number
+      data: string
+      quantidade_parcelas: number
+      descricao: string
+      categoria_id?: string | null
+      subcategoria_id?: string | null
+      observacao?: string | null
+    },
+    userId?: string,
+  ): Promise<any> {
+    const { data, error } = await db.rpc('regenerar_parcelas_lancamento', {
+      p_workspace_id: workspaceId,
+      p_lancamento_id: lancamentoId,
+      p_novo_valor: dados.valor,
+      p_nova_data: dados.data,
+      p_nova_quantidade_parcelas: dados.quantidade_parcelas,
+      p_nova_descricao: dados.descricao,
+      p_categoria_id: dados.categoria_id || null,
+      p_subcategoria_id: dados.subcategoria_id || null,
+      p_observacao: dados.observacao || null,
+      p_user_id: userId || null,
+    })
+
+    if (error) {
+      throw new Error(error.message || 'Falha ao regenerar parcelas')
+    }
+
+    return data
+  },
+
+  // Frente 4: Exclusão atômica de compra parcelada de cartão via RPC
+  async excluirCompraParcelada(
+    workspaceId: string,
+    lancamentoId: string,
+    userId?: string,
+  ): Promise<any> {
+    const { data, error } = await db.rpc('excluir_lancamento_parcelado_rpc', {
+      p_workspace_id: workspaceId,
+      p_lancamento_id: lancamentoId,
+      p_user_id: userId || null,
+    })
+
+    if (error) {
+      throw new Error(error.message || 'Falha ao excluir compra parcelada')
+    }
+
+    return data
+  },
+
   // Alterar com escopo: 'este' | 'este_e_proximos' | 'todos'
   async updateComEscopo(
     lancamentoId: string,
@@ -2539,6 +2544,7 @@ export const lancamentoService = {
       descricao?: string
       valor?: number
       data?: string
+      quantidade_parcelas?: number
       categoria_id?: string | null
       subcategoria_id?: string | null
       observacao?: string | null
@@ -2547,6 +2553,58 @@ export const lancamentoService = {
   ): Promise<{ alterados: number; faturasRecalculadas: string[] }> {
     const atual = await this.getById(lancamentoId)
     if (!atual) throw new Error('Lançamento não encontrado')
+
+    // Frente 4: Se for compra parcelada em cartão, operar SEMPRE sobre o lançamento original e regenerar
+    const ehParceladoCartao =
+      atual.meio_pagamento_tipo === 'CARTAO' &&
+      (atual.regime === 'parcelado' ||
+        (atual.total_parcelas || 1) > 1 ||
+        Boolean(atual.lancamento_pai_id))
+
+    if (ehParceladoCartao) {
+      const paiId = atual.lancamento_pai_id || atual.id
+      const paiObj = paiId === atual.id ? atual : await this.getById(paiId)
+      const novoValor =
+        novosDados.valor !== undefined
+          ? Number(novosDados.valor)
+          : Number(paiObj?.valor || atual.valor)
+      const novaData = novosDados.data || paiObj?.data || atual.data
+      const novaQtd =
+        novosDados.quantidade_parcelas !== undefined
+          ? Number(novosDados.quantidade_parcelas)
+          : Number(
+              paiObj?.total_parcelas || paiObj?.quantidade_parcelas || atual.total_parcelas || 1,
+            )
+      const novaDesc =
+        novosDados.descricao !== undefined
+          ? novosDados.descricao
+          : paiObj?.descricao || atual.descricao
+
+      const res = await this.regenerarCompraParcelada(
+        workspaceId,
+        paiId,
+        {
+          valor: novoValor,
+          data: novaData,
+          quantidade_parcelas: novaQtd,
+          descricao: novaDesc,
+          categoria_id:
+            novosDados.categoria_id !== undefined ? novosDados.categoria_id : paiObj?.categoria_id,
+          subcategoria_id:
+            novosDados.subcategoria_id !== undefined
+              ? novosDados.subcategoria_id
+              : paiObj?.subcategoria_id,
+          observacao:
+            novosDados.observacao !== undefined ? novosDados.observacao : paiObj?.observacao,
+        },
+        userId,
+      )
+
+      return {
+        alterados: novaQtd,
+        faturasRecalculadas: (res as any)?.faturas_recalculadas || [],
+      }
+    }
 
     const serieCompleta = await this.getSerieParcelas(lancamentoId, workspaceId)
     const ehSerie = serieCompleta.length > 1
