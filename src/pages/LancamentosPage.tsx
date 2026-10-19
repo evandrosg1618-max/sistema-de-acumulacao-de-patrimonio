@@ -31,6 +31,8 @@ import {
   ArrowUpDown,
   RefreshCw,
   FileCheck,
+  ThumbsUp,
+  ThumbsDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -53,6 +55,7 @@ import {
 } from '@/components/ui/select'
 import { ModalLancamento } from '@/components/ModalLancamento'
 import { ModalConciliacao } from '@/components/ModalConciliacao'
+import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { toast } from 'sonner'
 
 export default function LancamentosPage() {
@@ -64,7 +67,14 @@ export default function LancamentosPage() {
   const [loading, setLoading] = useState(true)
 
   // Filtros
+  const [modoFiltroData, setModoFiltroData] = useState<'competencia' | 'periodo' | 'especifica'>(
+    'competencia',
+  )
   const [anoMes, setAnoMes] = useState(getCurrentAnoMes())
+  const [dataInicio, setDataInicio] = useState('')
+  const [dataFim, setDataFim] = useState('')
+  const [dataEspecifica, setDataEspecifica] = useState('')
+
   const [filtroTipo, setFiltroTipo] = useState<string>('todos')
   const [filtroConta, setFiltroConta] = useState<string>('todas')
   const [filtroCartao, setFiltroCartao] = useState<string>('todos')
@@ -78,6 +88,13 @@ export default function LancamentosPage() {
   const [tipoModalPadrao, setTipoModalPadrao] = useState<TipoLancamento>('despesa')
   const [modalConciliacaoOpen, setModalConciliacaoOpen] = useState(false)
 
+  // Modal de escolha de escopo (alterar/excluir série parcelada)
+  const [modalEscopoOpen, setModalEscopoOpen] = useState(false)
+  const [acaoEscopo, setAcaoEscopo] = useState<'editar' | 'excluir'>('excluir')
+  const [lancamentoAlvoEscopo, setLancamentoAlvoEscopo] = useState<any>(null)
+  const [dadosEdicaoPendentes, setDadosEdicaoPendentes] = useState<any>(null)
+  const [processandoEscopo, setProcessandoEscopo] = useState(false)
+
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
 
@@ -88,16 +105,26 @@ export default function LancamentosPage() {
     }
     setLoading(true)
     try {
+      const filtrosConsulta: any = {
+        tipo: filtroTipo,
+        contaId: filtroConta,
+        cartaoId: filtroCartao,
+        categoriaId: filtroCategoria,
+        statusPagamento: filtroStatus,
+        busca: busca,
+      }
+
+      if (modoFiltroData === 'competencia') {
+        filtrosConsulta.competencia = anoMes
+      } else if (modoFiltroData === 'periodo') {
+        if (dataInicio) filtrosConsulta.dataInicio = dataInicio
+        if (dataFim) filtrosConsulta.dataFim = dataFim
+      } else if (modoFiltroData === 'especifica') {
+        if (dataEspecifica) filtrosConsulta.dataEspecifica = dataEspecifica
+      }
+
       const [lancsData, contasList, cartoesList, catsList] = await Promise.all([
-        lancamentoService.list(wsId, {
-          competencia: anoMes,
-          tipo: filtroTipo,
-          contaId: filtroConta,
-          cartaoId: filtroCartao,
-          categoriaId: filtroCategoria,
-          statusPagamento: filtroStatus,
-          busca: busca,
-        }),
+        lancamentoService.list(wsId, filtrosConsulta),
         contaService.list(wsId, false),
         cartaoService.list(wsId, false),
         categoriaService.listComSubcategorias(wsId),
@@ -117,7 +144,20 @@ export default function LancamentosPage() {
 
   useEffect(() => {
     carregarDados()
-  }, [wsId, anoMes, filtroTipo, filtroConta, filtroCartao, filtroCategoria, filtroStatus, busca])
+  }, [
+    wsId,
+    modoFiltroData,
+    anoMes,
+    dataInicio,
+    dataFim,
+    dataEspecifica,
+    filtroTipo,
+    filtroConta,
+    filtroCartao,
+    filtroCategoria,
+    filtroStatus,
+    busca,
+  ])
 
   // Ações de Lançamento
   const abrirNovoLancamento = (tipo: TipoLancamento = 'despesa') => {
@@ -136,6 +176,22 @@ export default function LancamentosPage() {
     if (!wsId) return
     try {
       if (dados.id) {
+        // Verifica se é série parcelada
+        const ehParcelado =
+          (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
+          (lancamentoEmEdicao?.total_parcelas && lancamentoEmEdicao.total_parcelas > 1) ||
+          Boolean(lancamentoEmEdicao?.lancamento_pai_id)
+
+        if (ehParcelado) {
+          // Guarda os dados pendentes e abre modal de escopo
+          setDadosEdicaoPendentes(dados)
+          setLancamentoAlvoEscopo(lancamentoEmEdicao)
+          setAcaoEscopo('editar')
+          setModalLancamentoOpen(false)
+          setModalEscopoOpen(true)
+          return
+        }
+
         await lancamentoService.update(dados.id, wsId, dados, user?.id)
         toast.success('Lançamento atualizado com sucesso!')
       } else {
@@ -164,32 +220,16 @@ export default function LancamentosPage() {
   const handleExcluirLancamento = async (l: Lancamento) => {
     if (!wsId) return
 
-    // Se fizer parte de uma compra parcelada no cartão, perguntar se quer cancelar a série inteira
+    // Se fizer parte de uma compra parcelada, abre modal de escopo (este, este e próximos, todos)
     const ehParcelado =
       (l.total_parcelas && l.total_parcelas > 1) ||
       (l.quantidade_parcelas && l.quantidade_parcelas > 1) ||
       Boolean(l.lancamento_pai_id)
 
     if (ehParcelado) {
-      const paiId = l.lancamento_pai_id || l.id
-      const cancelarTudo = window.confirm(
-        `Este lançamento faz parte de uma compra parcelada (${l.numero_parcela || 1}/${
-          l.total_parcelas || l.quantidade_parcelas
-        }).\n\nClique em [OK] para cancelar TODAS as parcelas da série,\nou [Cancelar] para excluir apenas esta parcela individual.`,
-      )
-
-      try {
-        if (cancelarTudo) {
-          await lancamentoService.softDeleteSerie(paiId, wsId, user?.id)
-          toast.success('Todas as parcelas da série foram canceladas!')
-        } else {
-          await lancamentoService.softDelete(l.id, wsId, user?.id)
-          toast.success('Parcela individual cancelada!')
-        }
-        await carregarDados()
-      } catch (err: any) {
-        toast.error('Erro ao excluir lançamento: ' + (err.message || ''))
-      }
+      setLancamentoAlvoEscopo(l)
+      setAcaoEscopo('excluir')
+      setModalEscopoOpen(true)
       return
     }
 
@@ -197,11 +237,63 @@ export default function LancamentosPage() {
     if (!confirmou) return
 
     try {
-      await lancamentoService.softDelete(l.id, wsId, user?.id)
+      await lancamentoService.deleteComEscopo(l.id, wsId, 'este', user?.id)
       toast.success('Lançamento excluído/estornado com sucesso!')
       await carregarDados()
     } catch (err: any) {
       toast.error('Erro ao excluir: ' + (err.message || ''))
+    }
+  }
+
+  const handleConfirmarEscopo = async (escopo: EscopoSerie) => {
+    if (!wsId || !lancamentoAlvoEscopo) return
+    setProcessandoEscopo(true)
+    try {
+      if (acaoEscopo === 'excluir') {
+        const res = await lancamentoService.deleteComEscopo(
+          lancamentoAlvoEscopo.id,
+          wsId,
+          escopo,
+          user?.id,
+        )
+        toast.success(
+          `${res.excluidos} lançamento(s) excluído(s). ${
+            res.faturasRecalculadas.length > 0
+              ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
+              : ''
+          }`,
+        )
+      } else {
+        const res = await lancamentoService.updateComEscopo(
+          lancamentoAlvoEscopo.id,
+          wsId,
+          escopo,
+          {
+            descricao: dadosEdicaoPendentes?.descricao,
+            valor: dadosEdicaoPendentes?.valor,
+            data: dadosEdicaoPendentes?.data,
+            categoria_id: dadosEdicaoPendentes?.categoria_id,
+            subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
+            observacao: dadosEdicaoPendentes?.observacao,
+          },
+          user?.id,
+        )
+        toast.success(
+          `${res.alterados} lançamento(s) atualizado(s). ${
+            res.faturasRecalculadas.length > 0
+              ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
+              : ''
+          }`,
+        )
+      }
+      setModalEscopoOpen(false)
+      setLancamentoAlvoEscopo(null)
+      setDadosEdicaoPendentes(null)
+      await carregarDados()
+    } catch (err: any) {
+      toast.error(err.message || 'Não foi possível completar a operação')
+    } finally {
+      setProcessandoEscopo(false)
     }
   }
 
@@ -362,45 +454,122 @@ export default function LancamentosPage() {
         </div>
       </div>
 
-      {/* 2. BARRA DE FILTROS & NAVEGAÇÃO POR MÊS */}
+      {/* 2. BARRA DE FILTROS & NAVEGAÇÃO POR COMPETÊNCIA, DATA E PERÍODO */}
       <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-          {/* Navegador de Mês */}
-          <div className="flex items-center gap-2">
-            <Label className="text-xs font-semibold text-slate-500 whitespace-nowrap">
-              Competência:
-            </Label>
-            <Input
-              type="month"
-              value={anoMes}
-              onChange={(e) => setAnoMes(e.target.value)}
-              className="w-40 text-xs h-9 font-semibold"
-            />
-            <span className="text-xs font-medium text-slate-600 hidden sm:inline">
-              ({formatAnoMesPT(anoMes)})
-            </span>
+        {/* Linha superior: Modo de Data + Campos de Data + Busca */}
+        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+          {/* Seletor de Modo de Filtro de Data */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
+              <button
+                type="button"
+                onClick={() => setModoFiltroData('competencia')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition ${
+                  modoFiltroData === 'competencia'
+                    ? 'bg-white text-teal-800 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Competência
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoFiltroData('periodo')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition ${
+                  modoFiltroData === 'periodo'
+                    ? 'bg-white text-teal-800 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Período (De/Até)
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoFiltroData('especifica')}
+                className={`px-2.5 py-1 rounded-md font-semibold transition ${
+                  modoFiltroData === 'especifica'
+                    ? 'bg-white text-teal-800 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Data Específica
+              </button>
+            </div>
+
+            {/* Inputs contextuais ao modo escolhido */}
+            {modoFiltroData === 'competencia' && (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="month"
+                  value={anoMes}
+                  onChange={(e) => setAnoMes(e.target.value)}
+                  className="w-36 text-xs h-8 font-semibold bg-white text-slate-900 border-slate-300 focus:ring-teal-500"
+                />
+                <span className="text-xs font-semibold text-teal-700 hidden sm:inline">
+                  {formatAnoMesPT(anoMes)}
+                </span>
+              </div>
+            )}
+
+            {modoFiltroData === 'periodo' && (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <div className="flex items-center gap-1 text-xs">
+                  <span className="text-slate-500 font-medium">De:</span>
+                  <Input
+                    type="date"
+                    value={dataInicio}
+                    onChange={(e) => setDataInicio(e.target.value)}
+                    className="w-32 text-xs h-8 bg-white text-slate-900 border-slate-300"
+                  />
+                </div>
+                <div className="flex items-center gap-1 text-xs">
+                  <span className="text-slate-500 font-medium">Até:</span>
+                  <Input
+                    type="date"
+                    value={dataFim}
+                    onChange={(e) => setDataFim(e.target.value)}
+                    className="w-32 text-xs h-8 bg-white text-slate-900 border-slate-300"
+                  />
+                </div>
+              </div>
+            )}
+
+            {modoFiltroData === 'especifica' && (
+              <div className="flex items-center gap-1 text-xs">
+                <span className="text-slate-500 font-medium">Data:</span>
+                <Input
+                  type="date"
+                  value={dataEspecifica}
+                  onChange={(e) => setDataEspecifica(e.target.value)}
+                  className="w-36 text-xs h-8 bg-white text-slate-900 border-slate-300"
+                />
+              </div>
+            )}
           </div>
 
           {/* Busca por texto */}
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+          <div className="relative flex-1 max-w-sm">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2" />
             <Input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
               placeholder="Buscar descrição de lançamento..."
-              className="pl-9 text-xs h-9"
+              className="pl-9 text-xs h-8 bg-white text-slate-900 placeholder:text-slate-400 border-slate-300"
             />
           </div>
         </div>
 
-        {/* Filtros em Linha */}
+        {/* Filtros em Linha com visual claro e alto contraste */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100 text-xs">
           <div>
+            <Label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
+              Tipo
+            </Label>
             <Select value={filtroTipo} onValueChange={setFiltroTipo}>
-              <SelectTrigger className="h-8 text-xs">
+              <SelectTrigger className="h-8 text-xs bg-white text-slate-900 font-medium border-slate-300 shadow-2xs hover:bg-slate-50">
                 <SelectValue placeholder="Tipo" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="bg-white text-slate-900 border-slate-200">
                 <SelectItem value="todos">Todos os Tipos</SelectItem>
                 <SelectItem value="despesa">Somente Despesas</SelectItem>
                 <SelectItem value="receita">Somente Receitas</SelectItem>
@@ -410,11 +579,14 @@ export default function LancamentosPage() {
           </div>
 
           <div>
+            <Label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
+              Conta
+            </Label>
             <Select value={filtroConta} onValueChange={setFiltroConta}>
-              <SelectTrigger className="h-8 text-xs">
+              <SelectTrigger className="h-8 text-xs bg-white text-slate-900 font-medium border-slate-300 shadow-2xs hover:bg-slate-50">
                 <SelectValue placeholder="Conta" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="bg-white text-slate-900 border-slate-200 max-h-56">
                 <SelectItem value="todas">Todas as Contas</SelectItem>
                 {contas.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
@@ -426,11 +598,14 @@ export default function LancamentosPage() {
           </div>
 
           <div>
+            <Label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
+              Cartão
+            </Label>
             <Select value={filtroCartao} onValueChange={setFiltroCartao}>
-              <SelectTrigger className="h-8 text-xs">
+              <SelectTrigger className="h-8 text-xs bg-white text-slate-900 font-medium border-slate-300 shadow-2xs hover:bg-slate-50">
                 <SelectValue placeholder="Cartão" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="bg-white text-slate-900 border-slate-200 max-h-56">
                 <SelectItem value="todos">Todos os Cartões</SelectItem>
                 {cartoes.map((c) => (
                   <SelectItem key={c.id} value={c.id}>
@@ -442,11 +617,14 @@ export default function LancamentosPage() {
           </div>
 
           <div>
+            <Label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
+              Status Pagamento
+            </Label>
             <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-              <SelectTrigger className="h-8 text-xs">
+              <SelectTrigger className="h-8 text-xs bg-white text-slate-900 font-medium border-slate-300 shadow-2xs hover:bg-slate-50">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
-              <SelectContent>
+              <SelectContent className="bg-white text-slate-900 border-slate-200">
                 <SelectItem value="todos">Todos os Status</SelectItem>
                 <SelectItem value="pago">Somente Pagos / Realizados</SelectItem>
                 <SelectItem value="pendente">Somente Pendentes / Previstos</SelectItem>
@@ -611,17 +789,35 @@ export default function LancamentosPage() {
                         {isDespesa ? '- ' : isReceita ? '+ ' : ''}
                         {formatMoneyBRL(l.valor)}
                       </div>
-                      <div className="text-[10px]">
+                      <div className="text-[10px] mt-1 flex items-center justify-end gap-1.5">
                         {l.meio_pagamento_tipo === 'CARTAO' ? (
-                          <span className="text-indigo-600 font-medium">Na fatura</span>
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed"
+                            title="Pagamento e desfazimento deste lançamento são feitos exclusivamente através da fatura do cartão."
+                          >
+                            <CreditCard className="w-3 h-3 text-indigo-500" />
+                            Pago na fatura
+                          </span>
                         ) : isPago ? (
-                          <span className="text-emerald-600 font-medium flex items-center justify-end gap-1">
-                            <CheckCircle2 className="w-3 h-3" /> Pago
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePago(l)}
+                            title="Lançamento PAGO. Clique para desfazer pagamento (alterar para Não Pago / estornar da conta)."
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-xs transition active:scale-95 cursor-pointer"
+                          >
+                            <ThumbsUp className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>Pago</span>
+                          </button>
                         ) : (
-                          <span className="text-amber-600 font-medium flex items-center justify-end gap-1">
-                            <Clock className="w-3 h-3" /> Previsto
-                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleTogglePago(l)}
+                            title="Lançamento NÃO PAGO. Clique para confirmar pagamento (marcar como Pago e debitar da conta)."
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white shadow-xs transition active:scale-95 cursor-pointer"
+                          >
+                            <ThumbsDown className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>Não Pago</span>
+                          </button>
                         )}
                       </div>
                     </div>
@@ -697,6 +893,20 @@ export default function LancamentosPage() {
         onOpenChange={setModalConciliacaoOpen}
         contas={contas}
         onSalvar={handleSalvarConciliacao}
+      />
+
+      {/* MODAL DE ESCOLHA DE ESCOPO DE SÉRIE PARCELADA */}
+      <ModalEscolhaEscopoSerie
+        open={modalEscopoOpen}
+        acao={acaoEscopo}
+        lancamento={lancamentoAlvoEscopo}
+        onConfirmar={handleConfirmarEscopo}
+        onCancelar={() => {
+          setModalEscopoOpen(false)
+          setLancamentoAlvoEscopo(null)
+          setDadosEdicaoPendentes(null)
+        }}
+        loading={processandoEscopo}
       />
     </div>
   )

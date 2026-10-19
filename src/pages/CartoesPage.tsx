@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/use-auth'
-import { cartaoService, faturaService, contaService, lancamentoService } from '@/services/sap'
+import {
+  cartaoService,
+  faturaService,
+  contaService,
+  lancamentoService,
+  categoriaService,
+} from '@/services/sap'
 import { Cartao, Fatura, Conta, Lancamento, TipoLancamento } from '@/types/sap'
 import { formatMoneyBRL, getCurrentAnoMes, formatAnoMesPT } from '@/lib/formatters'
 import {
@@ -25,6 +31,7 @@ import {
 } from 'lucide-react'
 import { ModalLancamento } from '@/components/ModalLancamento'
 import { ModalPagamentoFatura } from '@/components/ModalPagamentoFatura'
+import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -79,6 +86,22 @@ export default function CartoesPage() {
   const [lancamentosFatura, setLancamentosFatura] = useState<Record<string, Lancamento[]>>({})
   const [carregandoDetalheFatura, setCarregandoDetalheFatura] = useState<string | null>(null)
 
+  // Categorias para ModalLancamento dentro da fatura
+  const [categorias, setCategorias] = useState<any[]>([])
+
+  // Modal de Lançamento direto na fatura
+  const [modalLancamentoOpen, setModalLancamentoOpen] = useState(false)
+  const [lancamentoFaturaEmEdicao, setLancamentoFaturaEmEdicao] = useState<any>(null)
+  const [cartaoIdParaNovoLanc, setCartaoIdParaNovoLanc] = useState<string>('')
+  const [dataPadraoParaNovoLanc, setDataPadraoParaNovoLanc] = useState<string>('')
+
+  // Modal de escolha de escopo de série
+  const [modalEscopoOpen, setModalEscopoOpen] = useState(false)
+  const [acaoEscopo, setAcaoEscopo] = useState<'editar' | 'excluir'>('excluir')
+  const [lancamentoAlvoEscopo, setLancamentoAlvoEscopo] = useState<any>(null)
+  const [dadosEdicaoPendentes, setDadosEdicaoPendentes] = useState<any>(null)
+  const [processandoEscopo, setProcessandoEscopo] = useState(false)
+
   // Competência selecionada para visualização detalhada em cada cartão
   const [competenciaFiltro, setCompetenciaFiltro] = useState<string>(getCurrentAnoMes())
   const [resumosFatura, setResumosFatura] = useState<Record<string, any>>({})
@@ -99,12 +122,14 @@ export default function CartoesPage() {
     if (!wsId) return
     setLoading(true)
     try {
-      const [data, contasList] = await Promise.all([
+      const [data, contasList, catsList] = await Promise.all([
         cartaoService.list(wsId, false),
         contaService.list(wsId, false),
+        categoriaService.listComSubcategorias(wsId),
       ])
       setCartoes(data)
       setContas(contasList)
+      setCategorias(catsList)
 
       // Carregar histórico de faturas para cada cartão
       const faturasTemp: Record<string, Fatura[]> = {}
@@ -251,6 +276,140 @@ export default function CartoesPage() {
       await carregarCartoes()
     } catch (err: any) {
       toast.error('Erro ao reabrir fatura: ' + (err.message || ''))
+    }
+  }
+
+  // FRENTE 1: Ações de Lançamentos dentro da Fatura
+  const abrirNovoLancamentoNaFatura = (cartao: Cartao) => {
+    setLancamentoFaturaEmEdicao(null)
+    setCartaoIdParaNovoLanc(cartao.id)
+    // Data padrão: usar primeiro dia da competência ou data de hoje se coincidir
+    const [ano, mes] = competenciaFiltro.split('-')
+    const dataEstimada = `${ano}-${mes}-01`
+    setDataPadraoParaNovoLanc(dataEstimada)
+    setModalLancamentoOpen(true)
+  }
+
+  const abrirEdicaoLancamentoFatura = (item: any) => {
+    setLancamentoFaturaEmEdicao(item)
+    setCartaoIdParaNovoLanc(item.cartao_id || '')
+    setModalLancamentoOpen(true)
+  }
+
+  const handleSalvarLancamentoFatura = async (dados: any, criarOutro = false) => {
+    if (!wsId) return
+    try {
+      if (dados.id) {
+        // Se for série parcelada, abre modal de escopo
+        const ehParcelado =
+          (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
+          (lancamentoFaturaEmEdicao?.total_parcelas &&
+            lancamentoFaturaEmEdicao.total_parcelas > 1) ||
+          Boolean(lancamentoFaturaEmEdicao?.lancamento_pai_id)
+
+        if (ehParcelado) {
+          setDadosEdicaoPendentes(dados)
+          setLancamentoAlvoEscopo(lancamentoFaturaEmEdicao)
+          setAcaoEscopo('editar')
+          setModalLancamentoOpen(false)
+          setModalEscopoOpen(true)
+          return
+        }
+
+        await lancamentoService.update(dados.id, wsId, dados, user?.id)
+        toast.success('Lançamento atualizado com sucesso!')
+      } else {
+        await lancamentoService.create({
+          ...dados,
+          workspace_id: wsId,
+          created_by: user?.id,
+        })
+        toast.success('Compra incluída na fatura do cartão com sucesso!')
+      }
+
+      await carregarCartoes()
+    } catch (err: any) {
+      toast.error('Erro ao salvar lançamento: ' + (err.message || ''))
+      throw err
+    }
+  }
+
+  const handleExcluirLancamentoFatura = async (item: any) => {
+    if (!wsId) return
+
+    const ehParcelado =
+      (item.total_parcelas && item.total_parcelas > 1) ||
+      (item.quantidade_parcelas && item.quantidade_parcelas > 1) ||
+      Boolean(item.lancamento_pai_id)
+
+    if (ehParcelado) {
+      setLancamentoAlvoEscopo(item)
+      setAcaoEscopo('excluir')
+      setModalEscopoOpen(true)
+      return
+    }
+
+    const confirma = window.confirm(`Deseja realmente excluir "${item.descricao}" desta fatura?`)
+    if (!confirma) return
+
+    try {
+      await lancamentoService.deleteComEscopo(item.id, wsId, 'este', user?.id)
+      toast.success('Lançamento excluído e faturas recalculadas!')
+      await carregarCartoes()
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao excluir')
+    }
+  }
+
+  const handleConfirmarEscopoFatura = async (escopo: EscopoSerie) => {
+    if (!wsId || !lancamentoAlvoEscopo) return
+    setProcessandoEscopo(true)
+    try {
+      if (acaoEscopo === 'excluir') {
+        const res = await lancamentoService.deleteComEscopo(
+          lancamentoAlvoEscopo.id,
+          wsId,
+          escopo,
+          user?.id,
+        )
+        toast.success(
+          `${res.excluidos} lançamento(s) excluído(s). ${
+            res.faturasRecalculadas.length > 0
+              ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
+              : ''
+          }`,
+        )
+      } else {
+        const res = await lancamentoService.updateComEscopo(
+          lancamentoAlvoEscopo.id,
+          wsId,
+          escopo,
+          {
+            descricao: dadosEdicaoPendentes?.descricao,
+            valor: dadosEdicaoPendentes?.valor,
+            data: dadosEdicaoPendentes?.data,
+            categoria_id: dadosEdicaoPendentes?.categoria_id,
+            subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
+            observacao: dadosEdicaoPendentes?.observacao,
+          },
+          user?.id,
+        )
+        toast.success(
+          `${res.alterados} lançamento(s) atualizado(s). ${
+            res.faturasRecalculadas.length > 0
+              ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
+              : ''
+          }`,
+        )
+      }
+      setModalEscopoOpen(false)
+      setLancamentoAlvoEscopo(null)
+      setDadosEdicaoPendentes(null)
+      await carregarCartoes()
+    } catch (err: any) {
+      toast.error(err.message || 'Não foi possível completar a operação')
+    } finally {
+      setProcessandoEscopo(false)
     }
   }
 
@@ -710,26 +869,49 @@ export default function CartoesPage() {
                             </div>
                           </div>
 
-                          {/* Lista de compras e parcelas da competência (Build 3 Especificação) */}
+                          {/* Lista de compras e parcelas da competência com conferência, inclusão, edição e exclusão */}
                           <div className="space-y-2">
-                            <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-semibold text-slate-700">
                               <span className="flex items-center gap-1.5">
                                 <Layers className="w-3.5 h-3.5 text-indigo-600" />
                                 Compras e Parcelas desta Fatura ({resumo?.itens?.length || 0}):
                               </span>
-                              <span className="text-[11px] text-slate-400 font-normal">
-                                Corte dia {cartao.dia_fechamento} • Compras após este dia entram no
-                                próximo mês
-                              </span>
+                              <div className="flex items-center gap-3">
+                                <span className="text-[11px] text-slate-400 font-normal hidden sm:inline">
+                                  Corte dia {cartao.dia_fechamento} • Vencimento dia{' '}
+                                  {cartao.dia_vencimento}
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => abrirNovoLancamentoNaFatura(cartao)}
+                                  className="h-7 text-xs bg-indigo-50 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                                >
+                                  <Plus className="w-3 h-3 mr-1" />
+                                  Incluir na Fatura
+                                </Button>
+                              </div>
                             </div>
 
                             {!resumo?.itens || resumo.itens.length === 0 ? (
-                              <div className="p-4 bg-slate-50 rounded-lg text-center text-xs text-slate-400">
-                                Nenhuma compra ou parcela caindo nesta competência (
-                                {competenciaFiltro}).
+                              <div className="p-6 bg-slate-50 rounded-lg text-center space-y-2 border border-dashed border-slate-200">
+                                <p className="text-xs text-slate-500 font-medium">
+                                  Nenhum lançamento ou parcela nesta fatura ({competenciaFiltro}).
+                                </p>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => abrirNovoLancamentoNaFatura(cartao)}
+                                  className="h-7 text-xs bg-white text-indigo-700 border-indigo-200"
+                                >
+                                  <Plus className="w-3 h-3 mr-1" />
+                                  Lançar compra nesta fatura
+                                </Button>
                               </div>
                             ) : (
-                              <div className="divide-y divide-slate-100 max-h-60 overflow-y-auto border border-slate-100 rounded-lg">
+                              <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto border border-slate-200 rounded-lg bg-white">
                                 {resumo.itens.map((l: any) => {
                                   const numP = l.numero_parcela || 1
                                   const totP = l.total_parcelas || l.quantidade_parcelas || 1
@@ -738,35 +920,64 @@ export default function CartoesPage() {
                                   return (
                                     <div
                                       key={l.id}
-                                      className="flex items-center justify-between p-2.5 hover:bg-slate-50 text-xs transition"
+                                      className="flex items-center justify-between p-2.5 sm:px-3 hover:bg-slate-50 text-xs transition group"
                                     >
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-slate-400 text-[11px] min-w-[70px]">
+                                      <div className="flex items-center gap-2.5 min-w-0">
+                                        <span className="text-slate-400 text-[11px] font-mono shrink-0">
                                           {l.data ? l.data.split('-').reverse().join('/') : ''}
                                         </span>
-                                        <div className="flex flex-col">
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="font-semibold text-slate-800">
+                                        <div className="flex flex-col min-w-0">
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="font-semibold text-slate-800 truncate">
                                               {l.descricao}
                                             </span>
                                             {ehParcela && (
-                                              <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] py-0 px-1.5 font-bold">
+                                              <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
                                                 {numP}/{totP}
                                               </Badge>
                                             )}
                                           </div>
                                           {l.categorias?.nome && (
-                                            <span className="text-[10px] text-slate-400">
+                                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                                              <span
+                                                className="w-1.5 h-1.5 rounded-full inline-block"
+                                                style={{
+                                                  backgroundColor: l.categorias.cor || '#64748B',
+                                                }}
+                                              />
                                               {l.categorias.nome}
                                             </span>
                                           )}
                                         </div>
                                       </div>
 
-                                      <div className="text-right">
-                                        <span className="font-bold text-rose-600">
+                                      <div className="flex items-center gap-3 shrink-0 pl-2">
+                                        <span className="font-bold text-rose-600 text-xs sm:text-sm">
                                           {formatMoneyBRL(l.valor)}
                                         </span>
+
+                                        <div className="flex items-center gap-0.5">
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => abrirEdicaoLancamentoFatura(l)}
+                                            title="Alterar lançamento desta fatura"
+                                            className="h-7 w-7 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                          >
+                                            <Edit2 className="w-3.5 h-3.5" />
+                                          </Button>
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            onClick={() => handleExcluirLancamentoFatura(l)}
+                                            title="Excluir lançamento desta fatura"
+                                            className="h-7 w-7 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </Button>
+                                        </div>
                                       </div>
                                     </div>
                                   )
@@ -857,6 +1068,36 @@ export default function CartoesPage() {
         nomeCartao={cartaoFaturaPagar?.nome}
         contas={contas}
         onConfirmar={handlePagarFatura}
+      />
+
+      {/* Modal de Lançamento / Edição direto na Fatura */}
+      <ModalLancamento
+        open={modalLancamentoOpen}
+        onOpenChange={setModalLancamentoOpen}
+        onSave={handleSalvarLancamentoFatura}
+        initialData={lancamentoFaturaEmEdicao}
+        tipoPadrao="despesa"
+        cartaoPadraoId={cartaoIdParaNovoLanc}
+        dataPadrao={dataPadraoParaNovoLanc}
+        contas={contas}
+        cartoes={cartoes}
+        categorias={categorias}
+        workspaceId={wsId || ''}
+        userId={user?.id}
+      />
+
+      {/* Modal de Escolha de Escopo (série parcelada da fatura) */}
+      <ModalEscolhaEscopoSerie
+        open={modalEscopoOpen}
+        acao={acaoEscopo}
+        lancamento={lancamentoAlvoEscopo}
+        onConfirmar={handleConfirmarEscopoFatura}
+        onCancelar={() => {
+          setModalEscopoOpen(false)
+          setLancamentoAlvoEscopo(null)
+          setDadosEdicaoPendentes(null)
+        }}
+        loading={processandoEscopo}
       />
 
       {/* Modal Cadastro/Edição */}

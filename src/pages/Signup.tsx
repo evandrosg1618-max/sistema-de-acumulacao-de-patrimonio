@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
+import { invitationService } from '@/services/sap'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -13,14 +14,18 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { toast } from 'sonner'
-import { ShieldCheck, User, Lock, Mail } from 'lucide-react'
+import { ShieldCheck, User, Lock, Mail, Users } from 'lucide-react'
 
 export default function Signup() {
+  const [searchParams] = useSearchParams()
+  const inviteToken = searchParams.get('invite')
+  const emailParam = searchParams.get('email')
+
   const [nome, setNome] = useState('')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(emailParam || '')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const { signUp } = useAuth()
+  const { signUp, refreshProfileAndWorkspaces } = useAuth()
   const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,6 +46,21 @@ export default function Signup() {
       if (error) {
         toast.error('Erro ao cadastrar: ' + (error.message || 'Verifique seus dados'))
       } else {
+        // Se houver inviteToken, redireciona para a rota do convite para aceitá-lo automaticamente
+        if (inviteToken) {
+          try {
+            await invitationService.aceitar(inviteToken)
+            toast.success('Cadastro realizado e convite aceito com sucesso!')
+            await refreshProfileAndWorkspaces()
+            navigate('/')
+            return
+          } catch (invErr) {
+            console.warn('Auto-aceite falhou, direcionando para tela de convite:', invErr)
+            navigate(`/convite/${inviteToken}`)
+            return
+          }
+        }
+
         toast.success('Cadastro realizado! Seu espaço familiar foi gerado.')
         navigate('/')
       }
@@ -69,10 +89,18 @@ export default function Signup() {
         <Card className="border-slate-200 shadow-sm bg-white">
           <form onSubmit={handleSubmit}>
             <CardHeader className="space-y-1">
-              <CardTitle className="text-lg">Novo Cadastro</CardTitle>
+              <CardTitle className="text-lg flex items-center justify-between">
+                <span>Novo Cadastro</span>
+                {inviteToken && (
+                  <span className="text-[11px] font-semibold text-teal-600 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                    Com Convite
+                  </span>
+                )}
+              </CardTitle>
               <CardDescription className="text-xs">
-                Ao se cadastrar, seu perfil e seu primeiro workspace familiar são provisionados
-                automaticamente.
+                {inviteToken
+                  ? 'Cadastre-se para aceitar o convite e acessar o espaço familiar compartilhado.'
+                  : 'Ao se cadastrar, seu perfil e seu primeiro workspace familiar são provisionados automaticamente.'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">

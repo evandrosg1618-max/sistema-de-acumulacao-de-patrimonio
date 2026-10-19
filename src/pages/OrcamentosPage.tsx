@@ -6,6 +6,7 @@ import { formatMoneyBRL, getCurrentAnoMes, formatAnoMesPT } from '@/lib/formatte
 import {
   Target,
   Plus,
+  Edit2,
   Trash2,
   Calendar,
   AlertCircle,
@@ -45,6 +46,7 @@ export default function OrcamentosPage() {
   const [loading, setLoading] = useState(true)
 
   const [modalOpen, setModalOpen] = useState(false)
+  const [editingOrcamento, setEditingOrcamento] = useState<Orcamento | null>(null)
   const [categoriaId, setCategoriaId] = useState('')
   const [limite, setLimite] = useState('1.000,00')
   const [saving, setSaving] = useState(false)
@@ -92,11 +94,19 @@ export default function OrcamentosPage() {
       toast.error('Cadastre ao menos uma categoria de despesa antes de definir um orçamento')
       return
     }
+    setEditingOrcamento(null)
     // Seleciona primeira categoria ainda sem orçamento no mês
     const jaTem = new Set(orcamentos.map((o) => o.categoria_id))
     const primeiraDisponivel = categorias.find((c) => !jaTem.has(c.id))
     setCategoriaId(primeiraDisponivel ? primeiraDisponivel.id : categorias[0].id)
     setLimite('1.000,00')
+    setModalOpen(true)
+  }
+
+  const abrirEdicao = (o: Orcamento) => {
+    setEditingOrcamento(o)
+    setCategoriaId(o.categoria_id)
+    setLimite(o.limite ? o.limite.toFixed(2).replace('.', ',') : '1.000,00')
     setModalOpen(true)
   }
 
@@ -349,8 +359,19 @@ export default function OrcamentosPage() {
                         <Button
                           variant="ghost"
                           size="icon"
+                          onClick={() => abrirEdicao(o)}
+                          title="Editar limite do orçamento"
+                          className="h-7 w-7 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
                           onClick={() => handleExcluir(o)}
-                          className="h-7 w-7 text-slate-400 hover:text-rose-600"
+                          title="Excluir limite do orçamento"
+                          className="h-7 w-7 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
@@ -377,7 +398,9 @@ export default function OrcamentosPage() {
         <DialogContent className="sm:max-w-md">
           <form onSubmit={handleSalvar}>
             <DialogHeader>
-              <DialogTitle>Definir Limite de Orçamento</DialogTitle>
+              <DialogTitle>
+                {editingOrcamento ? 'Editar Limite de Orçamento' : 'Definir Limite de Orçamento'}
+              </DialogTitle>
               <DialogDescription>
                 Competência: <strong>{formatAnoMesPT(anoMes)}</strong>
               </DialogDescription>
@@ -389,7 +412,11 @@ export default function OrcamentosPage() {
                   Categoria de Despesa *
                 </Label>
                 <input type="hidden" name="categoriaId" value={categoriaId} />
-                <Select value={categoriaId} onValueChange={setCategoriaId}>
+                <Select
+                  value={categoriaId}
+                  onValueChange={setCategoriaId}
+                  disabled={Boolean(editingOrcamento)}
+                >
                   <SelectTrigger className="mt-1" id="cat-orc">
                     <SelectValue placeholder="Selecione a categoria" />
                   </SelectTrigger>
@@ -401,6 +428,11 @@ export default function OrcamentosPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {editingOrcamento && (
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Categoria fixada para esta edição de limite.
+                  </p>
+                )}
               </div>
 
               <div>
@@ -413,7 +445,7 @@ export default function OrcamentosPage() {
                   placeholder="1.000,00"
                   value={limite}
                   onChange={(e) => setLimite(e.target.value)}
-                  className="mt-1"
+                  className="mt-1 font-semibold text-sm"
                   autoFocus
                   required
                 />
@@ -433,7 +465,7 @@ export default function OrcamentosPage() {
                 disabled={saving}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
-                {saving ? 'Gravando...' : 'Salvar Limite'}
+                {saving ? 'Gravando...' : editingOrcamento ? 'Atualizar Limite' : 'Salvar Limite'}
               </Button>
             </DialogFooter>
           </form>

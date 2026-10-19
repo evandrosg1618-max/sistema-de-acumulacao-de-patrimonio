@@ -94,9 +94,7 @@ export default function UsuariosPage() {
         userId: user?.id,
       })
 
-      const linkConvite = `${window.location.origin}/signup?invite=${convite.token_hash}&email=${encodeURIComponent(
-        emailLimpo,
-      )}`
+      const linkConvite = `${window.location.origin}/convite/${convite.token_hash}`
       setUltimoLinkGerado(linkConvite)
       toast.success(`Convite gerado para ${emailLimpo}! Copie o link abaixo para enviar.`)
       setInviteEmail('')
@@ -312,9 +310,7 @@ export default function UsuariosPage() {
           ) : (
             <div className="divide-y divide-slate-100">
               {invitations.map((inv) => {
-                const link = `${window.location.origin}/signup?invite=${inv.token_hash}&email=${encodeURIComponent(
-                  inv.email,
-                )}`
+                const link = `${window.location.origin}/convite/${inv.token_hash}`
                 const isPendente = inv.status === 'pendente'
 
                 return (

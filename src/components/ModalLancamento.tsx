@@ -54,6 +54,8 @@ interface ModalLancamentoProps {
   categorias: Categoria[]
   workspaceId: string
   userId?: string
+  cartaoPadraoId?: string
+  dataPadrao?: string
 }
 
 export function ModalLancamento({
@@ -67,6 +69,8 @@ export function ModalLancamento({
   categorias,
   workspaceId,
   userId,
+  cartaoPadraoId,
+  dataPadrao,
 }: ModalLancamentoProps) {
   const [tipo, setTipo] = useState<TipoLancamento>(tipoPadrao)
   const [descricao, setDescricao] = useState('')
@@ -136,8 +140,12 @@ export function ModalLancamento({
       setTipo(tipoPadrao)
       setDescricao('')
       setValor('')
-      setData(new Date().toISOString().split('T')[0])
-      setPagoComDestino(getValorPadraoOrigem())
+      setData(dataPadrao || new Date().toISOString().split('T')[0])
+      if (cartaoPadraoId) {
+        setPagoComDestino(`cartao:${cartaoPadraoId}`)
+      } else {
+        setPagoComDestino(getValorPadraoOrigem())
+      }
       setContaOrigemId(contas.length > 0 ? contas[0].id : '')
       setContaDestinoId(contas.length > 1 ? contas[1].id : '')
       const catsDoTipo = categorias.filter((c) =>
@@ -149,7 +157,7 @@ export function ModalLancamento({
       setObservacao('')
       setQuantidadeParcelas(1)
     }
-  }, [open, initialData, tipoPadrao])
+  }, [open, initialData, tipoPadrao, cartaoPadraoId, dataPadrao])
 
   // Ajustar categorias ao mudar o tipo
   useEffect(() => {

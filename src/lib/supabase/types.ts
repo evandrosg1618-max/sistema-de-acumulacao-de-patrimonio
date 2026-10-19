@@ -504,7 +504,9 @@ export type Database = {
           descricao: string
           id: string
           idempotency_key: string | null
+          lancamento_pai_id: string | null
           meio_pagamento_tipo: string
+          numero_parcela: number | null
           observacao: string | null
           quantidade_parcelas: number | null
           regime: string
@@ -512,6 +514,7 @@ export type Database = {
           status_pagamento: string
           subcategoria_id: string | null
           tipo: string
+          total_parcelas: number | null
           updated_at: string
           valor: number
           workspace_id: string
@@ -533,7 +536,9 @@ export type Database = {
           descricao: string
           id?: string
           idempotency_key?: string | null
+          lancamento_pai_id?: string | null
           meio_pagamento_tipo: string
+          numero_parcela?: number | null
           observacao?: string | null
           quantidade_parcelas?: number | null
           regime?: string
@@ -541,6 +546,7 @@ export type Database = {
           status_pagamento?: string
           subcategoria_id?: string | null
           tipo: string
+          total_parcelas?: number | null
           updated_at?: string
           valor: number
           workspace_id: string
@@ -562,7 +568,9 @@ export type Database = {
           descricao?: string
           id?: string
           idempotency_key?: string | null
+          lancamento_pai_id?: string | null
           meio_pagamento_tipo?: string
+          numero_parcela?: number | null
           observacao?: string | null
           quantidade_parcelas?: number | null
           regime?: string
@@ -570,6 +578,7 @@ export type Database = {
           status_pagamento?: string
           subcategoria_id?: string | null
           tipo?: string
+          total_parcelas?: number | null
           updated_at?: string
           valor?: number
           workspace_id?: string
@@ -601,6 +610,13 @@ export type Database = {
             columns: ['conta_origem_id']
             isOneToOne: false
             referencedRelation: 'contas'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'lancamentos_lancamento_pai_id_fkey'
+            columns: ['lancamento_pai_id']
+            isOneToOne: false
+            referencedRelation: 'lancamentos'
             referencedColumns: ['id']
           },
           {

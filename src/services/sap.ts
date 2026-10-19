@@ -58,6 +58,25 @@ export const invitationService = {
     return data
   },
 
+  async getByToken(token: string): Promise<any> {
+    const { data, error } = await db.rpc('get_invitation_by_token', {
+      token_input: token,
+    })
+    if (error) throw error
+    return data
+  },
+
+  async aceitar(token: string): Promise<any> {
+    const { data, error } = await db.rpc('accept_invitation_by_token', {
+      token_input: token,
+    })
+    if (error) throw error
+    if (data && data.sucesso === false) {
+      throw new Error(data.mensagem || 'Falha ao aceitar convite')
+    }
+    return data
+  },
+
   async cancelar(id: string, workspaceId: string, userId?: string): Promise<void> {
     const { data: anterior } = await db.from('user_invitations').select('*').eq('id', id).single()
 
@@ -195,38 +214,53 @@ export const workspaceService = {
   },
 
   async getMembers(workspaceId: string): Promise<WorkspaceMember[]> {
-    const { data, error } = await db
+    // 1. Busca os membros do workspace
+    const { data: members, error: memErr } = await db
       .from('workspace_members')
-      .select(`
-        id,
-        workspace_id,
-        user_id,
-        perfil,
-        status,
-        invited_at,
-        accepted_at,
-        created_at,
-        profiles (
-          nome,
-          email
-        )
-      `)
+      .select('*')
       .eq('workspace_id', workspaceId)
+      .order('created_at', { ascending: true })
 
-    if (error) throw error
+    if (memErr) throw memErr
 
-    return (data || []).map((m: any) => ({
-      id: m.id,
-      workspace_id: m.workspace_id,
-      user_id: m.user_id,
-      perfil: m.perfil,
-      status: m.status,
-      invited_at: m.invited_at,
-      accepted_at: m.accepted_at,
-      created_at: m.created_at,
-      user_nome: m.profiles?.nome || 'Usuário',
-      user_email: m.profiles?.email || '',
-    }))
+    if (!members || members.length === 0) {
+      return []
+    }
+
+    // 2. Busca profiles dos user_ids para garantir exibição mesmo sem embed
+    const userIds = Array.from(new Set(members.map((m: any) => m.user_id).filter(Boolean)))
+    let profileMap: Record<string, { nome: string; email: string }> = {}
+
+    if (userIds.length > 0) {
+      try {
+        const { data: profs } = await db
+          .from('profiles')
+          .select('id, nome, email')
+          .in('id', userIds)
+
+        for (const p of profs || []) {
+          profileMap[p.id] = { nome: p.nome, email: p.email }
+        }
+      } catch (err) {
+        console.warn('Não foi possível obter profiles complementares:', err)
+      }
+    }
+
+    return (members || []).map((m: any) => {
+      const p = profileMap[m.user_id]
+      return {
+        id: m.id,
+        workspace_id: m.workspace_id,
+        user_id: m.user_id,
+        perfil: m.perfil,
+        status: m.status,
+        invited_at: m.invited_at,
+        accepted_at: m.accepted_at,
+        created_at: m.created_at,
+        user_nome: p?.nome || m.user_nome || 'Usuário',
+        user_email: p?.email || m.user_email || '',
+      }
+    })
   },
 }
 
@@ -1530,7 +1564,7 @@ export const faturaService = {
     const fatura = await this.getOrCreateFatura(workspaceId, cartaoId, competencia)
     await this.recalcularValorFatura(workspaceId, cartaoId, competencia)
 
-    // Buscar lançamentos da competência
+    // Buscar lançamentos da competência com todos os detalhes para edição/conferência
     const { data: lancs } = await db
       .from('lancamentos')
       .select(`
@@ -1538,12 +1572,21 @@ export const faturaService = {
         descricao,
         valor,
         data,
+        competencia,
         tipo,
+        meio_pagamento_tipo,
+        cartao_id,
+        conta_origem_id,
+        categoria_id,
+        subcategoria_id,
         numero_parcela,
         total_parcelas,
         quantidade_parcelas,
         lancamento_pai_id,
-        categorias (nome, cor, icone)
+        status_pagamento,
+        observacao,
+        categorias (id, nome, cor, icone),
+        subcategorias (id, nome)
       `)
       .eq('workspace_id', workspaceId)
       .eq('cartao_id', cartaoId)
@@ -1763,6 +1806,9 @@ export const lancamentoService = {
     workspaceId: string,
     filtros: {
       competencia?: string
+      dataInicio?: string
+      dataFim?: string
+      dataEspecifica?: string
       tipo?: string
       contaId?: string
       cartaoId?: string
@@ -1787,8 +1833,18 @@ export const lancamentoService = {
       .order('data', { ascending: false })
       .order('created_at', { ascending: false })
 
-    if (filtros.competencia) {
-      query = query.eq('competencia', filtros.competencia)
+    if (filtros.dataEspecifica) {
+      query = query.eq('data', filtros.dataEspecifica)
+    } else {
+      if (filtros.dataInicio) {
+        query = query.gte('data', filtros.dataInicio)
+      }
+      if (filtros.dataFim) {
+        query = query.lte('data', filtros.dataFim)
+      }
+      if (filtros.competencia && !filtros.dataInicio && !filtros.dataFim) {
+        query = query.eq('competencia', filtros.competencia)
+      }
     }
     if (filtros.tipo && filtros.tipo !== 'todos') {
       query = query.eq('tipo', filtros.tipo)
@@ -2186,53 +2242,322 @@ export const lancamentoService = {
     return lancPai
   },
 
-  // Excluir série completa ou parcela individual (Build 3)
-  async softDeleteSerie(
-    lancamentoPaiId: string,
-    workspaceId: string,
-    userId?: string,
-  ): Promise<void> {
-    // Buscar todos os lançamentos pertencentes à série
-    const { data: serie, error } = await db
+  // Retorna todas as parcelas pertencentes à série do lançamento informado
+  async getSerieParcelas(lancamentoId: string, workspaceId: string): Promise<any[]> {
+    const lanc = await this.getById(lancamentoId)
+    if (!lanc) return []
+
+    const paiId = lanc.lancamento_pai_id || lanc.id
+
+    const { data, error } = await db
       .from('lancamentos')
-      .select('id, cartao_id, competencia, valor')
+      .select('*')
       .eq('workspace_id', workspaceId)
-      .or(`id.eq.${lancamentoPaiId},lancamento_pai_id.eq.${lancamentoPaiId}`)
+      .or(`id.eq.${paiId},lancamento_pai_id.eq.${paiId}`)
       .is('deleted_at', null)
+      .order('numero_parcela', { ascending: true })
 
     if (error) throw error
+    return data || []
+  },
 
-    const competenciasAfetadas = new Map<string, string>() // competencia -> cartao_id
-    for (const l of serie || []) {
+  // Excluir com escopo: 'este' | 'este_e_proximos' | 'todos'
+  async deleteComEscopo(
+    lancamentoId: string,
+    workspaceId: string,
+    escopo: 'este' | 'este_e_proximos' | 'todos',
+    userId?: string,
+  ): Promise<{ excluidos: number; faturasRecalculadas: string[] }> {
+    const atual = await this.getById(lancamentoId)
+    if (!atual) throw new Error('Lançamento não encontrado')
+
+    const serieCompleta = await this.getSerieParcelas(lancamentoId, workspaceId)
+    const ehSerie = serieCompleta.length > 1
+
+    let alvos: any[] = []
+    if (!ehSerie || escopo === 'este') {
+      alvos = [atual]
+    } else if (escopo === 'todos') {
+      alvos = serieCompleta
+    } else if (escopo === 'este_e_proximos') {
+      const numAtual = atual.numero_parcela || 1
+      alvos = serieCompleta.filter((l) => (l.numero_parcela || 1) >= numAtual)
+    }
+
+    // Validação de faturas pagas: se alguma parcela alvo estiver em fatura paga, bloqueia
+    for (const l of alvos) {
       if (l.cartao_id && l.competencia) {
-        competenciasAfetadas.set(l.competencia, l.cartao_id)
+        const fatura = await faturaService.getFatura(workspaceId, l.cartao_id, l.competencia)
+        if (fatura && fatura.status === 'paga') {
+          throw new Error(
+            `A fatura de ${fatura.competencia} já está paga e contém a parcela (${l.numero_parcela || 1}/${l.total_parcelas || 1}). Para excluir este lançamento, desfaça o pagamento da fatura de ${fatura.competencia} na tela de Cartões.`,
+          )
+        }
       }
     }
 
-    // Soft delete em todos
-    await db
+    // Coletar faturas afetadas para recálculo posterior
+    const faturasParaRecalcular = new Map<string, string>() // competencia -> cartao_id
+    const idsAlvo = alvos.map((l) => l.id)
+
+    for (const l of alvos) {
+      if (l.cartao_id && l.competencia) {
+        faturasParaRecalcular.set(l.competencia, l.cartao_id)
+      }
+      // Reverter saldos de conta se estava pago (fora de cartão)
+      if (l.status_pagamento === 'pago') {
+        const v = Number(l.valor)
+        if (l.tipo === 'despesa' && l.conta_origem_id) {
+          const c = await contaService.getById(l.conta_origem_id)
+          if (c) {
+            await db
+              .from('contas')
+              .update({ saldo_atual: Number(c.saldo_atual) + v })
+              .eq('id', l.conta_origem_id)
+          }
+        } else if (l.tipo === 'receita' && l.conta_origem_id) {
+          const c = await contaService.getById(l.conta_origem_id)
+          if (c) {
+            await db
+              .from('contas')
+              .update({ saldo_atual: Number(c.saldo_atual) - v })
+              .eq('id', l.conta_origem_id)
+          }
+        }
+        await db.from('movimentacoes_conta').delete().eq('lancamento_id', l.id)
+      }
+    }
+
+    // Efetuar soft delete nos alvos
+    const { error: delErr } = await db
       .from('lancamentos')
       .update({
         deleted_at: new Date().toISOString(),
         status_pagamento: 'cancelado',
         updated_at: new Date().toISOString(),
       })
+      .in('id', idsAlvo)
       .eq('workspace_id', workspaceId)
-      .or(`id.eq.${lancamentoPaiId},lancamento_pai_id.eq.${lancamentoPaiId}`)
 
-    // Recalcular faturas afetadas
-    for (const [comp, cartaoId] of competenciasAfetadas.entries()) {
+    if (delErr) throw delErr
+
+    // Limpar tabela parcelas dos ids
+    await db.from('parcelas').delete().in('lancamento_id', idsAlvo)
+
+    // Recalcular TODAS as faturas implicadas
+    const recalcs: string[] = []
+    for (const [comp, cartaoId] of faturasParaRecalcular.entries()) {
       await faturaService.recalcularValorFatura(workspaceId, cartaoId, comp)
+      recalcs.push(comp)
     }
 
     await auditoriaService.registrar({
       workspace_id: workspaceId,
       entidade: 'lancamentos',
-      entidade_id: lancamentoPaiId,
-      acao: 'cancel_installment_series',
-      estado_posterior: { serie_id: lancamentoPaiId, total_cancelados: (serie || []).length },
+      entidade_id: lancamentoId,
+      acao: 'delete_with_scope',
+      estado_posterior: {
+        escopo,
+        alvos_excluidos: idsAlvo.length,
+        faturas_recalculadas: recalcs,
+      },
       created_by: userId,
     })
+
+    return { excluidos: idsAlvo.length, faturasRecalculadas: recalcs }
+  },
+
+  // Alterar com escopo: 'este' | 'este_e_proximos' | 'todos'
+  async updateComEscopo(
+    lancamentoId: string,
+    workspaceId: string,
+    escopo: 'este' | 'este_e_proximos' | 'todos',
+    novosDados: {
+      descricao?: string
+      valor?: number
+      data?: string
+      categoria_id?: string | null
+      subcategoria_id?: string | null
+      observacao?: string | null
+    },
+    userId?: string,
+  ): Promise<{ alterados: number; faturasRecalculadas: string[] }> {
+    const atual = await this.getById(lancamentoId)
+    if (!atual) throw new Error('Lançamento não encontrado')
+
+    const serieCompleta = await this.getSerieParcelas(lancamentoId, workspaceId)
+    const ehSerie = serieCompleta.length > 1
+
+    let alvos: any[] = []
+    if (!ehSerie || escopo === 'este') {
+      alvos = [atual]
+    } else if (escopo === 'todos') {
+      alvos = serieCompleta
+    } else if (escopo === 'este_e_proximos') {
+      const numAtual = atual.numero_parcela || 1
+      alvos = serieCompleta.filter((l) => (l.numero_parcela || 1) >= numAtual)
+    }
+
+    // 1. Validar faturas pagas: verificar se alguma parcela implicada está em fatura já paga
+    for (const l of alvos) {
+      if (l.cartao_id && l.competencia) {
+        const fatura = await faturaService.getFatura(workspaceId, l.cartao_id, l.competencia)
+        if (fatura && fatura.status === 'paga') {
+          throw new Error(
+            `A fatura de ${fatura.competencia} já está paga e contém a parcela (${l.numero_parcela || 1}/${l.total_parcelas || 1}). Para alterar este lançamento, desfaça o pagamento da fatura de ${fatura.competencia} na tela de Cartões para prosseguir.`,
+          )
+        }
+      }
+    }
+
+    // Mapa de faturas implicadas para recálculo
+    const faturasParaRecalcular = new Map<string, string>() // competencia -> cartao_id
+    for (const l of alvos) {
+      if (l.cartao_id && l.competencia) {
+        faturasParaRecalcular.set(l.competencia, l.cartao_id)
+      }
+    }
+
+    // 2. Se a data foi alterada, recalcular a competência de cada parcela alvo a partir da nova data base
+    let cartaoObj: any = null
+    if (atual.cartao_id) {
+      cartaoObj = await cartaoService.getById(atual.cartao_id)
+    }
+
+    const diaFechamento = cartaoObj?.dia_fechamento || 10
+    const novaDataBase = novosDados.data || atual.data
+
+    const somarMeses = (comp: string, meses: number): string => {
+      const [anoStr, mesStr] = comp.split('-')
+      let a = parseInt(anoStr, 10)
+      let m = parseInt(mesStr, 10) + meses
+      while (m > 12) {
+        m -= 12
+        a += 1
+      }
+      return `${a}-${String(m).padStart(2, '0')}`
+    }
+
+    // Se mudou a data e for escopo 'todos', a competência inicial é recalculada para a parcela 1
+    // Se for 'este', recalcula para a data específica deste
+    // Se for 'este_e_proximos', a partir do número da parcela atual
+    const compInicialNova = atual.cartao_id
+      ? faturaService.calcularCompetenciaCartao(novaDataBase, diaFechamento)
+      : novaDataBase.substring(0, 7)
+
+    for (const l of alvos) {
+      let novaComp = l.competencia
+      let novaDataParcela = l.data
+
+      if (novosDados.data) {
+        if (escopo === 'este' || !ehSerie) {
+          novaDataParcela = novosDados.data
+          novaComp = atual.cartao_id
+            ? faturaService.calcularCompetenciaCartao(novosDados.data, diaFechamento)
+            : novosDados.data.substring(0, 7)
+        } else if (escopo === 'todos') {
+          const idx = (l.numero_parcela || 1) - 1
+          novaDataParcela = novosDados.data
+          novaComp = somarMeses(compInicialNova, idx)
+        } else if (escopo === 'este_e_proximos') {
+          const numAtual = atual.numero_parcela || 1
+          const offsetMeses = (l.numero_parcela || 1) - numAtual
+          novaDataParcela = novosDados.data
+          novaComp = somarMeses(compInicialNova, offsetMeses)
+        }
+      }
+
+      // Adicionar nova competência à lista de recálculos
+      if (l.cartao_id && novaComp) {
+        faturasParaRecalcular.set(novaComp, l.cartao_id)
+      }
+
+      // Montar campos para atualização
+      const updatesItem: any = {
+        updated_at: new Date().toISOString(),
+      }
+
+      if (novosDados.descricao !== undefined) {
+        // Preserva o sufixo (x/y) se for série parcelada
+        if (ehSerie && l.total_parcelas) {
+          const descBase = novosDados.descricao.replace(/\s*\(\d+\/\d+\)$/, '').trim()
+          updatesItem.descricao = `${descBase} (${l.numero_parcela}/${l.total_parcelas})`
+        } else {
+          updatesItem.descricao = novosDados.descricao.trim()
+        }
+      }
+
+      if (novosDados.valor !== undefined) {
+        updatesItem.valor = Number(novosDados.valor)
+      }
+
+      if (novosDados.categoria_id !== undefined) {
+        updatesItem.categoria_id = novosDados.categoria_id || null
+      }
+
+      if (novosDados.subcategoria_id !== undefined) {
+        updatesItem.subcategoria_id = novosDados.subcategoria_id || null
+      }
+
+      if (novosDados.observacao !== undefined) {
+        updatesItem.observacao = novosDados.observacao || null
+      }
+
+      if (novosDados.data) {
+        updatesItem.data = novaDataParcela
+        updatesItem.competencia = novaComp
+      }
+
+      await db
+        .from('lancamentos')
+        .update(updatesItem)
+        .eq('id', l.id)
+        .eq('workspace_id', workspaceId)
+
+      // Se existir na tabela parcelas, atualiza valor/competência
+      if (novosDados.valor !== undefined || novosDados.data) {
+        await db
+          .from('parcelas')
+          .update({
+            valor: updatesItem.valor !== undefined ? updatesItem.valor : l.valor,
+            competencia:
+              updatesItem.competencia !== undefined ? updatesItem.competencia : l.competencia,
+          })
+          .eq('lancamento_id', l.id)
+      }
+    }
+
+    // 3. Recalcular TODAS as faturas implicadas (antigas e novas)
+    const recalcs: string[] = []
+    for (const [comp, cartaoId] of faturasParaRecalcular.entries()) {
+      await faturaService.getOrCreateFatura(workspaceId, cartaoId, comp)
+      await faturaService.recalcularValorFatura(workspaceId, cartaoId, comp)
+      recalcs.push(comp)
+    }
+
+    await auditoriaService.registrar({
+      workspace_id: workspaceId,
+      entidade: 'lancamentos',
+      entidade_id: lancamentoId,
+      acao: 'update_with_scope',
+      estado_posterior: {
+        escopo,
+        alvos_alterados: alvos.length,
+        faturas_recalculadas: recalcs,
+      },
+      created_by: userId,
+    })
+
+    return { alterados: alvos.length, faturasRecalculadas: recalcs }
+  },
+
+  // Excluir série completa ou parcela individual (mantido para compatibilidade)
+  async softDeleteSerie(
+    lancamentoPaiId: string,
+    workspaceId: string,
+    userId?: string,
+  ): Promise<void> {
+    await this.deleteComEscopo(lancamentoPaiId, workspaceId, 'todos', userId)
   },
 
   async update(

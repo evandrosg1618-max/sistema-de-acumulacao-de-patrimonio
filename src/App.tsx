@@ -19,6 +19,7 @@ import PlaceholderPage from './pages/PlaceholderPage'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import ForgotPassword from './pages/ForgotPassword'
+import ConvitePage from './pages/ConvitePage'
 import NotFound from './pages/NotFound'
 
 // Protected Route Guard
@@ -78,6 +79,14 @@ const AppRoutes = () => (
       }
     />
     <Route
+      path="/signup"
+      element={
+        <PublicRoute>
+          <Signup />
+        </PublicRoute>
+      }
+    />
+    <Route
       path="/recuperar-senha"
       element={
         <PublicRoute>
@@ -85,6 +94,8 @@ const AppRoutes = () => (
         </PublicRoute>
       }
     />
+    {/* Rota Pública de Convite */}
+    <Route path="/convite/:token" element={<ConvitePage />} />
 
     {/* Protected Application Routes wrapped in Layout */}
     <Route
