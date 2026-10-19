@@ -1515,21 +1515,65 @@ export const faturaService = {
     // Busca ou cria a fatura para a competência se não existir
     await this.getOrCreateFatura(workspaceId, cartaoId, competencia)
 
-    // Soma todos os lançamentos ativos no cartão para esta competência
-    const { data: lancs, error } = await db
+    // 1. Soma parcelas da competência cadastradas na tabela parcelas
+    const { data: parcList } = await db
+      .from('parcelas')
+      .select('valor, lancamentos!inner(deleted_at)')
+      .eq('workspace_id', workspaceId)
+      .eq('cartao_id', cartaoId)
+      .eq('competencia', competencia)
+      .is('lancamentos.deleted_at', null)
+
+    let totalParcelas = 0
+    if (parcList && parcList.length > 0) {
+      for (const p of parcList) {
+        totalParcelas += Number(p.valor || 0)
+      }
+    }
+
+    // 2. Soma lançamentos de cartão que NÃO são parcelados (compras à vista no cartão)
+    const { data: lancsAvulso } = await db
       .from('lancamentos')
       .select('valor, tipo')
       .eq('workspace_id', workspaceId)
       .eq('cartao_id', cartaoId)
       .eq('competencia', competencia)
+      .eq('regime', 'unico')
       .is('deleted_at', null)
 
-    if (error) throw error
+    let totalAvulso = 0
+    for (const l of lancsAvulso || []) {
+      if (l.tipo === 'despesa') totalAvulso += Number(l.valor || 0)
+      else if (l.tipo === 'receita') totalAvulso -= Number(l.valor || 0)
+    }
 
+    // Se não houver itens na tabela parcelas, fallback para soma direta dos lançamentos da competência
     let total = 0
-    for (const l of lancs || []) {
-      if (l.tipo === 'despesa') total += Number(l.valor || 0)
-      else if (l.tipo === 'receita') total -= Number(l.valor || 0) // estornos/créditos
+    if (parcList && parcList.length > 0) {
+      total = totalParcelas + totalAvulso
+    } else {
+      const { data: todosLancs } = await db
+        .from('lancamentos')
+        .select('valor, tipo, total_parcelas, lancamento_pai_id, id')
+        .eq('workspace_id', workspaceId)
+        .eq('cartao_id', cartaoId)
+        .eq('competencia', competencia)
+        .is('deleted_at', null)
+
+      for (const l of todosLancs || []) {
+        // Se for lançamento pai com valor total que agora tem parcelas, não soma valor cheio
+        const ehPaiComTotal =
+          (l.total_parcelas || 1) > 1 && (!l.lancamento_pai_id || l.lancamento_pai_id === l.id)
+        if (ehPaiComTotal) {
+          // O valor de 1 parcela
+          const valParcela = Number(l.valor || 0) / Number(l.total_parcelas || 1)
+          total += valParcela
+        } else if (l.tipo === 'despesa') {
+          total += Number(l.valor || 0)
+        } else if (l.tipo === 'receita') {
+          total -= Number(l.valor || 0)
+        }
+      }
     }
 
     total = Math.max(0, total)
@@ -1553,6 +1597,7 @@ export const faturaService = {
     workspaceId: string,
     cartaoId: string,
     competencia: string,
+    forcarRecalculoTotal = false,
   ): Promise<{
     fatura: any
     totalCompras: number
@@ -1562,9 +1607,11 @@ export const faturaService = {
     itens: any[]
   }> {
     const fatura = await this.getOrCreateFatura(workspaceId, cartaoId, competencia)
-    await this.recalcularValorFatura(workspaceId, cartaoId, competencia)
+    if (forcarRecalculoTotal) {
+      await this.recalcularValorFatura(workspaceId, cartaoId, competencia)
+    }
 
-    // Buscar lançamentos da competência com todos os detalhes para edição/conferência
+    // Leitura rápida via query de itens da competência
     const { data: lancs } = await db
       .from('lancamentos')
       .select(`
@@ -1833,6 +1880,12 @@ export const lancamentoService = {
       .order('data', { ascending: false })
       .order('created_at', { ascending: false })
 
+    // Se for a tela geral de Lançamentos (sem filtro de cartão específico de fatura),
+    // oculta os filhos de parcelas (numero_parcela > 1) para que a compra parcelada apareça apenas
+    // como o lançamento ORIGINAL com o total e a especificação das parcelas.
+    if (!filtros.cartaoId || filtros.cartaoId === 'todos') {
+      query = query.or('numero_parcela.is.null,numero_parcela.lte.1')
+    }
     if (filtros.dataEspecifica) {
       query = query.eq('data', filtros.dataEspecifica)
     } else {
@@ -2124,7 +2177,8 @@ export const lancamentoService = {
       return `${a}-${String(m).padStart(2, '0')}`
     }
 
-    // 1. Cria o lançamento pai (representante do total da compra)
+    // 1. Cria o lançamento original da despesa guardando o VALOR TOTAL (ex: R$400,00)
+    // Conforme PRD / Frente 4: o lançamento original guarda o total e a quantidade de parcelas.
     const { data: lancPai, error: paiErr } = await db
       .from('lancamentos')
       .insert({
@@ -2133,8 +2187,8 @@ export const lancamentoService = {
         regime: 'parcelado',
         data: dados.data,
         competencia: competenciaInicial,
-        descricao: `${dados.descricao.trim()} (1/${qtdParcelas})`,
-        valor: Number((valorParcelaBase + (qtdParcelas === 1 ? diferencaCentavos : 0)).toFixed(2)),
+        descricao: dados.descricao.trim(),
+        valor: valorNum, // Valor total do lançamento original
         meio_pagamento_tipo: 'CARTAO',
         cartao_id: dados.cartao_id,
         categoria_id: dados.categoria_id || null,
@@ -2152,23 +2206,29 @@ export const lancamentoService = {
 
     if (paiErr) throw paiErr
 
-    // Vincula o pai a si mesmo como raiz
+    // Vincula o original a si mesmo como raiz
     await db.from('lancamentos').update({ lancamento_pai_id: lancPai.id }).eq('id', lancPai.id)
 
-    // Cria a 1ª parcela na tabela parcelas
+    const valorParcela1 = Number(
+      (valorParcelaBase + (qtdParcelas === 1 ? diferencaCentavos : 0)).toFixed(2),
+    )
+
+    // Cria a 1ª parcela na tabela parcelas referenciando o lançamento original (pai)
     await db.from('parcelas').insert({
       workspace_id: dados.workspace_id,
       lancamento_id: lancPai.id,
       numero_parcela: 1,
       total_parcelas: qtdParcelas,
-      valor: lancPai.valor,
+      valor: valorParcela1,
       competencia: competenciaInicial,
       data_vencimento: dados.data,
+      cartao_id: dados.cartao_id,
+      status: 'pendente',
     })
 
     const competenciasAfetadas = new Set<string>([competenciaInicial])
 
-    // Cria as parcelas 2 a N como lançamentos filhos
+    // Cria as parcelas 2 a N como lançamentos filhos e na tabela parcelas
     for (let p = 2; p <= qtdParcelas; p++) {
       const compParcela = somarMesesCompetencia(competenciaInicial, p - 1)
       competenciasAfetadas.add(compParcela)
@@ -2207,12 +2267,14 @@ export const lancamentoService = {
       if (!filhoErr && lancFilho) {
         await db.from('parcelas').insert({
           workspace_id: dados.workspace_id,
-          lancamento_id: lancFilho.id,
+          lancamento_id: lancPai.id,
           numero_parcela: p,
           total_parcelas: qtdParcelas,
           valor: valorDestaParcela,
           competencia: compParcela,
           data_vencimento: dados.data,
+          cartao_id: dados.cartao_id,
+          status: 'pendente',
         })
       }
     }
@@ -2296,6 +2358,24 @@ export const lancamentoService = {
       }
     }
 
+    // Se o lançamento pertencer a uma compra parcelada, também busca parcelas na tabela parcelas para verificar se há fatura paga
+    const paiIdPrincipal = atual.lancamento_pai_id || atual.id
+    const { data: parcelasExistentes } = await db
+      .from('parcelas')
+      .select('competencia, numero_parcela, total_parcelas, cartao_id')
+      .eq('lancamento_id', paiIdPrincipal)
+
+    for (const p of parcelasExistentes || []) {
+      if (p.cartao_id && p.competencia) {
+        const fatura = await faturaService.getFatura(workspaceId, p.cartao_id, p.competencia)
+        if (fatura && fatura.status === 'paga') {
+          throw new Error(
+            `A fatura de ${fatura.competencia} já está paga e contém a parcela (${p.numero_parcela}/${p.total_parcelas}). Para excluir este lançamento, desfaça o pagamento da fatura de ${fatura.competencia} na tela de Cartões.`,
+          )
+        }
+      }
+    }
+
     // Coletar faturas afetadas para recálculo posterior
     const faturasParaRecalcular = new Map<string, string>() // competencia -> cartao_id
     const idsAlvo = alvos.map((l) => l.id)
@@ -2341,8 +2421,9 @@ export const lancamentoService = {
 
     if (delErr) throw delErr
 
-    // Limpar tabela parcelas dos ids
-    await db.from('parcelas').delete().in('lancamento_id', idsAlvo)
+    // Limpar tabela parcelas vinculadas ao lançamento pai / original e aos alvos
+    const paiIds = Array.from(new Set([paiIdPrincipal, ...idsAlvo]))
+    await db.from('parcelas').delete().in('lancamento_id', paiIds)
 
     // Recalcular TODAS as faturas implicadas
     const recalcs: string[] = []
@@ -2405,6 +2486,24 @@ export const lancamentoService = {
         if (fatura && fatura.status === 'paga') {
           throw new Error(
             `A fatura de ${fatura.competencia} já está paga e contém a parcela (${l.numero_parcela || 1}/${l.total_parcelas || 1}). Para alterar este lançamento, desfaça o pagamento da fatura de ${fatura.competencia} na tela de Cartões para prosseguir.`,
+          )
+        }
+      }
+    }
+
+    // Validação adicional na tabela parcelas para o lançamento pai
+    const paiIdPrincipal = atual.lancamento_pai_id || atual.id
+    const { data: parcelasChecagem } = await db
+      .from('parcelas')
+      .select('competencia, numero_parcela, total_parcelas, cartao_id')
+      .eq('lancamento_id', paiIdPrincipal)
+
+    for (const p of parcelasChecagem || []) {
+      if (p.cartao_id && p.competencia) {
+        const fatura = await faturaService.getFatura(workspaceId, p.cartao_id, p.competencia)
+        if (fatura && fatura.status === 'paga') {
+          throw new Error(
+            `A fatura de ${fatura.competencia} já está paga e contém a parcela (${p.numero_parcela}/${p.total_parcelas}). Para alterar este lançamento, desfaça o pagamento da fatura de ${fatura.competencia} na tela de Cartões para prosseguir.`,
           )
         }
       }
@@ -2487,8 +2586,27 @@ export const lancamentoService = {
         }
       }
 
+      // Se for alteração do todo em série parcelada de cartão, o valor recebido é o TOTAL do lançamento original
       if (novosDados.valor !== undefined) {
-        updatesItem.valor = Number(novosDados.valor)
+        if (ehSerie && escopo === 'todos' && atual.meio_pagamento_tipo === 'CARTAO') {
+          const novoTotal = Number(novosDados.valor)
+          const qtdParc = Number(l.total_parcelas || serieCompleta.length || 1)
+          const valorBaseParcela = Math.floor((novoTotal / qtdParc) * 100) / 100
+          const diferencaCentavos = Number((novoTotal - valorBaseParcela * qtdParc).toFixed(2))
+          const numP = l.numero_parcela || 1
+
+          // Se for o lançamento original pai, guarda o total; se for filho, guarda a parcela calculada
+          if (l.id === paiIdPrincipal) {
+            updatesItem.valor = novoTotal
+          } else {
+            updatesItem.valor =
+              numP === qtdParc
+                ? Number((valorBaseParcela + diferencaCentavos).toFixed(2))
+                : valorBaseParcela
+          }
+        } else {
+          updatesItem.valor = Number(novosDados.valor)
+        }
       }
 
       if (novosDados.categoria_id !== undefined) {
@@ -2514,16 +2632,43 @@ export const lancamentoService = {
         .eq('id', l.id)
         .eq('workspace_id', workspaceId)
 
-      // Se existir na tabela parcelas, atualiza valor/competência
+      // Se existir na tabela parcelas, atualiza valor/competência correspondente na tabela parcelas
       if (novosDados.valor !== undefined || novosDados.data) {
+        const numP = l.numero_parcela || 1
+        const valParaParcela =
+          ehSerie &&
+          escopo === 'todos' &&
+          atual.meio_pagamento_tipo === 'CARTAO' &&
+          novosDados.valor !== undefined
+            ? numP === (l.total_parcelas || 1)
+              ? Number(
+                  (
+                    Math.floor((Number(novosDados.valor) / (l.total_parcelas || 1)) * 100) / 100 +
+                    Number(
+                      (
+                        Number(novosDados.valor) -
+                        (Math.floor((Number(novosDados.valor) / (l.total_parcelas || 1)) * 100) /
+                          100) *
+                          (l.total_parcelas || 1)
+                      ).toFixed(2),
+                    )
+                  ).toFixed(2),
+                )
+              : Math.floor((Number(novosDados.valor) / (l.total_parcelas || 1)) * 100) / 100
+            : updatesItem.valor !== undefined
+              ? updatesItem.valor
+              : l.valor
+
         await db
           .from('parcelas')
           .update({
-            valor: updatesItem.valor !== undefined ? updatesItem.valor : l.valor,
+            valor: valParaParcela,
             competencia:
               updatesItem.competencia !== undefined ? updatesItem.competencia : l.competencia,
+            updated_at: new Date().toISOString(),
           })
-          .eq('lancamento_id', l.id)
+          .eq('lancamento_id', paiIdPrincipal)
+          .eq('numero_parcela', numP)
       }
     }
 

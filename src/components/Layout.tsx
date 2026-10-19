@@ -98,10 +98,20 @@ export default function Layout() {
     { label: 'relatórios', path: '/relatorios', badge: 'Build 7' },
   ]
 
-  // Subitens / Cadastros da Build 1
-  const cadastrosItems = [
+  // Subitens / Cadastros desktop: Lançamentos substitui Meios de Pagamento
+  const cadastrosDesktopItems = [
     { label: 'Minhas Contas', path: '/contas', icon: Wallet },
     { label: 'Meus Cartões', path: '/cartoes', icon: CreditCard },
+    { label: 'Lançamentos', path: '/lancamentos', icon: ArrowLeftRight },
+    { label: 'Categorias & Subcategorias', path: '/categorias', icon: Tag },
+    { label: 'Orçamento Familiar', path: '/orcamento', icon: Target },
+  ]
+
+  // Subitens do drawer mobile: mantém Meios de Pagamento E Lançamentos
+  const cadastrosMobileItems = [
+    { label: 'Minhas Contas', path: '/contas', icon: Wallet },
+    { label: 'Meus Cartões', path: '/cartoes', icon: CreditCard },
+    { label: 'Lançamentos', path: '/lancamentos', icon: ArrowLeftRight },
     { label: 'Meios de Pagamento', path: '/meios-pagamento', icon: Banknote },
     { label: 'Categorias & Subcategorias', path: '/categorias', icon: Tag },
     { label: 'Orçamento Familiar', path: '/orcamento', icon: Target },
@@ -214,9 +224,9 @@ export default function Layout() {
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end">
                 <DropdownMenuLabel className="text-[11px] font-semibold text-slate-500">
-                  Cadastros Essenciais (Build 1)
+                  Cadastros Essenciais
                 </DropdownMenuLabel>
-                {cadastrosItems.map((item) => (
+                {cadastrosDesktopItems.map((item) => (
                   <DropdownMenuItem
                     key={item.path}
                     onClick={() => navigate(item.path)}
@@ -357,15 +367,15 @@ export default function Layout() {
             </NavLink>
 
             <NavLink
-              to="/meios-pagamento"
+              to="/lancamentos"
               className={({ isActive }) =>
                 `flex items-center gap-1.5 transition font-medium ${
-                  isActive ? 'text-teal-700 font-bold' : 'text-slate-600 hover:text-slate-900'
+                  isActive ? 'text-emerald-700 font-bold' : 'text-slate-600 hover:text-slate-900'
                 }`
               }
             >
-              <Banknote className="w-3.5 h-3.5" />
-              <span>Meios de Pagamento</span>
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              <span>Lançamentos</span>
             </NavLink>
 
             <NavLink
@@ -455,9 +465,9 @@ export default function Layout() {
               ))}
 
               <div className="text-[10px] uppercase font-bold text-slate-400 px-3 pt-3 py-1">
-                Cadastros Essenciais (Build 1)
+                Cadastros Essenciais
               </div>
-              {cadastrosItems.map((item) => (
+              {cadastrosMobileItems.map((item) => (
                 <NavLink
                   key={item.path}
                   to={item.path}

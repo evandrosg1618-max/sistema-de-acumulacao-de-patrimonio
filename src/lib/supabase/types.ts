@@ -1351,6 +1351,13 @@ export type Database = {
             referencedColumns: ['id']
           },
           {
+            foreignKeyName: 'workspace_members_user_id_profiles_fkey'
+            columns: ['user_id']
+            isOneToOne: false
+            referencedRelation: 'profiles'
+            referencedColumns: ['id']
+          },
+          {
             foreignKeyName: 'workspace_members_workspace_id_fkey'
             columns: ['workspace_id']
             isOneToOne: false
@@ -1391,6 +1398,11 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_invitation_by_token: {
+        Args: { token_input: string }
+        Returns: Json
+      }
+      get_invitation_by_token: { Args: { token_input: string }; Returns: Json }
       is_admin_of_workspace: { Args: { ws_id: string }; Returns: boolean }
       is_member_of_workspace: { Args: { ws_id: string }; Returns: boolean }
     }

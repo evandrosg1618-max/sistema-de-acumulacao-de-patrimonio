@@ -722,6 +722,21 @@ export default function LancamentosPage() {
                           {l.descricao}
                         </span>
 
+                        {/* Badge de parcelamento no cartão: ex: 4 vezes de R$ 100,00 */}
+                        {l.meio_pagamento_tipo === 'CARTAO' &&
+                          (l.total_parcelas > 1 || l.quantidade_parcelas > 1) && (
+                            <Badge
+                              variant="outline"
+                              className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] py-0 px-1.5 font-medium"
+                            >
+                              {l.total_parcelas || l.quantidade_parcelas} vezes de{' '}
+                              {formatMoneyBRL(
+                                Number(l.valor) /
+                                  Number(l.total_parcelas || l.quantidade_parcelas || 1),
+                              )}
+                            </Badge>
+                          )}
+
                         {/* Badges de Categoria */}
                         {l.categoria && (
                           <Badge

@@ -62,7 +62,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       // 2. Busca memberships com o nome do workspace
-      const { data: members, error: memErr } = await db
+      const { data: members } = await db
         .from('workspace_members')
         .select(`
           id,
@@ -87,7 +87,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             id: m.id,
             workspace_id: m.workspace_id,
             workspace_nome: wsObj.nome,
-            perfil: (m.perfil || 'Administrador') as WorkspaceMemberInfo['perfil'],
+            perfil: (m.perfil ||
+              (wsObj.owner_user_id === userId
+                ? 'Administrador'
+                : 'Colaborador')) as WorkspaceMemberInfo['perfil'],
             status: (m.status || 'ativo') as WorkspaceMemberInfo['status'],
             is_owner: wsObj.owner_user_id === userId,
           }
@@ -183,17 +186,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       }
 
+      // Ordena workspaces priorizando espaços onde o usuário é membro convidado caso seu workspace owner esteja vazio,
+      // ou preservando a preferência
       setWorkspaces(wsList)
 
-      // Define workspace corrente se houver salvo no localStorage ou o primeiro
+      // Define workspace corrente se houver salvo no localStorage e válido para o usuário
       const savedWsId = localStorage.getItem('sap_active_workspace_id')
       const found = wsList.find((w) => w.workspace_id === savedWsId)
       if (found) {
         setCurrentWorkspaceState(found)
         localStorage.setItem('sap_active_workspace_id', found.workspace_id)
       } else if (wsList.length > 0) {
-        setCurrentWorkspaceState(wsList[0])
-        localStorage.setItem('sap_active_workspace_id', wsList[0].workspace_id)
+        // Se houver mais de um workspace, prioriza o espaço com mais membros / espaço compartilhado (não-owner) se existir
+        const sharedWs = wsList.find((w) => !w.is_owner) || wsList[0]
+        setCurrentWorkspaceState(sharedWs)
+        localStorage.setItem('sap_active_workspace_id', sharedWs.workspace_id)
       } else {
         setCurrentWorkspaceState(null)
       }

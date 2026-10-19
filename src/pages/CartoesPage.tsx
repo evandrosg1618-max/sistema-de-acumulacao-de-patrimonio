@@ -189,7 +189,7 @@ export default function CartoesPage() {
     }
   }
 
-  // Forçar recálculo dinâmico manual
+  // Forçar recálculo manual caso o usuário solicite
   const forcarRecalculo = async () => {
     if (!wsId) return
     setRecalculando(true)
@@ -197,11 +197,16 @@ export default function CartoesPage() {
       const resumosTemp: Record<string, any> = {}
       for (const c of cartoes) {
         await faturaService.recalcularValorFatura(wsId, c.id, competenciaFiltro)
-        const resumo = await faturaService.getResumoFaturaCompetencia(wsId, c.id, competenciaFiltro)
+        const resumo = await faturaService.getResumoFaturaCompetencia(
+          wsId,
+          c.id,
+          competenciaFiltro,
+          true,
+        )
         resumosTemp[c.id] = resumo
       }
       setResumosFatura(resumosTemp)
-      toast.success('Faturas recalculadas dinamicamente!')
+      toast.success('Faturas recalculadas e sincronizadas!')
     } catch (e: any) {
       toast.error('Erro ao recalcular: ' + (e.message || ''))
     } finally {
@@ -290,9 +295,24 @@ export default function CartoesPage() {
     setModalLancamentoOpen(true)
   }
 
-  const abrirEdicaoLancamentoFatura = (item: any) => {
-    setLancamentoFaturaEmEdicao(item)
-    setCartaoIdParaNovoLanc(item.cartao_id || '')
+  const abrirEdicaoLancamentoFatura = async (item: any) => {
+    // Se o item for uma parcela ou pertencer a um lançamento original (pai),
+    // carrega o lançamento original completo para que a edição ocorra exclusivamente sobre o original.
+    let alvoParaEdicao = item
+    const paiId = item.lancamento_pai_id || item.id
+    if (wsId && paiId && paiId !== item.id) {
+      try {
+        const { data: pai } = await lancamentoService.getById(paiId, wsId)
+        if (pai) {
+          alvoParaEdicao = pai
+        }
+      } catch (err) {
+        console.warn('Não foi possível obter lançamento original, usando item da fatura:', err)
+      }
+    }
+
+    setLancamentoFaturaEmEdicao(alvoParaEdicao)
+    setCartaoIdParaNovoLanc(alvoParaEdicao.cartao_id || item.cartao_id || '')
     setModalLancamentoOpen(true)
   }
 
@@ -337,23 +357,40 @@ export default function CartoesPage() {
   const handleExcluirLancamentoFatura = async (item: any) => {
     if (!wsId) return
 
+    // Se o item for uma parcela ou pertencer a um lançamento original (pai),
+    // a exclusão deve direcionar e impactar o lançamento original.
+    let alvoParaExclusao = item
+    const paiId = item.lancamento_pai_id || item.id
+    if (wsId && paiId && paiId !== item.id) {
+      try {
+        const { data: pai } = await lancamentoService.getById(paiId, wsId)
+        if (pai) {
+          alvoParaExclusao = pai
+        }
+      } catch (err) {
+        console.warn('Não foi possível obter original para exclusão:', err)
+      }
+    }
+
     const ehParcelado =
-      (item.total_parcelas && item.total_parcelas > 1) ||
-      (item.quantidade_parcelas && item.quantidade_parcelas > 1) ||
-      Boolean(item.lancamento_pai_id)
+      (alvoParaExclusao.total_parcelas && alvoParaExclusao.total_parcelas > 1) ||
+      (alvoParaExclusao.quantidade_parcelas && alvoParaExclusao.quantidade_parcelas > 1) ||
+      Boolean(alvoParaExclusao.lancamento_pai_id)
 
     if (ehParcelado) {
-      setLancamentoAlvoEscopo(item)
+      setLancamentoAlvoEscopo(alvoParaExclusao)
       setAcaoEscopo('excluir')
       setModalEscopoOpen(true)
       return
     }
 
-    const confirma = window.confirm(`Deseja realmente excluir "${item.descricao}" desta fatura?`)
+    const confirma = window.confirm(
+      `Deseja realmente excluir "${alvoParaExclusao.descricao}" desta fatura?`,
+    )
     if (!confirma) return
 
     try {
-      await lancamentoService.deleteComEscopo(item.id, wsId, 'este', user?.id)
+      await lancamentoService.deleteComEscopo(alvoParaExclusao.id, wsId, 'este', user?.id)
       toast.success('Lançamento excluído e faturas recalculadas!')
       await carregarCartoes()
     } catch (err: any) {

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { workspaceService, permissionsService, invitationService } from '@/services/sap'
 import { WorkspaceMember, Permission } from '@/types/sap'
@@ -38,6 +39,7 @@ import { toast } from 'sonner'
 
 export default function UsuariosPage() {
   const { currentWorkspace, user } = useAuth()
+  const navigate = useNavigate()
   const [members, setMembers] = useState<WorkspaceMember[]>([])
   const [invitations, setInvitations] = useState<any[]>([])
   const [permissions, setPermissions] = useState<Permission[]>([])
@@ -50,6 +52,7 @@ export default function UsuariosPage() {
   const [ultimoLinkGerado, setUltimoLinkGerado] = useState<string | null>(null)
   const [salvandoConvite, setSalvandoConvite] = useState(false)
 
+  const isAdmin = currentWorkspace?.perfil === 'Administrador'
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
 
@@ -73,8 +76,13 @@ export default function UsuariosPage() {
   }
 
   useEffect(() => {
+    if (currentWorkspace && !isAdmin) {
+      toast.error('Apenas administradores podem acessar a gestão de Membros & Permissões.')
+      navigate('/')
+      return
+    }
     carregarDados()
-  }, [wsId])
+  }, [wsId, isAdmin, currentWorkspace, navigate])
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
