@@ -961,6 +961,7 @@ export type Database = {
       }
       parcelas: {
         Row: {
+          cartao_id: string | null
           competencia: string
           created_at: string
           data_vencimento: string
@@ -968,11 +969,14 @@ export type Database = {
           id: string
           lancamento_id: string
           numero_parcela: number
+          status: string
           total_parcelas: number
+          updated_at: string
           valor: number
           workspace_id: string
         }
         Insert: {
+          cartao_id?: string | null
           competencia: string
           created_at?: string
           data_vencimento: string
@@ -980,11 +984,14 @@ export type Database = {
           id?: string
           lancamento_id: string
           numero_parcela: number
+          status?: string
           total_parcelas: number
+          updated_at?: string
           valor: number
           workspace_id: string
         }
         Update: {
+          cartao_id?: string | null
           competencia?: string
           created_at?: string
           data_vencimento?: string
@@ -992,11 +999,20 @@ export type Database = {
           id?: string
           lancamento_id?: string
           numero_parcela?: number
+          status?: string
           total_parcelas?: number
+          updated_at?: string
           valor?: number
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: 'parcelas_cartao_id_fkey'
+            columns: ['cartao_id']
+            isOneToOne: false
+            referencedRelation: 'cartoes'
+            referencedColumns: ['id']
+          },
           {
             foreignKeyName: 'parcelas_fatura_id_fkey'
             columns: ['fatura_id']
