@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase/client'
-import { WorkspaceMember, AuditoriaOperacao, UserProfileData } from '@/types/sap'
+import { WorkspaceMember, AuditoriaOperacao, UserProfileData, SerieLancamento } from '@/types/sap'
 
 const db = supabase as any
 

@@ -502,10 +502,12 @@ export type Database = {
           data_pagamento: string | null
           deleted_at: string | null
           descricao: string
+          eh_excecao: boolean
           id: string
           idempotency_key: string | null
           lancamento_pai_id: string | null
           meio_pagamento_tipo: string
+          natureza_previsao: boolean
           numero_parcela: number | null
           observacao: string | null
           quantidade_parcelas: number | null
@@ -534,10 +536,12 @@ export type Database = {
           data_pagamento?: string | null
           deleted_at?: string | null
           descricao: string
+          eh_excecao?: boolean
           id?: string
           idempotency_key?: string | null
           lancamento_pai_id?: string | null
           meio_pagamento_tipo: string
+          natureza_previsao?: boolean
           numero_parcela?: number | null
           observacao?: string | null
           quantidade_parcelas?: number | null
@@ -566,10 +570,12 @@ export type Database = {
           data_pagamento?: string | null
           deleted_at?: string | null
           descricao?: string
+          eh_excecao?: boolean
           id?: string
           idempotency_key?: string | null
           lancamento_pai_id?: string | null
           meio_pagamento_tipo?: string
+          natureza_previsao?: boolean
           numero_parcela?: number | null
           observacao?: string | null
           quantidade_parcelas?: number | null
@@ -1167,50 +1173,118 @@ export type Database = {
       series_lancamentos: {
         Row: {
           ativo: boolean
+          cartao_id: string | null
+          categoria_id: string | null
+          conta_destino_id: string | null
+          conta_origem_id: string | null
           created_at: string
           created_by: string | null
+          data_inicio: string | null
+          data_limite_projecao: string | null
           descricao: string
+          dia_vencimento: number | null
           id: string
+          meio_pagamento_tipo: string | null
+          observacao: string | null
           ocorrencias_geradas: number
           periodicidade: string
           prazo: string
           proxima_competencia: string
           quantidade_total: number | null
+          subcategoria_id: string | null
           tipo: string
           updated_at: string
+          valor: number | null
           workspace_id: string
         }
         Insert: {
           ativo?: boolean
+          cartao_id?: string | null
+          categoria_id?: string | null
+          conta_destino_id?: string | null
+          conta_origem_id?: string | null
           created_at?: string
           created_by?: string | null
+          data_inicio?: string | null
+          data_limite_projecao?: string | null
           descricao: string
+          dia_vencimento?: number | null
           id?: string
+          meio_pagamento_tipo?: string | null
+          observacao?: string | null
           ocorrencias_geradas?: number
           periodicidade?: string
           prazo?: string
           proxima_competencia: string
           quantidade_total?: number | null
+          subcategoria_id?: string | null
           tipo: string
           updated_at?: string
+          valor?: number | null
           workspace_id: string
         }
         Update: {
           ativo?: boolean
+          cartao_id?: string | null
+          categoria_id?: string | null
+          conta_destino_id?: string | null
+          conta_origem_id?: string | null
           created_at?: string
           created_by?: string | null
+          data_inicio?: string | null
+          data_limite_projecao?: string | null
           descricao?: string
+          dia_vencimento?: number | null
           id?: string
+          meio_pagamento_tipo?: string | null
+          observacao?: string | null
           ocorrencias_geradas?: number
           periodicidade?: string
           prazo?: string
           proxima_competencia?: string
           quantidade_total?: number | null
+          subcategoria_id?: string | null
           tipo?: string
           updated_at?: string
+          valor?: number | null
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: 'series_lancamentos_cartao_id_fkey'
+            columns: ['cartao_id']
+            isOneToOne: false
+            referencedRelation: 'cartoes'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'series_lancamentos_categoria_id_fkey'
+            columns: ['categoria_id']
+            isOneToOne: false
+            referencedRelation: 'categorias'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'series_lancamentos_conta_destino_id_fkey'
+            columns: ['conta_destino_id']
+            isOneToOne: false
+            referencedRelation: 'contas'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'series_lancamentos_conta_origem_id_fkey'
+            columns: ['conta_origem_id']
+            isOneToOne: false
+            referencedRelation: 'contas'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'series_lancamentos_subcategoria_id_fkey'
+            columns: ['subcategoria_id']
+            isOneToOne: false
+            referencedRelation: 'subcategorias'
+            referencedColumns: ['id']
+          },
           {
             foreignKeyName: 'series_lancamentos_workspace_id_fkey'
             columns: ['workspace_id']
@@ -1418,6 +1492,21 @@ export type Database = {
         Args: { token_input: string }
         Returns: Json
       }
+      alterar_fixo_escopo_rpc: {
+        Args: {
+          p_escopo: string
+          p_lancamento_id: string
+          p_nova_categoria_id?: string
+          p_nova_data: string
+          p_nova_descricao: string
+          p_nova_observacao?: string
+          p_nova_subcategoria_id?: string
+          p_novo_valor: number
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       aplicar_saldo_transferencia_rpc: {
         Args: {
           p_lancamento_id: string
@@ -1436,6 +1525,10 @@ export type Database = {
         }
         Returns: Json
       }
+      avancar_data_periodicidade: {
+        Args: { p_data: string; p_passos?: number; p_periodicidade: string }
+        Returns: string
+      }
       calcular_competencia_cartao:
         | {
             Args: { p_data: string; p_dia_fechamento: number }
@@ -1449,9 +1542,44 @@ export type Database = {
             }
             Returns: string
           }
+      calcular_limite_projecao_fixo: {
+        Args: { p_data_inicio: string }
+        Returns: string
+      }
+      criar_serie_fixa_rpc: {
+        Args: {
+          p_cartao_id?: string
+          p_categoria_id?: string
+          p_conta_destino_id?: string
+          p_conta_origem_id?: string
+          p_data_inicio: string
+          p_descricao: string
+          p_meio_pagamento_tipo?: string
+          p_observacao?: string
+          p_pago_primeira?: boolean
+          p_periodicidade: string
+          p_prazo: string
+          p_quantidade_total?: number
+          p_subcategoria_id?: string
+          p_tipo: string
+          p_user_id?: string
+          p_valor: number
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       estornar_fatura_rpc: {
         Args: {
           p_fatura_id: string
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      excluir_fixo_escopo_rpc: {
+        Args: {
+          p_escopo: string
+          p_lancamento_id: string
           p_user_id?: string
           p_workspace_id: string
         }
@@ -1476,6 +1604,10 @@ export type Database = {
       get_invitation_by_token: { Args: { token_input: string }; Returns: Json }
       is_admin_of_workspace: { Args: { ws_id: string }; Returns: boolean }
       is_member_of_workspace: { Args: { ws_id: string }; Returns: boolean }
+      materializar_fixos_pendentes_rpc: {
+        Args: { p_user_id?: string; p_workspace_id: string }
+        Returns: Json
+      }
       obter_cartoes_consolidado_rpc: {
         Args: { p_incluir_inativos?: boolean; p_workspace_id: string }
         Returns: {
@@ -1525,6 +1657,17 @@ export type Database = {
           p_novo_valor: number
           p_observacao?: string
           p_subcategoria_id?: string
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      renovar_projecao_fixo_rpc: {
+        Args: {
+          p_nova_categoria_id?: string
+          p_nova_data_base?: string
+          p_novo_valor?: number
+          p_serie_id: string
           p_user_id?: string
           p_workspace_id: string
         }
