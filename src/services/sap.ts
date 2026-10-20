@@ -2360,7 +2360,7 @@ export const lancamentoService = {
       const valorParcela1 = Number(
         (valorParcelaBase + (qtdParcelas === 1 ? diferencaCentavos : 0)).toFixed(2),
       )
-      const statusParc1 = statusFinal === 'pago' ? 'pago' : 'pendente'
+      const statusParc1 = dados.status_pagamento === 'pago' ? 'pago' : 'pendente'
 
       const { data: lancPai, error: paiErr } = await db
         .from('lancamentos')
