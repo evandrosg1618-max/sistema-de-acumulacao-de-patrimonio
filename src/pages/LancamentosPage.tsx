@@ -58,10 +58,12 @@ import { ModalConciliacao } from '@/components/ModalConciliacao'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { faturaService } from '@/services/sap'
+import { useGlobalLoading } from '@/contexts/LoadingContext'
 import { toast } from 'sonner'
 
 export default function LancamentosPage() {
   const { currentWorkspace, user } = useAuth()
+  const { isProcessing, runWithLock } = useGlobalLoading()
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
   const [contas, setContas] = useState<Conta[]>([])
   const [cartoes, setCartoes] = useState<Cartao[]>([])
@@ -312,14 +314,19 @@ export default function LancamentosPage() {
       )
       if (!confirma) return
 
-      try {
-        const paiId = l.lancamento_pai_id || l.id
-        await lancamentoService.excluirCompraParcelada(wsId, paiId, user?.id)
-        toast.success('Compra parcelada excluída e faturas recalculadas!')
-        await carregarDados()
-      } catch (err: any) {
-        toast.error('Erro ao excluir: ' + (err.message || ''))
-      }
+      await runWithLock(async () => {
+        try {
+          const paiId = l.lancamento_pai_id || l.id
+          await lancamentoService.excluirCompraParcelada(wsId, paiId, user?.id)
+          toast.success('Compra parcelada excluída e faturas recalculadas!')
+          await carregarDados()
+        } catch (err: any) {
+          toast.error(
+            'Não foi possível excluir a compra — ' +
+              (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
+          )
+        }
+      }, 'Excluindo compra parcelada com segurança...')
       return
     }
 
@@ -339,65 +346,75 @@ export default function LancamentosPage() {
     const confirmou = window.confirm(`Deseja realmente cancelar/estornar "${l.descricao}"?`)
     if (!confirmou) return
 
-    try {
-      await lancamentoService.deleteComEscopo(l.id, wsId, 'este', user?.id)
-      toast.success('Lançamento excluído/estornado com sucesso!')
-      await carregarDados()
-    } catch (err: any) {
-      toast.error('Erro ao excluir: ' + (err.message || ''))
-    }
+    await runWithLock(async () => {
+      try {
+        await lancamentoService.deleteComEscopo(l.id, wsId, 'este', user?.id)
+        toast.success('Lançamento excluído/estornado com sucesso!')
+        await carregarDados()
+      } catch (err: any) {
+        toast.error(
+          'Não foi possível excluir o lançamento — ' +
+            (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
+        )
+      }
+    }, 'Excluindo lançamento e garantindo integridade dos saldos...')
   }
 
   const handleConfirmarEscopo = async (escopo: EscopoSerie) => {
     if (!wsId || !lancamentoAlvoEscopo) return
     setProcessandoEscopo(true)
-    try {
-      if (acaoEscopo === 'excluir') {
-        const res = await lancamentoService.deleteComEscopo(
-          lancamentoAlvoEscopo.id,
-          wsId,
-          escopo,
-          user?.id,
+    await runWithLock(async () => {
+      try {
+        if (acaoEscopo === 'excluir') {
+          const res = await lancamentoService.deleteComEscopo(
+            lancamentoAlvoEscopo.id,
+            wsId,
+            escopo,
+            user?.id,
+          )
+          toast.success(
+            `${res.excluidos} lançamento(s) excluído(s). ${
+              res.faturasRecalculadas.length > 0
+                ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
+                : ''
+            }`,
+          )
+        } else {
+          const res = await lancamentoService.updateComEscopo(
+            lancamentoAlvoEscopo.id,
+            wsId,
+            escopo,
+            {
+              descricao: dadosEdicaoPendentes?.descricao,
+              valor: dadosEdicaoPendentes?.valor,
+              data: dadosEdicaoPendentes?.data,
+              categoria_id: dadosEdicaoPendentes?.categoria_id,
+              subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
+              observacao: dadosEdicaoPendentes?.observacao,
+            },
+            user?.id,
+          )
+          toast.success(
+            `${res.alterados} lançamento(s) atualizado(s). ${
+              res.faturasRecalculadas.length > 0
+                ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
+                : ''
+            }`,
+          )
+        }
+        setModalEscopoOpen(false)
+        setLancamentoAlvoEscopo(null)
+        setDadosEdicaoPendentes(null)
+        await carregarDados()
+      } catch (err: any) {
+        toast.error(
+          'Não foi possível concluir a ação — ' +
+            (err.message || 'verifique e tente novamente; se persistir, atualize a página.'),
         )
-        toast.success(
-          `${res.excluidos} lançamento(s) excluído(s). ${
-            res.faturasRecalculadas.length > 0
-              ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
-              : ''
-          }`,
-        )
-      } else {
-        const res = await lancamentoService.updateComEscopo(
-          lancamentoAlvoEscopo.id,
-          wsId,
-          escopo,
-          {
-            descricao: dadosEdicaoPendentes?.descricao,
-            valor: dadosEdicaoPendentes?.valor,
-            data: dadosEdicaoPendentes?.data,
-            categoria_id: dadosEdicaoPendentes?.categoria_id,
-            subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
-            observacao: dadosEdicaoPendentes?.observacao,
-          },
-          user?.id,
-        )
-        toast.success(
-          `${res.alterados} lançamento(s) atualizado(s). ${
-            res.faturasRecalculadas.length > 0
-              ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
-              : ''
-          }`,
-        )
+      } finally {
+        setProcessandoEscopo(false)
       }
-      setModalEscopoOpen(false)
-      setLancamentoAlvoEscopo(null)
-      setDadosEdicaoPendentes(null)
-      await carregarDados()
-    } catch (err: any) {
-      toast.error(err.message || 'Não foi possível completar a operação')
-    } finally {
-      setProcessandoEscopo(false)
-    }
+    }, 'Processando alteração da série no banco...')
   }
 
   const handleTogglePago = async (l: Lancamento) => {
@@ -415,18 +432,28 @@ export default function LancamentosPage() {
       return
     }
 
-    try {
-      const novoStatus = l.status_pagamento !== 'pago'
-      await lancamentoService.togglePago(l.id, wsId, novoStatus, user?.id)
-      toast.success(
-        novoStatus
-          ? 'Lançamento marcado como pago (saldo baixado).'
-          : 'Pagamento desfeito (saldo estornado).',
-      )
-      await carregarDados()
-    } catch (err: any) {
-      toast.error(err.message || 'Erro ao alterar status de pagamento')
-    }
+    await runWithLock(
+      async () => {
+        try {
+          const novoStatus = l.status_pagamento !== 'pago'
+          await lancamentoService.togglePago(l.id, wsId, novoStatus, user?.id)
+          toast.success(
+            novoStatus
+              ? 'Lançamento marcado como pago (saldo baixado).'
+              : 'Pagamento desfeito (saldo estornado).',
+          )
+          await carregarDados()
+        } catch (err: any) {
+          toast.error(
+            'Não foi possível alterar status — ' +
+              (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
+          )
+        }
+      },
+      l.status_pagamento === 'pago'
+        ? 'Desfazendo pagamento e restaurando saldos...'
+        : 'Confirmando pagamento e debitando saldo...',
+    )
   }
 
   const handleToggleConciliado = async (l: Lancamento) => {
@@ -936,9 +963,10 @@ export default function LancamentosPage() {
                         ) : isPago ? (
                           <button
                             type="button"
+                            disabled={isProcessing}
                             onClick={() => handleTogglePago(l)}
                             title="Lançamento PAGO. Clique para desfazer pagamento (alterar para Não Pago / estornar da conta)."
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500 hover:bg-emerald-600 text-white shadow-xs transition active:scale-95 cursor-pointer"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-xs transition active:scale-95 cursor-pointer"
                           >
                             <ThumbsUp className="w-3.5 h-3.5 stroke-[2.5]" />
                             <span>Pago</span>
@@ -946,9 +974,10 @@ export default function LancamentosPage() {
                         ) : (
                           <button
                             type="button"
+                            disabled={isProcessing}
                             onClick={() => handleTogglePago(l)}
                             title="Lançamento NÃO PAGO. Clique para confirmar pagamento (marcar como Pago e debitar da conta)."
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500 hover:bg-rose-600 text-white shadow-xs transition active:scale-95 cursor-pointer"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-xs transition active:scale-95 cursor-pointer"
                           >
                             <ThumbsDown className="w-3.5 h-3.5 stroke-[2.5]" />
                             <span>Não Pago</span>
@@ -992,6 +1021,7 @@ export default function LancamentosPage() {
                           <span>Editar Lançamento</span>
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          disabled={isProcessing}
                           onClick={() => handleExcluirLancamento(l)}
                           className="cursor-pointer text-rose-600 focus:text-rose-600"
                         >

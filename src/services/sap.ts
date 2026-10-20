@@ -1784,153 +1784,71 @@ export const faturaService = {
     data_pagamento: string
     userId?: string
   }): Promise<any> {
-    const { data: fatura, error: fatErr } = await db
-      .from('faturas')
-      .select('*, cartoes(nome)')
-      .eq('id', dados.fatura_id)
-      .single()
-
-    if (fatErr || !fatura) throw new Error('Fatura não encontrada')
-
     const valorNum = Number(dados.valor)
     if (valorNum <= 0) throw new Error('Valor do pagamento deve ser maior que zero')
 
-    // 1. Debitar conta bancária
-    const conta = await contaService.getById(dados.conta_id)
-    if (!conta) throw new Error('Conta bancária não encontrada')
-    const novoSaldo = Number(conta.saldo_atual) - valorNum
-
-    await db
-      .from('contas')
-      .update({
-        saldo_atual: novoSaldo,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', dados.conta_id)
-
-    // 2. Registrar pagamento da fatura
-    const { data: pag, error: pagErr } = await db
-      .from('pagamentos_fatura')
-      .insert({
-        workspace_id: dados.workspace_id,
-        fatura_id: dados.fatura_id,
-        conta_id: dados.conta_id,
-        valor: valorNum,
-        data_pagamento: dados.data_pagamento,
-        status: 'efetivado',
-        created_by: dados.userId,
-      })
-      .select()
+    // Verificação prévia no banco: se já está paga, não reexecutar
+    const { data: faturaAtual } = await db
+      .from('faturas')
+      .select('id, status, competencia')
+      .eq('id', dados.fatura_id)
       .single()
 
-    if (pagErr) throw pagErr
+    if (faturaAtual?.status === 'paga') {
+      return { sucesso: true, ja_paga: true, mensagem: 'Esta fatura já se encontra paga.' }
+    }
 
-    // 3. Registrar movimentação de saída na conta bancária
-    await db.from('movimentacoes_conta').insert({
-      workspace_id: dados.workspace_id,
-      conta_id: dados.conta_id,
-      pagamento_fatura_id: pag.id,
-      tipo: 'saida',
-      valor: valorNum,
-      data: dados.data_pagamento,
-      descricao: `Pagamento fatura ${fatura.cartoes?.nome || 'Cartão'} (${fatura.competencia})`,
-      created_by: dados.userId,
+    // Chamada à RPC atômica e idempotente no PostgreSQL
+    const { data, error } = await db.rpc('pagar_fatura_rpc', {
+      p_workspace_id: dados.workspace_id,
+      p_fatura_id: dados.fatura_id,
+      p_conta_id: dados.conta_id,
+      p_valor: valorNum,
+      p_data_pagamento: dados.data_pagamento,
+      p_user_id: dados.userId || null,
     })
 
-    // 4. Atualizar status da fatura para 'paga'
-    await db
-      .from('faturas')
-      .update({
-        status: 'paga',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', dados.fatura_id)
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Não foi possível concluir o pagamento da fatura — verifique sua conexão e tente novamente; se persistir, atualize a página.',
+      )
+    }
 
-    // 5. Auditoria
-    await auditoriaService.registrar({
-      workspace_id: dados.workspace_id,
-      entidade: 'faturas',
-      entidade_id: dados.fatura_id,
-      acao: 'pay_invoice',
-      estado_anterior: fatura,
-      estado_posterior: { ...fatura, status: 'paga', pagamento_id: pag.id },
-      created_by: dados.userId,
-    })
-
-    return pag
+    return data
   },
 
   async estornarPagamentoFatura(
     faturaId: string,
     workspaceId: string,
     userId?: string,
-  ): Promise<void> {
-    const { data: fatura } = await db
+  ): Promise<any> {
+    // Verificação prévia no banco: se já não estiver paga, nada a desfazer
+    const { data: faturaAtual } = await db
       .from('faturas')
-      .select('*')
+      .select('id, status')
       .eq('id', faturaId)
-      .eq('workspace_id', workspaceId)
       .single()
 
-    if (!fatura) throw new Error('Fatura não encontrada')
-
-    // Buscar pagamentos efetivados desta fatura
-    const { data: pags } = await db
-      .from('pagamentos_fatura')
-      .select('*')
-      .eq('fatura_id', faturaId)
-      .eq('status', 'efetivado')
-
-    for (const pag of pags || []) {
-      // Estorna saldo na conta bancária
-      const conta = await contaService.getById(pag.conta_id)
-      if (conta) {
-        await db
-          .from('contas')
-          .update({
-            saldo_atual: Number(conta.saldo_atual) + Number(pag.valor),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', pag.conta_id)
-      }
-
-      // Atualiza pagamento para 'estornado'
-      await db
-        .from('pagamentos_fatura')
-        .update({ status: 'estornado', updated_at: new Date().toISOString() })
-        .eq('id', pag.id)
-
-      // Registra movimentação de estorno na conta
-      await db.from('movimentacoes_conta').insert({
-        workspace_id: workspaceId,
-        conta_id: pag.conta_id,
-        pagamento_fatura_id: pag.id,
-        tipo: 'estorno',
-        valor: Number(pag.valor),
-        data: new Date().toISOString().split('T')[0],
-        descricao: `Estorno de pagamento de fatura (${fatura.competencia})`,
-        created_by: userId,
-      })
+    if (faturaAtual && faturaAtual.status !== 'paga') {
+      return { sucesso: true, ja_reaberta: true }
     }
 
-    // Reabre a fatura
-    await db
-      .from('faturas')
-      .update({
-        status: 'aberta',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', faturaId)
-
-    await auditoriaService.registrar({
-      workspace_id: workspaceId,
-      entidade: 'faturas',
-      entidade_id: faturaId,
-      acao: 'reverse_invoice_payment',
-      estado_anterior: fatura,
-      estado_posterior: { ...fatura, status: 'aberta' },
-      created_by: userId,
+    // Chamada à RPC atômica e idempotente no PostgreSQL
+    const { data, error } = await db.rpc('estornar_fatura_rpc', {
+      p_workspace_id: workspaceId,
+      p_fatura_id: faturaId,
+      p_user_id: userId || null,
     })
+
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Não foi possível reabrir a fatura — verifique e tente novamente; se persistir, recarregue a página.',
+      )
+    }
+
+    return data
   },
 }
 
@@ -2503,30 +2421,19 @@ export const lancamentoService = {
       // Reverter saldos de conta se estava pago (fora de cartão)
       if (l.status_pagamento === 'pago') {
         if (l.tipo === 'transferencia') {
-          // Reverte saldos de transferência atomicamente via RPC
+          // Reverte saldos de transferência atomicamente e com idempotência garantida
           await db.rpc('restaurar_saldo_transferencia_rpc', {
             p_workspace_id: workspaceId,
             p_lancamento_id: l.id,
           })
         } else {
-          const v = Number(l.valor)
-          if (l.tipo === 'despesa' && l.conta_origem_id) {
-            const c = await contaService.getById(l.conta_origem_id)
-            if (c) {
-              await db
-                .from('contas')
-                .update({ saldo_atual: Number(c.saldo_atual) + v })
-                .eq('id', l.conta_origem_id)
-            }
-          } else if (l.tipo === 'receita' && l.conta_origem_id) {
-            const c = await contaService.getById(l.conta_origem_id)
-            if (c) {
-              await db
-                .from('contas')
-                .update({ saldo_atual: Number(c.saldo_atual) - v })
-                .eq('id', l.conta_origem_id)
-            }
-          }
+          // Reverte saldos via RPC atômica idempotente
+          await db.rpc('toggle_pago_lancamento_rpc', {
+            p_workspace_id: workspaceId,
+            p_lancamento_id: l.id,
+            p_pago: false,
+            p_user_id: userId || null,
+          })
         }
         await db.from('movimentacoes_conta').delete().eq('lancamento_id', l.id)
       }
@@ -2979,54 +2886,20 @@ export const lancamentoService = {
       }
     }
 
-    // Se o lançamento anterior já alterou saldo de contas e está sendo editado, revertemos os saldos do anterior
+    // Se o lançamento anterior já alterou saldo de contas e está sendo editado, revertemos os saldos do anterior de forma atômica
     if (anterior.status_pagamento === 'pago') {
-      const vAnt = Number(anterior.valor)
-      if (
-        anterior.tipo === 'transferencia' &&
-        anterior.conta_origem_id &&
-        anterior.conta_destino_id
-      ) {
-        // REQUISITO 6: Usar RPC atômica restaurar_saldo_transferencia_rpc
-        try {
-          await db.rpc('restaurar_saldo_transferencia_rpc', {
-            p_workspace_id: workspaceId,
-            p_lancamento_id: id,
-          })
-        } catch (errRpc) {
-          console.warn('Fallback manual para restauração de transferência:', errRpc)
-          const cO = await contaService.getById(anterior.conta_origem_id)
-          const cD = await contaService.getById(anterior.conta_destino_id)
-          if (cO) {
-            await db
-              .from('contas')
-              .update({ saldo_atual: Number(cO.saldo_atual) + vAnt })
-              .eq('id', anterior.conta_origem_id)
-          }
-          if (cD) {
-            await db
-              .from('contas')
-              .update({ saldo_atual: Number(cD.saldo_atual) - vAnt })
-              .eq('id', anterior.conta_destino_id)
-          }
-          await db.from('movimentacoes_conta').delete().eq('lancamento_id', id)
-        }
-      } else if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
-        const c = await contaService.getById(anterior.conta_origem_id)
-        if (c) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(c.saldo_atual) + vAnt })
-            .eq('id', anterior.conta_origem_id)
-        }
-      } else if (anterior.tipo === 'receita' && anterior.conta_origem_id) {
-        const c = await contaService.getById(anterior.conta_origem_id)
-        if (c) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(c.saldo_atual) - vAnt })
-            .eq('id', anterior.conta_origem_id)
-        }
+      if (anterior.tipo === 'transferencia') {
+        await db.rpc('restaurar_saldo_transferencia_rpc', {
+          p_workspace_id: workspaceId,
+          p_lancamento_id: id,
+        })
+      } else {
+        await db.rpc('toggle_pago_lancamento_rpc', {
+          p_workspace_id: workspaceId,
+          p_lancamento_id: id,
+          p_pago: false,
+          p_user_id: userId || null,
+        })
       }
     }
 
@@ -3184,6 +3057,11 @@ export const lancamentoService = {
     const anterior = await this.getById(id)
     if (!anterior) throw new Error('Lançamento não encontrado')
 
+    // Idempotência prévia: se já foi excluído, encerra sem duplicar
+    if (anterior.deleted_at) {
+      return
+    }
+
     // Se estiver em fatura paga, bloquear conforme PRD
     if (anterior.cartao_id && anterior.competencia) {
       const fatura = await faturaService.getFatura(
@@ -3198,60 +3076,49 @@ export const lancamentoService = {
       }
     }
 
-    // Se estava pago, reverter saldo
-    if (anterior.status_pagamento === 'pago') {
-      const vAnt = Number(anterior.valor)
-      if (
-        anterior.tipo === 'transferencia' &&
-        anterior.conta_origem_id &&
-        anterior.conta_destino_id
-      ) {
-        // REQUISITO 6: Usar RPC atômica restaurar_saldo_transferencia_rpc
-        try {
-          await db.rpc('restaurar_saldo_transferencia_rpc', {
-            p_workspace_id: workspaceId,
-            p_lancamento_id: id,
-          })
-        } catch (errRpc) {
-          console.warn('Fallback manual para restauração de transferência:', errRpc)
-          const cO = await contaService.getById(anterior.conta_origem_id)
-          const cD = await contaService.getById(anterior.conta_destino_id)
-          if (cO) {
-            await db
-              .from('contas')
-              .update({ saldo_atual: Number(cO.saldo_atual) + vAnt })
-              .eq('id', anterior.conta_origem_id)
-          }
-          if (cD) {
-            await db
-              .from('contas')
-              .update({ saldo_atual: Number(cD.saldo_atual) - vAnt })
-              .eq('id', anterior.conta_destino_id)
-          }
-        }
-      } else if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
-        const c = await contaService.getById(anterior.conta_origem_id)
-        if (c) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(c.saldo_atual) + vAnt })
-            .eq('id', anterior.conta_origem_id)
-        }
-      } else if (anterior.tipo === 'receita' && anterior.conta_origem_id) {
-        const c = await contaService.getById(anterior.conta_origem_id)
-        if (c) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(c.saldo_atual) - vAnt })
-            .eq('id', anterior.conta_origem_id)
-        }
+    // Se for transferência, chamar a RPC atômica idempotente com trava
+    if (anterior.tipo === 'transferencia') {
+      const { data: resTransf, error: errTransf } = await db.rpc('excluir_transferencia_rpc', {
+        p_workspace_id: workspaceId,
+        p_lancamento_id: id,
+        p_user_id: userId || null,
+      })
+      if (errTransf) {
+        throw new Error(
+          errTransf.message ||
+            'Não foi possível excluir a transferência — verifique e tente novamente; se persistir, atualize a página.',
+        )
       }
+      return
+    }
+
+    // Se estava pago, reverter saldo atomicamente
+    if (anterior.status_pagamento === 'pago') {
+      await db.rpc('toggle_pago_lancamento_rpc', {
+        p_workspace_id: workspaceId,
+        p_lancamento_id: id,
+        p_pago: false,
+        p_user_id: userId || null,
+      })
     }
 
     // Excluir movimentações da conta
     await db.from('movimentacoes_conta').delete().eq('lancamento_id', id)
 
     // Identificar lançamento pai / série caso seja um lançamento parcelado
+    // Se for transferência, chamar a RPC atômica idempotente com trava
+    if (anterior.tipo === 'transferencia') {
+      const { data: resTransf, error: errTransf } = await db.rpc('excluir_transferencia_rpc', {
+        p_workspace_id: workspaceId,
+        p_lancamento_id: id,
+        p_user_id: userId || null,
+      })
+      if (errTransf) {
+        throw new Error(errTransf.message || 'Falha ao excluir transferência.')
+      }
+      return
+    }
+
     const paiId = anterior.lancamento_pai_id || anterior.id
     const idsParaExcluir = [id]
     if (paiId && paiId === anterior.id) {
@@ -3331,7 +3198,8 @@ export const lancamentoService = {
     })
   },
 
-  async togglePago(id: string, workspaceId: string, pago: boolean, userId?: string): Promise<void> {
+  async togglePago(id: string, workspaceId: string, pago: boolean, userId?: string): Promise<any> {
+    // 1. Verificação prévia no banco
     const anterior = await this.getById(id)
     if (!anterior) throw new Error('Lançamento não encontrado')
 
@@ -3341,159 +3209,26 @@ export const lancamentoService = {
       )
     }
 
-    const valorNum = Number(anterior.valor)
-    const novoStatus = pago ? 'pago' : 'pendente'
-    const dataPag = pago ? new Date().toISOString().split('T')[0] : null
-
-    if (pago && anterior.status_pagamento !== 'pago') {
-      // Baixar saldo
-      if (
-        anterior.tipo === 'transferencia' &&
-        anterior.conta_origem_id &&
-        anterior.conta_destino_id
-      ) {
-        // REQUISITO 6: Aplicar saldo de transferência
-        try {
-          await db.rpc('aplicar_saldo_transferencia_rpc', {
-            p_workspace_id: workspaceId,
-            p_lancamento_id: id,
-            p_user_id: userId || null,
-          })
-        } catch (errRpc) {
-          console.warn('Fallback manual para aplicação de transferência:', errRpc)
-          const cOrigem = await contaService.getById(anterior.conta_origem_id)
-          const cDestino = await contaService.getById(anterior.conta_destino_id)
-          if (cOrigem && cDestino) {
-            await db
-              .from('contas')
-              .update({ saldo_atual: Number(cOrigem.saldo_atual) - valorNum })
-              .eq('id', anterior.conta_origem_id)
-            await db
-              .from('contas')
-              .update({ saldo_atual: Number(cDestino.saldo_atual) + valorNum })
-              .eq('id', anterior.conta_destino_id)
-            await db.from('movimentacoes_conta').insert([
-              {
-                workspace_id: workspaceId,
-                conta_id: anterior.conta_origem_id,
-                lancamento_id: id,
-                tipo: 'transferencia_saida',
-                valor: valorNum,
-                data: dataPag || anterior.data,
-                descricao: `Transf. saída para ${cDestino.nome}`,
-                created_by: userId,
-              },
-              {
-                workspace_id: workspaceId,
-                conta_id: anterior.conta_destino_id,
-                lancamento_id: id,
-                tipo: 'transferencia_entrada',
-                valor: valorNum,
-                data: dataPag || anterior.data,
-                descricao: `Transf. entrada de ${cOrigem.nome}`,
-                created_by: userId,
-              },
-            ])
-          }
-        }
-      } else if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
-        const c = await contaService.getById(anterior.conta_origem_id)
-        if (c) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(c.saldo_atual) - valorNum })
-            .eq('id', anterior.conta_origem_id)
-          await db.from('movimentacoes_conta').insert({
-            workspace_id: workspaceId,
-            conta_id: anterior.conta_origem_id,
-            lancamento_id: id,
-            tipo: 'saida',
-            valor: valorNum,
-            data: dataPag || anterior.data,
-            descricao: anterior.descricao,
-            created_by: userId,
-          })
-        }
-      } else if (anterior.tipo === 'receita' && anterior.conta_origem_id) {
-        const c = await contaService.getById(anterior.conta_origem_id)
-        if (c) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(c.saldo_atual) + valorNum })
-            .eq('id', anterior.conta_origem_id)
-          await db.from('movimentacoes_conta').insert({
-            workspace_id: workspaceId,
-            conta_id: anterior.conta_origem_id,
-            lancamento_id: id,
-            tipo: 'entrada',
-            valor: valorNum,
-            data: dataPag || anterior.data,
-            descricao: anterior.descricao,
-            created_by: userId,
-          })
-        }
-      }
-    } else if (!pago && anterior.status_pagamento === 'pago') {
-      // Desfazer pagamento / estornar
-      if (
-        anterior.tipo === 'transferencia' &&
-        anterior.conta_origem_id &&
-        anterior.conta_destino_id
-      ) {
-        // REQUISITO 6: Restaurar saldos de transferência ao desfazer pagamento
-        try {
-          await db.rpc('restaurar_saldo_transferencia_rpc', {
-            p_workspace_id: workspaceId,
-            p_lancamento_id: id,
-          })
-        } catch (errRpc) {
-          console.warn('Fallback manual para restauração de transferência:', errRpc)
-          const cOrig = await contaService.getById(anterior.conta_origem_id)
-          const cDest = await contaService.getById(anterior.conta_destino_id)
-          if (cOrig) {
-            await db
-              .from('contas')
-              .update({ saldo_atual: Number(cOrig.saldo_atual) + valorNum })
-              .eq('id', anterior.conta_origem_id)
-          }
-          if (cDest) {
-            await db
-              .from('contas')
-              .update({ saldo_atual: Number(cDest.saldo_atual) - valorNum })
-              .eq('id', anterior.conta_destino_id)
-          }
-        }
-      } else if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
-        const c = await contaService.getById(anterior.conta_origem_id)
-        if (c) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(c.saldo_atual) + valorNum })
-            .eq('id', anterior.conta_origem_id)
-        }
-      } else if (anterior.tipo === 'receita' && anterior.conta_origem_id) {
-        const c = await contaService.getById(anterior.conta_origem_id)
-        if (c) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(c.saldo_atual) - valorNum })
-            .eq('id', anterior.conta_origem_id)
-        }
-      }
-      await db.from('movimentacoes_conta').delete().eq('lancamento_id', id)
+    const statusAtualPago = anterior.status_pagamento === 'pago'
+    if ((pago && statusAtualPago) || (!pago && !statusAtualPago)) {
+      // Já está no estado pretendido, nenhuma ação necessária
+      return { sucesso: true, ja_no_estado: true }
     }
 
-    const { error } = await db
-      .from('lancamentos')
-      .update({
-        status_pagamento: novoStatus,
-        data_pagamento: dataPag,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .eq('workspace_id', workspaceId)
+    // 2. Executar via RPC atômica e idempotente no PostgreSQL (com FOR UPDATE)
+    const { data, error } = await db.rpc('toggle_pago_lancamento_rpc', {
+      p_workspace_id: workspaceId,
+      p_lancamento_id: id,
+      p_pago: pago,
+      p_user_id: userId || null,
+    })
 
-    if (error) throw error
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Não foi possível alterar o status do pagamento — verifique e clique novamente; se persistir, atualize a página.',
+      )
+    }
 
     await auditoriaService.registrar({
       workspace_id: workspaceId,
@@ -3501,8 +3236,11 @@ export const lancamentoService = {
       entidade_id: id,
       acao: pago ? 'pay_transaction' : 'unpay_transaction',
       estado_anterior: anterior,
+      estado_posterior: { ...anterior, status_pagamento: pago ? 'pago' : 'pendente' },
       created_by: userId,
     })
+
+    return data
   },
 }
 

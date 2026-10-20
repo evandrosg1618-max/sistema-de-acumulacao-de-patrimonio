@@ -4,6 +4,7 @@ import { Toaster } from '@/components/ui/toaster'
 import { Toaster as Sonner } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { AuthProvider, useAuth } from '@/hooks/use-auth'
+import { GlobalLoadingProvider } from '@/contexts/LoadingContext'
 import Layout from './components/Layout'
 import Index from './pages/Index'
 import Settings from './pages/Settings'
@@ -161,11 +162,13 @@ const AppRoutes = () => (
 const App = () => (
   <BrowserRouter>
     <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <AppRoutes />
-      </TooltipProvider>
+      <GlobalLoadingProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <AppRoutes />
+        </TooltipProvider>
+      </GlobalLoadingProvider>
     </AuthProvider>
   </BrowserRouter>
 )

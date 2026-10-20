@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/use-auth'
+import { useGlobalLoading } from '@/contexts/LoadingContext'
 import {
   cartaoService,
   faturaService,
@@ -71,6 +72,7 @@ const PALETA_CORES = [
 
 export default function CartoesPage() {
   const { currentWorkspace, user } = useAuth()
+  const { isProcessing, runWithLock } = useGlobalLoading()
   const [cartoes, setCartoes] = useState<Cartao[]>([])
   const [contas, setContas] = useState<Conta[]>([])
   const [faturasMap, setFaturasMap] = useState<Record<string, Fatura[]>>({})
@@ -260,21 +262,26 @@ export default function CartoesPage() {
     dataPagamento: string
   }) => {
     if (!wsId) return
-    try {
-      await faturaService.pagarFatura({
-        workspace_id: wsId,
-        fatura_id: dados.faturaId,
-        conta_id: dados.contaId,
-        valor: dados.valor,
-        data_pagamento: dados.dataPagamento,
-        userId: user?.id,
-      })
-      toast.success('Fatura quitada com sucesso! Saldo bancário baixado.')
-      await carregarCartoes()
-    } catch (err: any) {
-      toast.error('Erro ao pagar fatura: ' + (err.message || ''))
-      throw err
-    }
+    await runWithLock(async () => {
+      try {
+        await faturaService.pagarFatura({
+          workspace_id: wsId,
+          fatura_id: dados.faturaId,
+          conta_id: dados.contaId,
+          valor: dados.valor,
+          data_pagamento: dados.dataPagamento,
+          userId: user?.id,
+        })
+        toast.success('Fatura quitada com sucesso! Saldo bancário baixado.')
+        await carregarCartoes()
+      } catch (err: any) {
+        toast.error(
+          'Não foi possível concluir o pagamento — ' +
+            (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
+        )
+        throw err
+      }
+    }, 'Processando pagamento da fatura com segurança no banco...')
   }
 
   const handleEstornarFatura = async (faturaId: string) => {
@@ -284,13 +291,18 @@ export default function CartoesPage() {
     )
     if (!confirma) return
 
-    try {
-      await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
-      toast.success('Pagamento estornado e fatura reaberta.')
-      await carregarCartoes()
-    } catch (err: any) {
-      toast.error('Erro ao reabrir fatura: ' + (err.message || ''))
-    }
+    await runWithLock(async () => {
+      try {
+        await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
+        toast.success('Pagamento estornado e fatura reaberta com sucesso!')
+        await carregarCartoes()
+      } catch (err: any) {
+        toast.error(
+          'Não foi possível reabrir a fatura — ' +
+            (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
+        )
+      }
+    }, 'Estornando pagamento e recompondo saldos das contas...')
   }
 
   // REQUISITOS 2, 3 e 4: Ações de Lançamentos dentro da Fatura
@@ -488,13 +500,18 @@ export default function CartoesPage() {
       )
       if (!confirma) return
 
-      try {
-        await lancamentoService.excluirCompraParcelada(wsId, alvoParaExclusao.id, user?.id)
-        toast.success('Compra parcelada excluída e faturas recalculadas!')
-        await carregarCartoes()
-      } catch (err: any) {
-        toast.error(err.message || 'Erro ao excluir')
-      }
+      await runWithLock(async () => {
+        try {
+          await lancamentoService.excluirCompraParcelada(wsId, alvoParaExclusao.id, user?.id)
+          toast.success('Compra parcelada excluída e faturas recalculadas!')
+          await carregarCartoes()
+        } catch (err: any) {
+          toast.error(
+            'Não foi possível excluir a compra parcelada — ' +
+              (err.message || 'verifique e tente novamente.'),
+          )
+        }
+      }, 'Excluindo compra parcelada e recalculando faturas...')
       return
     }
 
@@ -503,13 +520,18 @@ export default function CartoesPage() {
     )
     if (!confirma) return
 
-    try {
-      await lancamentoService.deleteComEscopo(alvoParaExclusao.id, wsId, 'este', user?.id)
-      toast.success('Lançamento excluído e faturas recalculadas!')
-      await carregarCartoes()
-    } catch (err: any) {
-      toast.error(err.message || 'Erro ao excluir')
-    }
+    await runWithLock(async () => {
+      try {
+        await lancamentoService.deleteComEscopo(alvoParaExclusao.id, wsId, 'este', user?.id)
+        toast.success('Lançamento excluído e faturas recalculadas!')
+        await carregarCartoes()
+      } catch (err: any) {
+        toast.error(
+          'Não foi possível excluir o lançamento — ' +
+            (err.message || 'verifique e tente novamente.'),
+        )
+      }
+    }, 'Excluindo lançamento da fatura...')
   }
 
   const handleConfirmarEscopoFatura = async (escopo: EscopoSerie) => {
@@ -1010,10 +1032,11 @@ export default function CartoesPage() {
                                 resumo?.saldoDevedor > 0 && (
                                   <Button
                                     size="sm"
-                                    onClick={() => abrirModalPagarFatura(resumo.fatura, cartao)}
-                                    className="h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold ml-2"
+                                    disabled={isProcessing}
+                                    className="text-xs h-7 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs"
+                                    onClick={() => abrirModalPagarFatura(fatura, cartao)}
                                   >
-                                    <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                                    <CheckCircle2 className="w-3 h-3 mr-1" />
                                     Pagar Fatura
                                   </Button>
                                 )}
@@ -1218,6 +1241,7 @@ export default function CartoesPage() {
                                         {!isPaga ? (
                                           <Button
                                             size="sm"
+                                            disabled={isProcessing}
                                             onClick={() => abrirModalPagarFatura(fat, cartao)}
                                             className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 rounded-lg shadow-2xs"
                                           >
@@ -1227,6 +1251,7 @@ export default function CartoesPage() {
                                           <Button
                                             variant="outline"
                                             size="sm"
+                                            disabled={isProcessing}
                                             onClick={() => handleEstornarFatura(fat.id)}
                                             className="h-7 text-xs text-rose-700 border-rose-200 hover:bg-rose-50 px-2.5 rounded-lg"
                                           >
