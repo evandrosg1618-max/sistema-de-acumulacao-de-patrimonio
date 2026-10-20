@@ -79,8 +79,9 @@ export default function Signup() {
             S
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            Criar Espaço Familiar no SAP
+            Sistema de Acumulação de Patrimônio — SAP
           </h1>
+          <p className="text-sm font-semibold text-slate-700">Criar Espaço Familiar</p>
           <p className="text-xs text-slate-500">
             Comece a organizar e acumular o patrimônio da sua família
           </p>

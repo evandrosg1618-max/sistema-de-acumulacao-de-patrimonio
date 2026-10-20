@@ -59,7 +59,7 @@ export default function Login() {
             S
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-            SAP — Sistema de Acumulação de Capital
+            Sistema de Acumulação de Patrimônio — SAP
           </h1>
           <p className="text-xs text-slate-500">Controle financeiro e patrimonial familiar</p>
         </div>

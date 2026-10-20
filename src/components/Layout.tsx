@@ -135,8 +135,11 @@ export default function Layout() {
                 <span className="text-base font-extrabold tracking-tight leading-none text-white">
                   SAP
                 </span>
-                <span className="text-[9px] font-medium text-emerald-100 uppercase tracking-wider">
-                  Patrimonial
+                <span
+                  className="text-[9px] font-medium text-emerald-100 uppercase tracking-wider"
+                  title="Sistema de Acumulação de Patrimônio"
+                >
+                  Acumulação de Patrimônio
                 </span>
               </div>
             </Link>
@@ -421,7 +424,9 @@ export default function Layout() {
                 <div className="w-7 h-7 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-xs">
                   S
                 </div>
-                <div className="text-sm font-bold text-slate-900">SAP — Menu</div>
+                <div className="text-sm font-bold text-slate-900">
+                  SAP — Acumulação de Patrimônio
+                </div>
               </div>
               <button onClick={() => setMobileMenuOpen(false)} className="p-1 text-slate-500">
                 <X className="w-5 h-5" />

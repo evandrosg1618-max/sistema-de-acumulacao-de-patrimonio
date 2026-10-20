@@ -51,7 +51,7 @@ const CLASSIFICACOES_GERENCIAIS: ClassificacaoGerencial[] = [
   'Despesas Variáveis',
   'Dívidas',
   'Liberdade',
-  'Acumulação de Capital',
+  'Acumulação de Patrimônio',
 ]
 
 const PALETA_CORES = [

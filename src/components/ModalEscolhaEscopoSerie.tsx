@@ -38,6 +38,13 @@ export function ModalEscolhaEscopoSerie({
   const numParcela = lancamento.numero_parcela || 1
   const totalParcelas = lancamento.total_parcelas || lancamento.quantidade_parcelas || 1
   const ehEdicao = acao === 'editar'
+  const ehFixo = lancamento.regime === 'fixo' || Boolean(lancamento.serie_id)
+  const tipoTexto =
+    lancamento.tipo === 'receita'
+      ? 'receita'
+      : lancamento.tipo === 'transferencia'
+        ? 'transferência'
+        : 'despesa'
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onCancelar()}>
@@ -50,16 +57,31 @@ export function ModalEscolhaEscopoSerie({
               <Trash2 className="w-5 h-5 text-rose-600" />
             )}
             <DialogTitle className="text-base font-bold">
-              {ehEdicao ? 'Alterar lançamento parcelado' : 'Excluir lançamento parcelado'}
+              {ehFixo
+                ? ehEdicao
+                  ? `Alterar ${tipoTexto} fixa`
+                  : `Excluir ${tipoTexto} fixa`
+                : ehEdicao
+                  ? 'Alterar lançamento parcelado'
+                  : 'Excluir lançamento parcelado'}
             </DialogTitle>
           </div>
           <DialogDescription className="text-xs text-slate-500 pt-1">
-            Este lançamento faz parte de uma compra parcelada (parcela{' '}
-            <strong>
-              {numParcela}/{totalParcelas}
-            </strong>
-            : &quot;{lancamento.descricao}&quot;). Como deseja aplicar esta{' '}
-            {ehEdicao ? 'alteração' : 'exclusão'}?
+            {ehFixo ? (
+              <>
+                &laquo;{lancamento.descricao}&raquo; é uma {tipoTexto} fixa recorrente. Como deseja
+                prosseguir?
+              </>
+            ) : (
+              <>
+                Este lançamento faz parte de uma compra parcelada (parcela{' '}
+                <strong>
+                  {numParcela}/{totalParcelas}
+                </strong>
+                : &quot;{lancamento.descricao}&quot;). Como deseja aplicar esta{' '}
+                {ehEdicao ? 'alteração' : 'exclusão'}?
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -79,8 +101,9 @@ export function ModalEscolhaEscopoSerie({
                   {ehEdicao ? 'Alterar apenas este' : 'Excluir apenas este'}
                 </Label>
                 <p className="text-[11px] text-slate-500">
-                  Aplica a ação exclusivamente à parcela atual ({numParcela}/{totalParcelas}). As
-                  demais permanecem inalteradas.
+                  {ehFixo
+                    ? 'Aplica exclusivamente a esta ocorrência pontual. Transforma-a em exceção mantendo as demais inalteradas.'
+                    : `Aplica a ação exclusivamente à parcela atual (${numParcela}/${totalParcelas}). As demais permanecem inalteradas.`}
                 </p>
               </div>
             </div>
@@ -95,8 +118,9 @@ export function ModalEscolhaEscopoSerie({
                   {ehEdicao ? 'Alterar este e os próximos' : 'Excluir este e os próximos'}
                 </Label>
                 <p className="text-[11px] text-slate-500">
-                  Aplica da parcela {numParcela} até a {totalParcelas}. As parcelas anteriores não
-                  são afetadas.
+                  {ehFixo
+                    ? 'Aplica a esta ocorrência e a todas as futuras desta série. As ocorrências anteriores não são afetadas.'
+                    : `Aplica da parcela ${numParcela} até a ${totalParcelas}. As parcelas anteriores não são afetadas.`}
                 </p>
               </div>
             </div>
@@ -111,7 +135,9 @@ export function ModalEscolhaEscopoSerie({
                   {ehEdicao ? 'Alterar todos' : 'Excluir todos'}
                 </Label>
                 <p className="text-[11px] text-slate-500">
-                  Aplica a todas as {totalParcelas} parcelas da série de uma única vez.
+                  {ehFixo
+                    ? 'Aplica a todas as ocorrências da série (em série indeterminada, equivale a encerrar a recorrência).'
+                    : `Aplica a todas as ${totalParcelas} parcelas da série de uma única vez.`}
                 </p>
               </div>
             </div>

@@ -56,7 +56,7 @@ export default function ForgotPassword() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Recuperação de Acesso
           </h1>
-          <p className="text-xs text-slate-500">Sistema de Acumulação de Capital (SAP)</p>
+          <p className="text-xs text-slate-500">Sistema de Acumulação de Patrimônio — SAP</p>
         </div>
 
         <Card className="border-slate-200 shadow-sm bg-white">

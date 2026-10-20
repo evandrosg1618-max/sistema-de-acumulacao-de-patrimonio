@@ -514,6 +514,164 @@ export const contaService = {
 // ----------------------------------------------------
 // BUILD 1: SERVIÇO DE CARTÕES
 // ----------------------------------------------------
+// ==========================================
+// BUILD 5: FIXO SERVICE (Recorrentes, Materialização Preguiçosa e Projeções)
+// ==========================================
+export const fixoService = {
+  async criarSerieFixa(
+    workspaceId: string,
+    dados: {
+      tipo: 'despesa' | 'receita' | 'transferencia'
+      descricao: string
+      valor: number
+      data_inicio: string
+      prazo: 'indeterminado' | 'determinado'
+      periodicidade: 'mensal' | 'semestral' | 'anual'
+      quantidade_total?: number | null
+      meio_pagamento_tipo: 'CONTA' | 'CARTAO' | 'DINHEIRO'
+      conta_origem_id?: string | null
+      conta_destino_id?: string | null
+      cartao_id?: string | null
+      categoria_id?: string | null
+      subcategoria_id?: string | null
+      observacao?: string | null
+      pago_primeira?: boolean
+    },
+    userId?: string,
+  ): Promise<{
+    sucesso: boolean
+    serie_id: string
+    ocorrencias_geradas: number
+    data_limite_projecao: string
+    proxima_competencia: string
+  }> {
+    const { data, error } = await db.rpc('criar_serie_fixa_rpc', {
+      p_workspace_id: workspaceId,
+      p_tipo: dados.tipo,
+      p_descricao: dados.descricao.trim(),
+      p_valor: Number(dados.valor),
+      p_data_inicio: dados.data_inicio,
+      p_prazo: dados.prazo,
+      p_periodicidade: dados.periodicidade,
+      p_quantidade_total: dados.quantidade_total ? Number(dados.quantidade_total) : null,
+      p_meio_pagamento_tipo: dados.meio_pagamento_tipo,
+      p_conta_origem_id: dados.conta_origem_id || null,
+      p_conta_destino_id: dados.conta_destino_id || null,
+      p_cartao_id: dados.cartao_id || null,
+      p_categoria_id: dados.categoria_id || null,
+      p_subcategoria_id: dados.subcategoria_id || null,
+      p_observacao: dados.observacao || null,
+      p_pago_primeira: Boolean(dados.pago_primeira),
+      p_user_id: userId || null,
+    })
+
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Não foi possível criar o lançamento fixo — tente novamente; se persistir, atualize a página.',
+      )
+    }
+
+    return data as any
+  },
+
+  async materializarPendentes(
+    workspaceId: string,
+    userId?: string,
+  ): Promise<{
+    sucesso: boolean
+    materializados: number
+    faturas_recalculadas: string[]
+  }> {
+    const { data, error } = await db.rpc('materializar_fixos_pendentes_rpc', {
+      p_workspace_id: workspaceId,
+      p_user_id: userId || null,
+    })
+
+    if (error) {
+      console.warn('Erro ao materializar fixos pendentes:', error.message)
+      return { sucesso: false, materializados: 0, faturas_recalculadas: [] }
+    }
+
+    return (data as any) || { sucesso: true, materializados: 0, faturas_recalculadas: [] }
+  },
+
+  async renovarProjecao(
+    workspaceId: string,
+    serieId: string,
+    dados?: {
+      novo_valor?: number
+      nova_categoria_id?: string | null
+    },
+    userId?: string,
+  ): Promise<{
+    sucesso: boolean
+    novo_limite: string
+    novas_geradas: number
+  }> {
+    const { data, error } = await db.rpc('renovar_projecao_fixo_rpc', {
+      p_workspace_id: workspaceId,
+      p_serie_id: serieId,
+      p_novo_valor: dados?.novo_valor ? Number(dados.novo_valor) : null,
+      p_nova_data_base: null,
+      p_nova_categoria_id: dados?.nova_categoria_id || null,
+      p_user_id: userId || null,
+    })
+
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Não foi possível renovar a projeção da série fixa — tente novamente; se persistir, atualize a página.',
+      )
+    }
+
+    return data as any
+  },
+
+  async getSerieById(serieId: string, workspaceId: string): Promise<SerieLancamento | null> {
+    const { data, error } = await db
+      .from('series_lancamentos')
+      .select('*')
+      .eq('id', serieId)
+      .eq('workspace_id', workspaceId)
+      .single()
+
+    if (error) return null
+    return data as SerieLancamento
+  },
+
+  async verificarSeUltimaOcorrenciaJanela(
+    lancamentoId: string,
+    workspaceId: string,
+  ): Promise<{
+    ehUltima: boolean
+    serie: SerieLancamento | null
+  }> {
+    const lanc = await lancamentoService.getById(lancamentoId)
+    if (!lanc || !lanc.serie_id || lanc.regime !== 'fixo') {
+      return { ehUltima: false, serie: null }
+    }
+
+    const serie = await this.getSerieById(lanc.serie_id, workspaceId)
+    if (!serie || serie.prazo !== 'indeterminado') {
+      return { ehUltima: false, serie }
+    }
+
+    // Busca se existe algum outro lançamento posterior nesta mesma série que não esteja deletado
+    const { data: posteriores } = await db
+      .from('lancamentos')
+      .select('id')
+      .eq('serie_id', lanc.serie_id)
+      .eq('workspace_id', workspaceId)
+      .is('deleted_at', null)
+      .gt('data', lanc.data)
+      .limit(1)
+
+    const ehUltima = !posteriores || posteriores.length === 0
+    return { ehUltima, serie }
+  },
+}
+
 export const cartaoService = {
   async list(workspaceId: string, incluirInativos = false): Promise<any[]> {
     // Desempenho (Frente 4): Chamada única à RPC consolidada do PostgreSQL
@@ -2176,12 +2334,138 @@ export const lancamentoService = {
     }
 
     // ==========================================
-    // PARCELAMENTO NO CARTÃO (BUILD 3):
-    // 1. Dividir valor em parcelas com centavos residuais na última
-    // 2. Criar série de lançamentos para competências consecutivas
-    // 3. Criar registro na tabela 'parcelas'
-    // 4. Recalcular faturas de todas as competências envolvidas
+    // PARCELAMENTO NO CARTÃO OU CONTA BANCÁRIA:
+    // Suporte tanto para cartão de crédito quanto para conta bancária
+    // (sem exigir especificação de boleto/Pix conforme PRD)
     // ==========================================
+    if (dados.meio_pagamento_tipo !== 'CARTAO') {
+      // Parcelamento em conta bancária/dinheiro: gera parcelas mensais na conta
+      const valorParcelaBase = Math.floor((valorNum / qtdParcelas) * 100) / 100
+      const diferencaCentavos = Math.round((valorNum - valorParcelaBase * qtdParcelas) * 100) / 100
+
+      const somarMesesData = (dataStr: string, meses: number): string => {
+        const d = new Date(dataStr + 'T12:00:00Z')
+        const dia = d.getUTCDate()
+        const mes = d.getUTCMonth() + meses
+        const ano = d.getUTCFullYear()
+        const novoD = new Date(Date.UTC(ano, mes, 1))
+        const maxDias = new Date(
+          Date.UTC(novoD.getUTCFullYear(), novoD.getUTCMonth() + 1, 0),
+        ).getUTCDate()
+        novoD.setUTCDate(Math.min(dia, maxDias))
+        return novoD.toISOString().split('T')[0]
+      }
+
+      // 1ª parcela
+      const valorParcela1 = Number(
+        (valorParcelaBase + (qtdParcelas === 1 ? diferencaCentavos : 0)).toFixed(2),
+      )
+      const statusParc1 = statusFinal === 'pago' ? 'pago' : 'pendente'
+
+      const { data: lancPai, error: paiErr } = await db
+        .from('lancamentos')
+        .insert({
+          workspace_id: dados.workspace_id,
+          tipo: dados.tipo,
+          regime: 'parcelado',
+          data: dados.data,
+          competencia: dados.data.substring(0, 7),
+          descricao: `${dados.descricao.trim()} (1/${qtdParcelas})`,
+          valor: valorParcela1,
+          meio_pagamento_tipo: dados.meio_pagamento_tipo,
+          conta_origem_id: dados.conta_origem_id || null,
+          conta_destino_id: dados.conta_destino_id || null,
+          categoria_id: dados.categoria_id || null,
+          subcategoria_id: dados.subcategoria_id || null,
+          status_pagamento: statusParc1,
+          data_pagamento: statusParc1 === 'pago' ? dados.data : null,
+          observacao: dados.observacao || null,
+          quantidade_parcelas: qtdParcelas,
+          numero_parcela: 1,
+          total_parcelas: qtdParcelas,
+          conciliado: false,
+          created_by: dados.created_by,
+        })
+        .select()
+        .single()
+
+      if (paiErr) throw paiErr
+      await db.from('lancamentos').update({ lancamento_pai_id: lancPai.id }).eq('id', lancPai.id)
+
+      if (statusParc1 === 'pago' && dados.conta_origem_id) {
+        const c = await contaService.getById(dados.conta_origem_id)
+        if (c) {
+          const delta = dados.tipo === 'despesa' ? -valorParcela1 : valorParcela1
+          await db
+            .from('contas')
+            .update({
+              saldo_atual: Number(c.saldo_atual) + delta,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', dados.conta_origem_id)
+
+          await db.from('movimentacoes_conta').insert({
+            workspace_id: dados.workspace_id,
+            conta_id: dados.conta_origem_id,
+            lancamento_id: lancPai.id,
+            tipo: dados.tipo === 'despesa' ? 'saida' : 'entrada',
+            valor: valorParcela1,
+            data: dados.data,
+            descricao: `${dados.descricao} (1/${qtdParcelas})`,
+            created_by: dados.created_by,
+          })
+        }
+      }
+
+      // Parcelas 2 a N (sempre pendentes até ação do usuário)
+      for (let p = 2; p <= qtdParcelas; p++) {
+        const dataParc = somarMesesData(dados.data, p - 1)
+        const compParc = dataParc.substring(0, 7)
+        const valorDestaParcela =
+          p === qtdParcelas
+            ? Number((valorParcelaBase + diferencaCentavos).toFixed(2))
+            : valorParcelaBase
+
+        await db.from('lancamentos').insert({
+          workspace_id: dados.workspace_id,
+          tipo: dados.tipo,
+          regime: 'parcelado',
+          data: dataParc,
+          competencia: compParc,
+          descricao: `${dados.descricao.trim()} (${p}/${qtdParcelas})`,
+          valor: valorDestaParcela,
+          meio_pagamento_tipo: dados.meio_pagamento_tipo,
+          conta_origem_id: dados.conta_origem_id || null,
+          conta_destino_id: dados.conta_destino_id || null,
+          categoria_id: dados.categoria_id || null,
+          subcategoria_id: dados.subcategoria_id || null,
+          status_pagamento: 'pendente',
+          observacao: dados.observacao || null,
+          quantidade_parcelas: qtdParcelas,
+          numero_parcela: p,
+          total_parcelas: qtdParcelas,
+          lancamento_pai_id: lancPai.id,
+          conciliado: false,
+          created_by: dados.created_by,
+        })
+      }
+
+      await auditoriaService.registrar({
+        workspace_id: dados.workspace_id,
+        entidade: 'lancamentos',
+        entidade_id: lancPai.id,
+        acao: 'create_bank_installment_series',
+        estado_posterior: {
+          pai_id: lancPai.id,
+          total_parcelas: qtdParcelas,
+          valor_total: valorNum,
+        },
+        created_by: dados.created_by,
+      })
+
+      return lancPai
+    }
+
     const valorParcelaBase = Math.floor((valorNum / qtdParcelas) * 100) / 100
     const diferencaCentavos = Math.round((valorNum - valorParcelaBase * qtdParcelas) * 100) / 100
 
@@ -2531,6 +2815,86 @@ export const lancamentoService = {
     }
 
     return data
+  },
+
+  // Build 5: Fixo / Recorrente - Exclusão por escopo delegada para a RPC atômica idempotente com proteção de pagos
+  async excluirFixoComEscopo(
+    lancamentoId: string,
+    workspaceId: string,
+    escopo: 'este' | 'este_e_proximos' | 'todos',
+    userId?: string,
+  ): Promise<{
+    sucesso: boolean
+    bloqueado?: boolean
+    motivo?: string
+    datas_pagamento?: string[]
+    faturas_pagas?: string[]
+    mensagem?: string
+    excluidos?: number
+    faturas_recalculadas?: string[]
+  }> {
+    const { data, error } = await db.rpc('excluir_fixo_escopo_rpc', {
+      p_workspace_id: workspaceId,
+      p_lancamento_id: lancamentoId,
+      p_escopo: escopo,
+      p_user_id: userId || null,
+    })
+
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Não foi possível excluir o lançamento recorrente — verifique e tente novamente; se persistir, atualize a página.',
+      )
+    }
+
+    return data as any
+  },
+
+  // Build 5: Fixo / Recorrente - Alteração por escopo delegada para a RPC atômica idempotente com proteção de pagos
+  async alterarFixoComEscopo(
+    lancamentoId: string,
+    workspaceId: string,
+    escopo: 'este' | 'este_e_proximos' | 'todos',
+    novosDados: {
+      valor: number
+      data: string
+      descricao: string
+      categoria_id?: string | null
+      subcategoria_id?: string | null
+      observacao?: string | null
+    },
+    userId?: string,
+  ): Promise<{
+    sucesso: boolean
+    bloqueado?: boolean
+    motivo?: string
+    datas_pagamento?: string[]
+    faturas_pagas?: string[]
+    mensagem?: string
+    alterados?: number
+    faturas_recalculadas?: string[]
+  }> {
+    const { data, error } = await db.rpc('alterar_fixo_escopo_rpc', {
+      p_workspace_id: workspaceId,
+      p_lancamento_id: lancamentoId,
+      p_escopo: escopo,
+      p_novo_valor: novosDados.valor,
+      p_nova_data: novosDados.data,
+      p_nova_descricao: novosDados.descricao,
+      p_nova_categoria_id: novosDados.categoria_id || null,
+      p_nova_subcategoria_id: novosDados.subcategoria_id || null,
+      p_nova_observacao: novosDados.observacao || null,
+      p_user_id: userId || null,
+    })
+
+    if (error) {
+      throw new Error(
+        error.message ||
+          'Não foi possível alterar o lançamento recorrente — verifique e tente novamente; se persistir, atualize a página.',
+      )
+    }
+
+    return data as any
   },
 
   // Alterar com escopo: 'este' | 'este_e_proximos' | 'todos'

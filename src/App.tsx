@@ -32,7 +32,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-teal-400 gap-3">
         <div className="w-10 h-10 border-2 border-teal-400 border-t-transparent rounded-full animate-spin" />
         <span className="text-xs font-semibold text-slate-300">
-          Carregando SAP — Sistema de Acumulação de Capital…
+          Carregando SAP — Sistema de Acumulação de Patrimônio…
         </span>
       </div>
     )
@@ -130,7 +130,7 @@ const AppRoutes = () => (
             buildName="Relatórios & Metas"
             deliverables={[
               'Comprometimento geral da renda familiar',
-              'Acumulação de Capital e Liberdade Financeira',
+              'Acumulação de Patrimônio e Liberdade Financeira',
               'Relatórios detalhados com gráficos por período e centro de custo',
             ]}
           />

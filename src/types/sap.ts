@@ -20,6 +20,7 @@ export type ClassificacaoGerencial =
   | 'Dívidas'
   | 'Liberdade'
   | 'Acumulação de Capital'
+  | 'Acumulação de Patrimônio'
 
 export type TipoLancamento = 'despesa' | 'receita' | 'transferencia'
 export type RegimeLancamento = 'unico' | 'fixo' | 'parcelado'
@@ -228,6 +229,8 @@ export interface Lancamento {
   numero_parcela?: number | null
   total_parcelas?: number | null
   lancamento_pai_id?: string | null
+  natureza_previsao?: boolean
+  eh_excecao?: boolean
   categoria?: Categoria | null
   subcategoria?: Subcategoria | null
   conta_origem?: Conta | null
@@ -263,6 +266,36 @@ export interface PagamentoFatura {
   updated_at: string
   conta?: Conta | null
   fatura?: Fatura | null
+}
+
+export type PeriodicidadeFixo = 'mensal' | 'semestral' | 'anual'
+export type PrazoFixo = 'indeterminado' | 'determinado'
+
+export interface SerieLancamento {
+  id: string
+  workspace_id: string
+  descricao: string
+  tipo: TipoLancamento
+  periodicidade: PeriodicidadeFixo
+  prazo: PrazoFixo
+  quantidade_total?: number | null
+  ocorrencias_geradas: number
+  proxima_competencia: string
+  ativo: boolean
+  data_inicio?: string
+  dia_vencimento?: number
+  valor?: number
+  meio_pagamento_tipo?: MeioPagamentoTipo
+  conta_origem_id?: string | null
+  conta_destino_id?: string | null
+  cartao_id?: string | null
+  categoria_id?: string | null
+  subcategoria_id?: string | null
+  observacao?: string | null
+  data_limite_projecao?: string
+  created_by?: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface ConciliacaoConta {

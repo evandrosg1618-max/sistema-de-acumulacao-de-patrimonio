@@ -1,6 +1,6 @@
-# Projeto Criado com o Skip
+# Sistema de Acumulação de Patrimônio — SAP
 
-Este projeto foi criado de ponta a ponta com o [Skip](https://goskip.dev).
+Sistema de gestão financeira e patrimonial familiar criado com React, TypeScript, Tailwind CSS e Supabase.
 
 ## 🚀 Stack Tecnológica
 

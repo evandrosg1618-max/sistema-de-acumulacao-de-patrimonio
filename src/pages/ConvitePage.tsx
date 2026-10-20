@@ -103,7 +103,9 @@ export default function ConvitePage() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Convite para Espaço Familiar
           </h1>
-          <p className="text-xs text-slate-500">SAP — Sistema de Acumulação de Capital Familiar</p>
+          <p className="text-xs text-slate-500">
+            SAP — Sistema de Acumulação de Patrimônio Familiar
+          </p>
         </div>
 
         <Card className="border-slate-200 shadow-sm bg-white">

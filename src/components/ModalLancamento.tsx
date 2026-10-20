@@ -29,10 +29,12 @@ import {
   Banknote,
   Tag,
   FileText,
+  Paperclip,
+  RotateCw,
   AlertCircle,
   Layers,
 } from 'lucide-react'
-import { formatMoneyBRL } from '@/lib/formatters'
+import { formatMoneyBRL, formatAnoMesPT } from '@/lib/formatters'
 import {
   Conta,
   Cartao,
@@ -40,6 +42,8 @@ import {
   Lancamento,
   MeioPagamentoTipo,
   TipoLancamento,
+  PeriodicidadeFixo,
+  PrazoFixo,
 } from '@/types/sap'
 import { orcamentoService, faturaService } from '@/services/sap'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
@@ -88,8 +92,16 @@ export function ModalLancamento({
   const [contaOrigemId, setContaOrigemId] = useState('')
   const [contaDestinoId, setContaDestinoId] = useState('')
 
-  // Parcelamento (Build 3)
+  // Parcelamento (Build 3 e Build 5)
   const [quantidadeParcelas, setQuantidadeParcelas] = useState<number>(1)
+
+  // Build 5: Opções de Recorrência / Repetição (Fixo vs Parcelado)
+  // Inicialmente oculto atrás do ícone de repetição
+  const [mostrarOpcoesRepeticao, setMostrarOpcoesRepeticao] = useState(false)
+  const [modoRepeticao, setModoRepeticao] = useState<'nenhum' | 'fixo' | 'parcelado'>('nenhum')
+  const [fixoPrazo, setFixoPrazo] = useState<PrazoFixo>('indeterminado')
+  const [fixoOcorrencias, setFixoOcorrencias] = useState<number>(12)
+  const [fixoPeriodicidade, setFixoPeriodicidade] = useState<PeriodicidadeFixo>('mensal')
 
   const [categoriaId, setCategoriaId] = useState('')
   const [subcategoriaId, setSubcategoriaId] = useState('')
@@ -164,6 +176,11 @@ export function ModalLancamento({
       setPago(true)
       setObservacao('')
       setQuantidadeParcelas(1)
+      setMostrarOpcoesRepeticao(false)
+      setModoRepeticao('nenhum')
+      setFixoPrazo('indeterminado')
+      setFixoOcorrencias(12)
+      setFixoPeriodicidade('mensal')
     }
   }, [open, initialData, tipoPadrao, cartaoPadraoId, dataPadrao])
 
@@ -309,8 +326,23 @@ export function ModalLancamento({
           status_pagamento: meioFinal === 'CARTAO' ? 'pendente' : pago ? 'pago' : 'pendente',
           data_pagamento: pago ? data : null,
           observacao: observacao.trim() || null,
-          quantidade_parcelas:
-            meioFinal === 'CARTAO' && tipo === 'despesa' ? quantidadeParcelas : 1,
+          regime:
+            modoRepeticao === 'fixo'
+              ? 'fixo'
+              : modoRepeticao === 'parcelado'
+                ? 'parcelado'
+                : 'unico',
+          quantidade_parcelas: modoRepeticao === 'parcelado' ? quantidadeParcelas : 1,
+          // Build 5: parâmetros para lançamento fixo
+          fixo:
+            modoRepeticao === 'fixo'
+              ? {
+                  prazo: fixoPrazo,
+                  periodicidade: fixoPeriodicidade,
+                  quantidade_total: fixoPrazo === 'determinado' ? fixoOcorrencias : null,
+                  pago_primeira: meioFinal !== 'CARTAO' && pago,
+                }
+              : null,
         },
         criarOutro,
       )
@@ -320,6 +352,8 @@ export function ModalLancamento({
         setValor('')
         setObservacao('')
         setQuantidadeParcelas(1)
+        setModoRepeticao('nenhum')
+        setMostrarOpcoesRepeticao(false)
       } else {
         onOpenChange(false)
       }
@@ -541,63 +575,254 @@ export function ModalLancamento({
                 )}
               </div>
 
-              {/* SE FOR CARTÃO DE CRÉDITO: SELEÇÃO DE PARCELAS (BUILD 3) */}
-              {tipo === 'despesa' && pagoComDestino.startsWith('cartao:') && (
-                <div className="p-3.5 bg-slate-900/95 dark:bg-slate-900 border border-slate-700 rounded-xl space-y-2.5 shadow-sm text-slate-100">
-                  <div className="flex items-center justify-between">
-                    <Label
-                      htmlFor="lan-parcelas"
-                      className="text-xs font-bold text-indigo-300 flex items-center gap-1.5"
-                    >
-                      <Layers className="w-4 h-4 text-indigo-400" />
-                      <span>Parcelamento no Cartão</span>
-                    </Label>
-                    {quantidadeParcelas > 1 && valor && (
-                      <span className="text-xs font-bold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800">
-                        {quantidadeParcelas}x de{' '}
-                        {formatMoneyBRL(
-                          parseFloat(valor.replace(/\./g, '').replace(',', '.')) /
-                            quantidadeParcelas,
-                        )}
+              {/* Informação em tempo real da competência da fatura que o lançamento vai compor ao selecionar cartão (OCR 2ª Tela) */}
+              {pagoComDestino.startsWith('cartao:') &&
+                (() => {
+                  const cId = pagoComDestino.replace('cartao:', '')
+                  const cObj = cartoes.find((c) => c.id === cId)
+                  if (!cObj) return null
+                  const compCalc = faturaService.calcularCompetenciaCartao(
+                    data,
+                    cObj.dia_fechamento,
+                    cObj.dia_vencimento,
+                  )
+                  return (
+                    <div className="text-xs font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-md px-3 py-1.5 flex items-center gap-2">
+                      <CreditCard className="w-3.5 h-3.5 shrink-0 text-indigo-600" />
+                      <span>
+                        Fatura de {formatAnoMesPT(compCalc)} ({cObj.nome})
                       </span>
-                    )}
-                  </div>
+                    </div>
+                  )
+                })()}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
-                    <Select
-                      value={quantidadeParcelas.toString()}
-                      onValueChange={(v) => setQuantidadeParcelas(parseInt(v, 10))}
+              {/* BARRA DE ÍCONES (Conforme OCR OrganiZe):
+                  1. Repetir (Fixo/Parcelado) - Ativo/expansível
+                  2. Observações - placeholder desabilitado (não configurar agora)
+                  3. Anexar arquivo - placeholder desabilitado (não configurar agora)
+                  4. Tags - placeholder desabilitado (não configurar agora)
+              */}
+              {!initialData && (
+                <div className="pt-1">
+                  <div className="flex items-center gap-2 border-y border-slate-100 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setMostrarOpcoesRepeticao(!mostrarOpcoesRepeticao)}
+                      className={`p-2 rounded-lg border transition flex items-center gap-1.5 text-xs font-semibold ${
+                        mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum'
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                      title="Repetir lançamento: Fixo ou Parcelado"
                     >
-                      <SelectTrigger
-                        id="lan-parcelas"
-                        className="h-9 text-xs bg-slate-800 text-white font-semibold border-slate-600 focus:ring-indigo-500 shadow-inner"
-                      >
-                        <SelectValue placeholder="Selecione as parcelas" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-900 text-white border-slate-700">
-                        <SelectItem
-                          value="1"
-                          className="text-slate-100 hover:bg-slate-800 focus:bg-slate-800 focus:text-white"
-                        >
-                          1x (À vista na fatura)
-                        </SelectItem>
-                        {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24].map((n) => (
-                          <SelectItem
-                            key={n}
-                            value={n.toString()}
-                            className="text-slate-100 hover:bg-slate-800 focus:bg-slate-800 focus:text-white"
-                          >
-                            {n}x parcelas mensais consecutivas
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                      <RotateCw
+                        className={`w-4 h-4 ${mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum' ? 'text-emerald-600' : 'text-slate-500'}`}
+                      />
+                      <span>
+                        Repetir{' '}
+                        {modoRepeticao === 'fixo'
+                          ? '(Fixo)'
+                          : modoRepeticao === 'parcelado'
+                            ? `(${quantidadeParcelas}x)`
+                            : ''}
+                      </span>
+                    </button>
 
-                    <p className="text-[11px] text-slate-300 leading-tight">
-                      Cada parcela é atribuída à competência correta a partir da data de corte e
-                      compõe a respectiva fatura.
-                    </p>
+                    <button
+                      type="button"
+                      disabled
+                      title="Observações (disponível abaixo)"
+                      className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                    >
+                      <FileText className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled
+                      title="Anexar arquivo (em breve)"
+                      className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                    >
+                      <Paperclip className="w-4 h-4" />
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled
+                      title="Tags (em breve)"
+                      className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                    >
+                      <Tag className="w-4 h-4" />
+                    </button>
                   </div>
+                </div>
+              )}
+
+              {/* PAINEL EXPANSÍVEL: REPETIR DESPESA / LANÇAMENTO (OCR OrganiZe Página 2) */}
+              {!initialData && mostrarOpcoesRepeticao && (
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                  <div className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                    Repetir{' '}
+                    {tipo === 'despesa'
+                      ? 'despesa'
+                      : tipo === 'receita'
+                        ? 'receita'
+                        : 'transferência'}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <label
+                      className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer text-xs font-semibold transition ${
+                        modoRepeticao === 'fixo'
+                          ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="modo_repeticao"
+                        checked={modoRepeticao === 'fixo'}
+                        onChange={() => setModoRepeticao('fixo')}
+                        className="text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span>Lançamento fixo</span>
+                    </label>
+
+                    <label
+                      className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer text-xs font-semibold transition ${
+                        modoRepeticao === 'parcelado'
+                          ? 'bg-indigo-50 border-indigo-500 text-indigo-900 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="modo_repeticao"
+                        checked={modoRepeticao === 'parcelado'}
+                        onChange={() => setModoRepeticao('parcelado')}
+                        className="text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>Lançamento parcelado</span>
+                    </label>
+                  </div>
+
+                  {/* CONFIGURAÇÃO DO FIXO (DOIS PASSOS: DURAÇÃO e PERIODICIDADE) */}
+                  {modoRepeticao === 'fixo' && (
+                    <div className="space-y-3 pt-2 border-t border-slate-200">
+                      {/* Passo 1: Duração */}
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold text-slate-700">
+                          1º Passo: Duração
+                        </Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setFixoPrazo('indeterminado')}
+                            className={`py-1.5 px-3 text-xs font-semibold rounded-md border text-left transition ${
+                              fixoPrazo === 'indeterminado'
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            Indeterminada
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFixoPrazo('determinado')}
+                            className={`py-1.5 px-3 text-xs font-semibold rounded-md border text-left transition ${
+                              fixoPrazo === 'determinado'
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                            }`}
+                          >
+                            Determinada
+                          </button>
+                        </div>
+                        {fixoPrazo === 'indeterminado' ? (
+                          <p className="text-[11px] text-slate-500">
+                            Gera projeções previsionais até 31 de dezembro do ano subsequente. Não
+                            encerra ao final da janela.
+                          </p>
+                        ) : (
+                          <div className="pt-2">
+                            <Label htmlFor="lan-fixo-qtd" className="text-xs text-slate-600">
+                              Quantidade de ocorrências *
+                            </Label>
+                            <Input
+                              id="lan-fixo-qtd"
+                              type="number"
+                              min={2}
+                              max={120}
+                              value={fixoOcorrencias}
+                              onChange={(e) =>
+                                setFixoOcorrencias(Math.max(2, parseInt(e.target.value, 10) || 2))
+                              }
+                              className="mt-1 h-8 text-xs w-32"
+                            />
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Passo 2: Periodicidade */}
+                      <div className="space-y-1.5">
+                        <Label className="text-xs font-semibold text-slate-700">
+                          2º Passo: Periodicidade
+                        </Label>
+                        <Select
+                          value={fixoPeriodicidade}
+                          onValueChange={(v: PeriodicidadeFixo) => setFixoPeriodicidade(v)}
+                        >
+                          <SelectTrigger className="h-8 text-xs bg-white">
+                            <SelectValue placeholder="Selecione a periodicidade" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="mensal">Mensal</SelectItem>
+                            <SelectItem value="semestral">Semestral</SelectItem>
+                            <SelectItem value="anual">Anual</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* CONFIGURAÇÃO DO PARCELADO (CONTA OU CARTÃO) */}
+                  {modoRepeticao === 'parcelado' && (
+                    <div className="space-y-2.5 pt-2 border-t border-slate-200">
+                      <div className="flex items-center justify-between">
+                        <Label
+                          htmlFor="lan-qtd-parc"
+                          className="text-xs font-semibold text-slate-700"
+                        >
+                          Número de parcelas
+                        </Label>
+                        {quantidadeParcelas > 1 && valor && (
+                          <span className="text-xs font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded">
+                            {quantidadeParcelas}x de{' '}
+                            {formatMoneyBRL(
+                              parseFloat(valor.replace(/\./g, '').replace(',', '.')) /
+                                quantidadeParcelas,
+                            )}
+                          </span>
+                        )}
+                      </div>
+
+                      <Select
+                        value={quantidadeParcelas.toString()}
+                        onValueChange={(v) => setQuantidadeParcelas(parseInt(v, 10))}
+                      >
+                        <SelectTrigger id="lan-qtd-parc" className="h-9 text-xs bg-white">
+                          <SelectValue placeholder="Selecione as parcelas" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24, 36, 48].map((n) => (
+                            <SelectItem key={n} value={n.toString()}>
+                              {n}x parcelas mensais consecutivas
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -741,16 +966,19 @@ export function ModalLancamento({
                 </div>
               )}
 
-              {/* Toggle de Pago (se não for cartão) */}
+              {/* Regra do toggle "Lançamento pago" (referência OrganiZe OCR Página 1):
+                  - O botão de ligar/desligar "Lançamento pago" aparece APENAS para meios de pagamento de Contas Bancárias (e dinheiro).
+                  - Para lançamentos fixos, se ligado, marca "pago" apenas a PRIMEIRA ocorrência; as futuras permanecem não pagas aguardando a ação do usuário no mês seguinte.
+                  - Para lançamentos únicos, se ligado, marca "pago" direto.
+              */}
               {tipo !== 'transferencia' && !pagoComDestino.startsWith('cartao:') && (
                 <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <div className="space-y-0.5">
-                    <Label className="text-xs font-semibold text-slate-800">
-                      {tipo === 'despesa' ? 'Despesa já paga' : 'Receita já recebida'}
-                    </Label>
+                    <Label className="text-xs font-semibold text-slate-800">Lançamento pago</Label>
                     <p className="text-[11px] text-slate-500">
-                      Se desmarcado, fica como previsto/pendente e não afeta o saldo bancário de
-                      imediato.
+                      {modoRepeticao === 'fixo'
+                        ? 'Para fixos: marca como paga apenas a primeira ocorrência. As futuras permanecem não pagas.'
+                        : 'Se ligado, marca "pago" direto e atualiza o saldo bancário.'}
                     </p>
                   </div>
                   <Switch checked={pago} onCheckedChange={setPago} />
