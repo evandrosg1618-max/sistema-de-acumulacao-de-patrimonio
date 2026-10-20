@@ -200,84 +200,97 @@ export default function LancamentosPage() {
 
   const handleSalvarLancamento = async (dados: any, criarOutro = false) => {
     if (!wsId) return
-    try {
-      if (dados.id) {
-        // Frente 4: Se for compra parcelada em cartão, operar SEMPRE sobre o original e regenerar
-        const ehParceladoCartao =
-          (dados.meio_pagamento_tipo === 'CARTAO' ||
-            lancamentoEmEdicao?.meio_pagamento_tipo === 'CARTAO') &&
-          ((dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
-            (lancamentoEmEdicao?.total_parcelas && lancamentoEmEdicao.total_parcelas > 1) ||
-            Boolean(lancamentoEmEdicao?.lancamento_pai_id))
+    // Outras séries parceladas (recorrentes/contas) mantêm escopo se aplicável
+    if (dados.id) {
+      const ehParceladoCartao =
+        (dados.meio_pagamento_tipo === 'CARTAO' ||
+          lancamentoEmEdicao?.meio_pagamento_tipo === 'CARTAO') &&
+        ((dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
+          (lancamentoEmEdicao?.total_parcelas && lancamentoEmEdicao.total_parcelas > 1) ||
+          Boolean(lancamentoEmEdicao?.lancamento_pai_id))
 
-        if (ehParceladoCartao) {
-          const paiId = lancamentoEmEdicao?.lancamento_pai_id || dados.id
-          await lancamentoService.regenerarCompraParcelada(
-            wsId,
-            paiId,
-            {
-              valor: Number(dados.valor),
-              data: dados.data,
-              quantidade_parcelas: Number(dados.quantidade_parcelas || 1),
-              descricao: dados.descricao,
-              categoria_id: dados.categoria_id,
-              subcategoria_id: dados.subcategoria_id,
-              observacao: dados.observacao,
-            },
-            user?.id,
-          )
-          toast.success('Compra parcelada regenerada com sucesso!')
-        } else {
-          // Outras séries parceladas (recorrentes/contas) mantêm escopo se aplicável
-          const ehOutroParcelado =
-            (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
-            (lancamentoEmEdicao?.total_parcelas && lancamentoEmEdicao.total_parcelas > 1) ||
-            Boolean(lancamentoEmEdicao?.lancamento_pai_id)
+      const ehOutroParcelado =
+        !ehParceladoCartao &&
+        ((dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
+          (lancamentoEmEdicao?.total_parcelas && lancamentoEmEdicao.total_parcelas > 1) ||
+          Boolean(lancamentoEmEdicao?.lancamento_pai_id))
 
-          if (ehOutroParcelado) {
-            setDadosEdicaoPendentes(dados)
-            setLancamentoAlvoEscopo(lancamentoEmEdicao)
-            setAcaoEscopo('editar')
-            setModalLancamentoOpen(false)
-            setModalEscopoOpen(true)
-            return
-          }
-
-          await lancamentoService.update(dados.id, wsId, dados, user?.id)
-          toast.success('Lançamento atualizado com sucesso!')
-        }
-      } else {
-        await lancamentoService.create({
-          ...dados,
-          workspace_id: wsId,
-          created_by: user?.id,
-        })
-        toast.success(
-          `${
-            dados.tipo === 'despesa'
-              ? 'Despesa registrada'
-              : dados.tipo === 'receita'
-                ? 'Receita registrada'
-                : 'Transferência registrada'
-          } com sucesso!`,
-        )
+      if (ehOutroParcelado) {
+        setDadosEdicaoPendentes(dados)
+        setLancamentoAlvoEscopo(lancamentoEmEdicao)
+        setAcaoEscopo('editar')
+        setModalLancamentoOpen(false)
+        setModalEscopoOpen(true)
+        return
       }
-      setModalLancamentoOpen(false)
-      setLancamentoEmEdicao(null)
-      await carregarDados()
-    } catch (err: any) {
-      if (err?.message && err.message.includes('fatura') && err.message.includes('paga')) {
-        setBloqueioFaturaInfo({
-          competencia: dados.competencia || dados.data?.substring(0, 7) || 'atual',
-          acao: dados.id ? 'alteracao' : 'inclusao',
-          detalhes: err.message,
-        })
-        setModalBloqueioOpen(true)
-      } else {
-        toast.error('Erro ao salvar lançamento: ' + (err.message || 'verifique os dados'))
-      }
-      throw err
     }
+
+    await runWithLock(async () => {
+      try {
+        if (dados.id) {
+          const ehParceladoCartao =
+            (dados.meio_pagamento_tipo === 'CARTAO' ||
+              lancamentoEmEdicao?.meio_pagamento_tipo === 'CARTAO') &&
+            ((dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
+              (lancamentoEmEdicao?.total_parcelas && lancamentoEmEdicao.total_parcelas > 1) ||
+              Boolean(lancamentoEmEdicao?.lancamento_pai_id))
+
+          if (ehParceladoCartao) {
+            const paiId = lancamentoEmEdicao?.lancamento_pai_id || dados.id
+            await lancamentoService.regenerarCompraParcelada(
+              wsId,
+              paiId,
+              {
+                valor: Number(dados.valor),
+                data: dados.data,
+                quantidade_parcelas: Number(dados.quantidade_parcelas || 1),
+                descricao: dados.descricao,
+                categoria_id: dados.categoria_id,
+                subcategoria_id: dados.subcategoria_id,
+                observacao: dados.observacao,
+              },
+              user?.id,
+            )
+            toast.success('Compra parcelada regenerada com sucesso!')
+          } else {
+            await lancamentoService.update(dados.id, wsId, dados, user?.id)
+            toast.success('Lançamento atualizado com sucesso!')
+          }
+        } else {
+          await lancamentoService.create({
+            ...dados,
+            workspace_id: wsId,
+            created_by: user?.id,
+          })
+          toast.success(
+            `${
+              dados.tipo === 'despesa'
+                ? 'Despesa registrada'
+                : dados.tipo === 'receita'
+                  ? 'Receita registrada'
+                  : 'Transferência registrada'
+            } com sucesso!`,
+          )
+        }
+        setModalLancamentoOpen(false)
+        setLancamentoEmEdicao(null)
+        await carregarDados()
+      } catch (err: any) {
+        if (err?.message && err.message.includes('fatura') && err.message.includes('paga')) {
+          setBloqueioFaturaInfo({
+            competencia: dados.competencia || dados.data?.substring(0, 7) || 'atual',
+            acao: dados.id ? 'alteracao' : 'inclusao',
+            detalhes: err.message,
+          })
+          setModalBloqueioOpen(true)
+        } else {
+          toast.error(
+            'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+          )
+        }
+        throw err
+      }
+    }, 'Salvando lançamento com integridade de saldos...')
   }
 
   const handleExcluirLancamento = async (l: Lancamento) => {

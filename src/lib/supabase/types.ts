@@ -1449,7 +1449,23 @@ export type Database = {
             }
             Returns: string
           }
+      estornar_fatura_rpc: {
+        Args: {
+          p_fatura_id: string
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       excluir_lancamento_parcelado_rpc: {
+        Args: {
+          p_lancamento_id: string
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      excluir_transferencia_rpc: {
         Args: {
           p_lancamento_id: string
           p_user_id?: string
@@ -1476,6 +1492,17 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      pagar_fatura_rpc: {
+        Args: {
+          p_conta_id: string
+          p_data_pagamento: string
+          p_fatura_id: string
+          p_user_id?: string
+          p_valor: number
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       recalcular_fatura_rpc: {
         Args: {
           p_cartao_id: string
@@ -1483,6 +1510,10 @@ export type Database = {
           p_workspace_id: string
         }
         Returns: number
+      }
+      reconciliar_saldos_contas_rpc: {
+        Args: { p_workspace_id: string }
+        Returns: Json
       }
       regenerar_parcelas_lancamento: {
         Args: {
@@ -1506,6 +1537,15 @@ export type Database = {
       somar_meses_competencia: {
         Args: { p_competencia: string; p_meses: number }
         Returns: string
+      }
+      toggle_pago_lancamento_rpc: {
+        Args: {
+          p_lancamento_id: string
+          p_pago: boolean
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
       }
     }
     Enums: {

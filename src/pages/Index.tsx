@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
+import { useGlobalLoading } from '@/contexts/LoadingContext'
 import {
   contaService,
   meioPagamentoService,
@@ -68,6 +69,7 @@ import { toast } from 'sonner'
 
 export default function Index() {
   const { currentWorkspace, profile, user } = useAuth()
+  const { isProcessing, runWithLock } = useGlobalLoading()
   const [ocultarSaldos, setOcultarSaldos] = useState(false)
   const [contas, setContas] = useState<Conta[]>([])
   const [carteirasDinheiro, setCarteirasDinheiro] = useState<MeioPagamento[]>([])
@@ -220,21 +222,25 @@ export default function Index() {
     dataPagamento: string
   }) => {
     if (!wsId) return
-    try {
-      await faturaService.pagarFatura({
-        workspace_id: wsId,
-        fatura_id: dados.faturaId,
-        conta_id: dados.contaId,
-        valor: dados.valor,
-        data_pagamento: dados.dataPagamento,
-        userId: user?.id,
-      })
-      toast.success('Fatura quitada com sucesso! Saldo bancário baixado.')
-      await carregarDashboard()
-    } catch (err: any) {
-      toast.error('Erro ao pagar fatura: ' + (err.message || ''))
-      throw err
-    }
+    await runWithLock(async () => {
+      try {
+        await faturaService.pagarFatura({
+          workspace_id: wsId,
+          fatura_id: dados.faturaId,
+          conta_id: dados.contaId,
+          valor: dados.valor,
+          data_pagamento: dados.dataPagamento,
+          userId: user?.id,
+        })
+        toast.success('Fatura quitada com sucesso! Saldo bancário baixado.')
+        await carregarDashboard()
+      } catch (err: any) {
+        toast.error(
+          'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+        )
+        throw err
+      }
+    }, 'Baixando saldo e quitando fatura...')
   }
 
   const handleEstornarFatura = async (faturaId: string) => {
@@ -244,13 +250,17 @@ export default function Index() {
     )
     if (!confirma) return
 
-    try {
-      await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
-      toast.success('Pagamento estornado e fatura reaberta.')
-      await carregarDashboard()
-    } catch (err: any) {
-      toast.error('Erro ao reabrir fatura: ' + (err.message || ''))
-    }
+    await runWithLock(async () => {
+      try {
+        await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
+        toast.success('Pagamento estornado e fatura reaberta.')
+        await carregarDashboard()
+      } catch (err: any) {
+        toast.error(
+          'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+        )
+      }
+    }, 'Recompondo saldo bancário e reabrindo fatura...')
   }
 
   const abrirNovoLancamentoNaFatura = (cartao: Cartao) => {
@@ -315,73 +325,77 @@ export default function Index() {
 
   const handleSalvarLancamentoFatura = async (dados: any) => {
     if (!wsId) return
-    try {
-      // Revalidação de fatura paga
-      if (dados.cartao_id && dados.data) {
-        const cartaoObj = cartoes.find((c) => c.id === dados.cartao_id)
-        if (cartaoObj) {
-          const compCalculada = faturaService.calcularCompetenciaCartao(
-            dados.data,
-            cartaoObj.dia_fechamento,
-            cartaoObj.dia_vencimento,
-          )
-          const fat = await faturaService.getFatura(wsId, dados.cartao_id, compCalculada)
-          if (fat && fat.status === 'paga') {
-            setBloqueioFaturaInfo({
-              competencia: compCalculada,
-              acao: dados.id ? 'alteracao' : 'inclusao',
-              detalhes: `A fatura de ${compCalculada} já está quitada. Desfaça o pagamento para salvar.`,
-            })
-            setModalBloqueioOpen(true)
-            return
-          }
+    // Revalidação de fatura paga
+    if (dados.cartao_id && dados.data) {
+      const cartaoObj = cartoes.find((c) => c.id === dados.cartao_id)
+      if (cartaoObj) {
+        const compCalculada = faturaService.calcularCompetenciaCartao(
+          dados.data,
+          cartaoObj.dia_fechamento,
+          cartaoObj.dia_vencimento,
+        )
+        const fat = await faturaService.getFatura(wsId, dados.cartao_id, compCalculada)
+        if (fat && fat.status === 'paga') {
+          setBloqueioFaturaInfo({
+            competencia: compCalculada,
+            acao: dados.id ? 'alteracao' : 'inclusao',
+            detalhes: `A fatura de ${compCalculada} já está quitada. Desfaça o pagamento para salvar.`,
+          })
+          setModalBloqueioOpen(true)
+          return
         }
       }
-
-      if (dados.id) {
-        const ehParcelado =
-          (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
-          (lancamentoFaturaEmEdicao?.total_parcelas &&
-            lancamentoFaturaEmEdicao.total_parcelas > 1) ||
-          Boolean(lancamentoFaturaEmEdicao?.lancamento_pai_id)
-
-        if (ehParcelado) {
-          const paiId = lancamentoFaturaEmEdicao?.lancamento_pai_id || dados.id
-          await lancamentoService.regenerarCompraParcelada(
-            wsId,
-            paiId,
-            {
-              valor: Number(dados.valor),
-              data: dados.data,
-              quantidade_parcelas: Number(dados.quantidade_parcelas || 1),
-              descricao: dados.descricao,
-              categoria_id: dados.categoria_id,
-              subcategoria_id: dados.subcategoria_id,
-              observacao: dados.observacao,
-            },
-            user?.id,
-          )
-          toast.success('Compra parcelada regenerada com sucesso!')
-        } else {
-          await lancamentoService.update(dados.id, wsId, dados, user?.id)
-          toast.success('Lançamento atualizado com sucesso!')
-        }
-      } else {
-        await lancamentoService.create({
-          ...dados,
-          workspace_id: wsId,
-          created_by: user?.id,
-        })
-        toast.success('Compra incluída na fatura do cartão com sucesso!')
-      }
-
-      setModalLancamentoFaturaOpen(false)
-      setLancamentoFaturaEmEdicao(null)
-      await carregarDashboard()
-    } catch (err: any) {
-      toast.error('Erro ao salvar lançamento: ' + (err.message || ''))
-      throw err
     }
+
+    await runWithLock(async () => {
+      try {
+        if (dados.id) {
+          const ehParcelado =
+            (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
+            (lancamentoFaturaEmEdicao?.total_parcelas &&
+              lancamentoFaturaEmEdicao.total_parcelas > 1) ||
+            Boolean(lancamentoFaturaEmEdicao?.lancamento_pai_id)
+
+          if (ehParcelado) {
+            const paiId = lancamentoFaturaEmEdicao?.lancamento_pai_id || dados.id
+            await lancamentoService.regenerarCompraParcelada(
+              wsId,
+              paiId,
+              {
+                valor: Number(dados.valor),
+                data: dados.data,
+                quantidade_parcelas: Number(dados.quantidade_parcelas || 1),
+                descricao: dados.descricao,
+                categoria_id: dados.categoria_id,
+                subcategoria_id: dados.subcategoria_id,
+                observacao: dados.observacao,
+              },
+              user?.id,
+            )
+            toast.success('Compra parcelada regenerada com sucesso!')
+          } else {
+            await lancamentoService.update(dados.id, wsId, dados, user?.id)
+            toast.success('Lançamento atualizado com sucesso!')
+          }
+        } else {
+          await lancamentoService.create({
+            ...dados,
+            workspace_id: wsId,
+            created_by: user?.id,
+          })
+          toast.success('Compra incluída na fatura do cartão com sucesso!')
+        }
+
+        setModalLancamentoFaturaOpen(false)
+        setLancamentoFaturaEmEdicao(null)
+        await carregarDashboard()
+      } catch (err: any) {
+        toast.error(
+          'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+        )
+        throw err
+      }
+    }, 'Salvando item da fatura...')
   }
 
   const handleExcluirLancamentoFatura = async (item: any) => {
@@ -423,13 +437,17 @@ export default function Index() {
       )
       if (!confirma) return
 
-      try {
-        await lancamentoService.excluirCompraParcelada(wsId, alvoParaExclusao.id, user?.id)
-        toast.success('Compra parcelada excluída e faturas recalculadas!')
-        await carregarDashboard()
-      } catch (err: any) {
-        toast.error(err.message || 'Erro ao excluir')
-      }
+      await runWithLock(async () => {
+        try {
+          await lancamentoService.excluirCompraParcelada(wsId, alvoParaExclusao.id, user?.id)
+          toast.success('Compra parcelada excluída e faturas recalculadas!')
+          await carregarDashboard()
+        } catch (err: any) {
+          toast.error(
+            'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+          )
+        }
+      }, 'Excluindo compra parcelada...')
       return
     }
 
@@ -438,13 +456,17 @@ export default function Index() {
     )
     if (!confirma) return
 
-    try {
-      await lancamentoService.deleteComEscopo(alvoParaExclusao.id, wsId, 'este', user?.id)
-      toast.success('Lançamento excluído e faturas recalculadas!')
-      await carregarDashboard()
-    } catch (err: any) {
-      toast.error(err.message || 'Erro ao excluir')
-    }
+    await runWithLock(async () => {
+      try {
+        await lancamentoService.deleteComEscopo(alvoParaExclusao.id, wsId, 'este', user?.id)
+        toast.success('Lançamento excluído e faturas recalculadas!')
+        await carregarDashboard()
+      } catch (err: any) {
+        toast.error(
+          'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+        )
+      }
+    }, 'Excluindo lançamento da fatura...')
   }
 
   // Saudação de acordo com o horário
@@ -517,35 +539,39 @@ export default function Index() {
 
   const handleSalvarLancamentoVisaoGeral = async (dados: any, criarOutro = false) => {
     if (!wsId) return
-    try {
-      await lancamentoService.create({
-        ...dados,
-        workspace_id: wsId,
-        created_by: user?.id,
-      })
-      toast.success(
-        `${
-          dados.tipo === 'despesa'
-            ? 'Despesa registrada'
-            : dados.tipo === 'receita'
-              ? 'Receita registrada'
-              : 'Transferência registrada'
-        } com sucesso!`,
-      )
-      await carregarDashboard()
-    } catch (err: any) {
-      if (err?.message && err.message.includes('fatura') && err.message.includes('paga')) {
-        setBloqueioFaturaInfo({
-          competencia: dados.competencia || dados.data?.substring(0, 7) || 'atual',
-          acao: 'inclusao',
-          detalhes: err.message,
+    await runWithLock(async () => {
+      try {
+        await lancamentoService.create({
+          ...dados,
+          workspace_id: wsId,
+          created_by: user?.id,
         })
-        setModalBloqueioOpen(true)
-      } else {
-        toast.error('Erro ao lançar: ' + (err.message || 'verifique os dados'))
+        toast.success(
+          `${
+            dados.tipo === 'despesa'
+              ? 'Despesa registrada'
+              : dados.tipo === 'receita'
+                ? 'Receita registrada'
+                : 'Transferência registrada'
+          } com sucesso!`,
+        )
+        await carregarDashboard()
+      } catch (err: any) {
+        if (err?.message && err.message.includes('fatura') && err.message.includes('paga')) {
+          setBloqueioFaturaInfo({
+            competencia: dados.competencia || dados.data?.substring(0, 7) || 'atual',
+            acao: 'inclusao',
+            detalhes: err.message,
+          })
+          setModalBloqueioOpen(true)
+        } else {
+          toast.error(
+            'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+          )
+        }
+        throw err
       }
-      throw err
-    }
+    }, 'Registrando lançamento e atualizando saldos...')
   }
 
   return (
@@ -1063,6 +1089,7 @@ export default function Index() {
                                   resumo?.saldoDevedor > 0 && (
                                     <Button
                                       size="sm"
+                                      disabled={isProcessing}
                                       onClick={() => abrirModalPagarFatura(resumo.fatura, cartao)}
                                       className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-semibold ml-2"
                                     >
@@ -1251,6 +1278,7 @@ export default function Index() {
                                           {!isPaga ? (
                                             <Button
                                               size="sm"
+                                              disabled={isProcessing}
                                               onClick={() => abrirModalPagarFatura(fat, cartao)}
                                               className="h-6 text-[11px] bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-2.5 rounded-lg"
                                             >
@@ -1260,6 +1288,7 @@ export default function Index() {
                                             <Button
                                               variant="outline"
                                               size="sm"
+                                              disabled={isProcessing}
                                               onClick={() => handleEstornarFatura(fat.id)}
                                               className="h-6 text-[10px] text-rose-700 border-rose-200 hover:bg-rose-50 px-2 rounded-lg"
                                             >

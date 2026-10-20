@@ -43,6 +43,7 @@ import {
 } from '@/types/sap'
 import { orcamentoService, faturaService } from '@/services/sap'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
+import { useGlobalLoading } from '@/contexts/LoadingContext'
 
 interface ModalLancamentoProps {
   open: boolean
@@ -73,6 +74,7 @@ export function ModalLancamento({
   cartaoPadraoId,
   dataPadrao,
 }: ModalLancamentoProps) {
+  const { isProcessing } = useGlobalLoading()
   const [tipo, setTipo] = useState<TipoLancamento>(tipoPadrao)
   const [descricao, setDescricao] = useState('')
   const [valor, setValor] = useState('')
@@ -775,7 +777,7 @@ export function ModalLancamento({
                 type="button"
                 variant="outline"
                 onClick={() => onOpenChange(false)}
-                disabled={salvando}
+                disabled={salvando || isProcessing}
               >
                 Cancelar
               </Button>
@@ -783,7 +785,7 @@ export function ModalLancamento({
                 <Button
                   type="button"
                   variant="secondary"
-                  disabled={salvando}
+                  disabled={salvando || isProcessing}
                   onClick={(e) => handleSubmeter(e, true)}
                   className="text-xs"
                 >
@@ -792,7 +794,7 @@ export function ModalLancamento({
               )}
               <Button
                 type="submit"
-                disabled={salvando}
+                disabled={salvando || isProcessing}
                 className={`text-white text-xs ${
                   tipo === 'despesa'
                     ? 'bg-rose-600 hover:bg-rose-700'
@@ -801,7 +803,11 @@ export function ModalLancamento({
                       : 'bg-blue-600 hover:bg-blue-700'
                 }`}
               >
-                {salvando ? 'Salvando...' : initialData ? 'Salvar Alterações' : 'Salvar Lançamento'}
+                {salvando || isProcessing
+                  ? 'Salvando...'
+                  : initialData
+                    ? 'Salvar Alterações'
+                    : 'Salvar Lançamento'}
               </Button>
             </DialogFooter>
           </form>

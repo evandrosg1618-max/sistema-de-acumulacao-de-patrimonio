@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { useGlobalLoading } from '@/contexts/LoadingContext'
 import {
   Dialog,
   DialogContent,
@@ -45,6 +46,7 @@ export function ModalPagamentoFatura({
   contas,
   onConfirmar,
 }: ModalPagamentoFaturaProps) {
+  const { isProcessing } = useGlobalLoading()
   const [contaId, setContaId] = useState(contas.length > 0 ? contas[0].id : '')
   const [valor, setValor] = useState(
     fatura?.valor_total ? fatura.valor_total.toFixed(2).replace('.', ',') : '',

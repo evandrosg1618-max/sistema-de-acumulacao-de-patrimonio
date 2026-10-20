@@ -376,83 +376,87 @@ export default function CartoesPage() {
 
   const handleSalvarLancamentoFatura = async (dados: any, criarOutro = false) => {
     if (!wsId) return
-    try {
-      // Revalidação prévia de fatura paga
-      if (dados.cartao_id && dados.data) {
-        const cartaoObj = cartoes.find((c) => c.id === dados.cartao_id)
-        if (cartaoObj) {
-          const compCalculada = faturaService.calcularCompetenciaCartao(
-            dados.data,
-            cartaoObj.dia_fechamento,
-            cartaoObj.dia_vencimento,
-          )
-          const fat = await faturaService.getFatura(wsId, dados.cartao_id, compCalculada)
-          if (fat && fat.status === 'paga') {
-            setBloqueioFaturaInfo({
-              competencia: compCalculada,
-              acao: dados.id ? 'alteracao' : 'inclusao',
-              detalhes: `A fatura de ${compCalculada} já está quitada. Desfaça o pagamento para salvar.`,
-            })
-            setModalBloqueioOpen(true)
-            return
-          }
+    // Revalidação prévia de fatura paga
+    if (dados.cartao_id && dados.data) {
+      const cartaoObj = cartoes.find((c) => c.id === dados.cartao_id)
+      if (cartaoObj) {
+        const compCalculada = faturaService.calcularCompetenciaCartao(
+          dados.data,
+          cartaoObj.dia_fechamento,
+          cartaoObj.dia_vencimento,
+        )
+        const fat = await faturaService.getFatura(wsId, dados.cartao_id, compCalculada)
+        if (fat && fat.status === 'paga') {
+          setBloqueioFaturaInfo({
+            competencia: compCalculada,
+            acao: dados.id ? 'alteracao' : 'inclusao',
+            detalhes: `A fatura de ${compCalculada} já está quitada. Desfaça o pagamento para salvar.`,
+          })
+          setModalBloqueioOpen(true)
+          return
         }
       }
-
-      if (dados.id) {
-        const ehParcelado =
-          (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
-          (lancamentoFaturaEmEdicao?.total_parcelas &&
-            lancamentoFaturaEmEdicao.total_parcelas > 1) ||
-          Boolean(lancamentoFaturaEmEdicao?.lancamento_pai_id)
-
-        if (ehParcelado) {
-          // Frente 4: Opera SEMPRE sobre o original, regenerando atomicamente via RPC
-          const paiId = lancamentoFaturaEmEdicao?.lancamento_pai_id || dados.id
-          await lancamentoService.regenerarCompraParcelada(
-            wsId,
-            paiId,
-            {
-              valor: Number(dados.valor),
-              data: dados.data,
-              quantidade_parcelas: Number(dados.quantidade_parcelas || 1),
-              descricao: dados.descricao,
-              categoria_id: dados.categoria_id,
-              subcategoria_id: dados.subcategoria_id,
-              observacao: dados.observacao,
-            },
-            user?.id,
-          )
-          toast.success('Compra parcelada regenerada com sucesso!')
-        } else {
-          await lancamentoService.update(dados.id, wsId, dados, user?.id)
-          toast.success('Lançamento atualizado com sucesso!')
-        }
-      } else {
-        await lancamentoService.create({
-          ...dados,
-          workspace_id: wsId,
-          created_by: user?.id,
-        })
-        toast.success('Compra incluída na fatura do cartão com sucesso!')
-      }
-
-      setModalLancamentoOpen(false)
-      setLancamentoFaturaEmEdicao(null)
-      await carregarCartoes()
-    } catch (err: any) {
-      if (err.message && err.message.includes('fatura') && err.message.includes('paga')) {
-        setBloqueioFaturaInfo({
-          competencia: competenciaFiltro,
-          acao: dados.id ? 'alteracao' : 'inclusao',
-          detalhes: err.message,
-        })
-        setModalBloqueioOpen(true)
-      } else {
-        toast.error('Erro ao salvar lançamento: ' + (err.message || ''))
-      }
-      throw err
     }
+
+    await runWithLock(async () => {
+      try {
+        if (dados.id) {
+          const ehParcelado =
+            (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
+            (lancamentoFaturaEmEdicao?.total_parcelas &&
+              lancamentoFaturaEmEdicao.total_parcelas > 1) ||
+            Boolean(lancamentoFaturaEmEdicao?.lancamento_pai_id)
+
+          if (ehParcelado) {
+            // Frente 4: Opera SEMPRE sobre o original, regenerando atomicamente via RPC
+            const paiId = lancamentoFaturaEmEdicao?.lancamento_pai_id || dados.id
+            await lancamentoService.regenerarCompraParcelada(
+              wsId,
+              paiId,
+              {
+                valor: Number(dados.valor),
+                data: dados.data,
+                quantidade_parcelas: Number(dados.quantidade_parcelas || 1),
+                descricao: dados.descricao,
+                categoria_id: dados.categoria_id,
+                subcategoria_id: dados.subcategoria_id,
+                observacao: dados.observacao,
+              },
+              user?.id,
+            )
+            toast.success('Compra parcelada regenerada com sucesso!')
+          } else {
+            await lancamentoService.update(dados.id, wsId, dados, user?.id)
+            toast.success('Lançamento atualizado com sucesso!')
+          }
+        } else {
+          await lancamentoService.create({
+            ...dados,
+            workspace_id: wsId,
+            created_by: user?.id,
+          })
+          toast.success('Compra incluída na fatura do cartão com sucesso!')
+        }
+
+        setModalLancamentoOpen(false)
+        setLancamentoFaturaEmEdicao(null)
+        await carregarCartoes()
+      } catch (err: any) {
+        if (err.message && err.message.includes('fatura') && err.message.includes('paga')) {
+          setBloqueioFaturaInfo({
+            competencia: competenciaFiltro,
+            acao: dados.id ? 'alteracao' : 'inclusao',
+            detalhes: err.message,
+          })
+          setModalBloqueioOpen(true)
+        } else {
+          toast.error(
+            'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+          )
+        }
+        throw err
+      }
+    }, 'Processando lançamento no cartão...')
   }
 
   const handleExcluirLancamentoFatura = async (item: any) => {
@@ -1034,7 +1038,7 @@ export default function CartoesPage() {
                                     size="sm"
                                     disabled={isProcessing}
                                     className="text-xs h-7 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-2xs"
-                                    onClick={() => abrirModalPagarFatura(fatura, cartao)}
+                                    onClick={() => abrirModalPagarFatura(resumo.fatura, cartao)}
                                   >
                                     <CheckCircle2 className="w-3 h-3 mr-1" />
                                     Pagar Fatura
