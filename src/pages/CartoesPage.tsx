@@ -32,6 +32,7 @@ import {
 import { ModalLancamento } from '@/components/ModalLancamento'
 import { ModalPagamentoFatura } from '@/components/ModalPagamentoFatura'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
+import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'

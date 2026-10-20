@@ -41,6 +41,7 @@ import {
 } from 'lucide-react'
 import { ModalPagamentoFatura } from '@/components/ModalPagamentoFatura'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
+import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { faturaService } from '@/services/sap'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -117,6 +118,10 @@ export default function Index() {
   const [lancamentoAlvoEscopo, setLancamentoAlvoEscopo] = useState<any | null>(null)
   const [dadosEdicaoPendentes, setDadosEdicaoPendentes] = useState<any | null>(null)
   const [processandoEscopo, setProcessandoEscopo] = useState(false)
+
+  // Modal Aviso Bloqueio Fatura Paga (persistente, fecha somente no botão X)
+  const [bloqueioFaturaInfo, setBloqueioFaturaInfo] = useState<InfoBloqueioFatura | null>(null)
+  const [modalBloqueioOpen, setModalBloqueioOpen] = useState(false)
 
   const anoMes = getCurrentAnoMes()
   const wsId =
@@ -249,15 +254,50 @@ export default function Index() {
   }
 
   const abrirNovoLancamentoNaFatura = (cartao: Cartao) => {
+    const resumo = resumosFatura[cartao.id]
+    // Bloquear inclusão se fatura estiver paga
+    if (resumo?.status === 'paga' || (resumo?.fatura && resumo.fatura.status === 'paga')) {
+      setBloqueioFaturaInfo({
+        competencia: competenciaFiltro,
+        acao: 'inclusao',
+        detalhes: `A fatura de ${cartao.nome} (${competenciaFiltro}) já foi quitada. Desfaça o pagamento para liberar novos lançamentos.`,
+      })
+      setModalBloqueioOpen(true)
+      return
+    }
+
     setLancamentoFaturaEmEdicao(null)
     setCartaoIdParaNovoLanc(cartao.id)
-    const [ano, mes] = competenciaFiltro.split('-')
-    const dataEstimada = `${ano}-${mes}-01`
-    setDataPadraoParaNovoLanc(dataEstimada)
+    // Pré-preenchimento no dia de corte da competência
+    const dataFechamentoComp = faturaService.calcularDataFechamentoDaCompetencia(
+      competenciaFiltro,
+      cartao.dia_fechamento,
+      cartao.dia_vencimento,
+    )
+    setDataPadraoParaNovoLanc(dataFechamentoComp)
     setModalLancamentoFaturaOpen(true)
   }
 
   const abrirEdicaoLancamentoFatura = async (item: any) => {
+    const compItem = item.competencia || competenciaFiltro
+    const resumo = resumosFatura[item.cartao_id]
+
+    if (
+      (resumo && resumo.status === 'paga' && resumo.fatura?.competencia === compItem) ||
+      (wsId &&
+        item.cartao_id &&
+        compItem &&
+        (await faturaService.getFatura(wsId, item.cartao_id, compItem))?.status === 'paga')
+    ) {
+      setBloqueioFaturaInfo({
+        competencia: compItem,
+        acao: 'alteracao',
+        detalhes: `A fatura desta compra (${compItem}) já foi paga. Para alterar, reabra a fatura primeiro.`,
+      })
+      setModalBloqueioOpen(true)
+      return
+    }
+
     let alvoParaEdicao = item
     const paiId = item.lancamento_pai_id || item.lancamento_id || item.id
     if (paiId) {
@@ -276,6 +316,28 @@ export default function Index() {
   const handleSalvarLancamentoFatura = async (dados: any) => {
     if (!wsId) return
     try {
+      // Revalidação de fatura paga
+      if (dados.cartao_id && dados.data) {
+        const cartaoObj = cartoes.find((c) => c.id === dados.cartao_id)
+        if (cartaoObj) {
+          const compCalculada = faturaService.calcularCompetenciaCartao(
+            dados.data,
+            cartaoObj.dia_fechamento,
+            cartaoObj.dia_vencimento,
+          )
+          const fat = await faturaService.getFatura(wsId, dados.cartao_id, compCalculada)
+          if (fat && fat.status === 'paga') {
+            setBloqueioFaturaInfo({
+              competencia: compCalculada,
+              acao: dados.id ? 'alteracao' : 'inclusao',
+              detalhes: `A fatura de ${compCalculada} já está quitada. Desfaça o pagamento para salvar.`,
+            })
+            setModalBloqueioOpen(true)
+            return
+          }
+        }
+      }
+
       if (dados.id) {
         const ehParcelado =
           (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
@@ -324,6 +386,21 @@ export default function Index() {
 
   const handleExcluirLancamentoFatura = async (item: any) => {
     if (!wsId) return
+
+    const compItem = item.competencia || competenciaFiltro
+    if (item.cartao_id && compItem) {
+      const fat = await faturaService.getFatura(wsId, item.cartao_id, compItem)
+      if (fat && fat.status === 'paga') {
+        setBloqueioFaturaInfo({
+          competencia: compItem,
+          acao: 'exclusao',
+          detalhes: `A fatura de ${compItem} já foi paga. Para excluir, reabra a fatura primeiro.`,
+        })
+        setModalBloqueioOpen(true)
+        return
+      }
+    }
+
     let alvoParaExclusao = item
     const paiId = item.lancamento_pai_id || item.lancamento_id || item.id
     if (paiId) {
@@ -457,7 +534,16 @@ export default function Index() {
       )
       await carregarDashboard()
     } catch (err: any) {
-      toast.error('Erro ao lançar: ' + (err.message || 'verifique os dados'))
+      if (err?.message && err.message.includes('fatura') && err.message.includes('paga')) {
+        setBloqueioFaturaInfo({
+          competencia: dados.competencia || dados.data?.substring(0, 7) || 'atual',
+          acao: 'inclusao',
+          detalhes: err.message,
+        })
+        setModalBloqueioOpen(true)
+      } else {
+        toast.error('Erro ao lançar: ' + (err.message || 'verifique os dados'))
+      }
       throw err
     }
   }
@@ -1457,6 +1543,16 @@ export default function Index() {
         categorias={categorias}
         workspaceId={wsId || ''}
         userId={user?.id}
+      />
+
+      {/* MODAL DE AVISO DE BLOQUEIO POR FATURA PAGA (FECHA APENAS COM BOTÃO X) */}
+      <ModalAvisoBloqueioFatura
+        open={modalBloqueioOpen}
+        onClose={() => {
+          setModalBloqueioOpen(false)
+          setBloqueioFaturaInfo(null)
+        }}
+        info={bloqueioFaturaInfo}
       />
     </div>
   )

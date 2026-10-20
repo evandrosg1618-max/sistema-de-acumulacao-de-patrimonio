@@ -2502,22 +2502,30 @@ export const lancamentoService = {
       }
       // Reverter saldos de conta se estava pago (fora de cartão)
       if (l.status_pagamento === 'pago') {
-        const v = Number(l.valor)
-        if (l.tipo === 'despesa' && l.conta_origem_id) {
-          const c = await contaService.getById(l.conta_origem_id)
-          if (c) {
-            await db
-              .from('contas')
-              .update({ saldo_atual: Number(c.saldo_atual) + v })
-              .eq('id', l.conta_origem_id)
-          }
-        } else if (l.tipo === 'receita' && l.conta_origem_id) {
-          const c = await contaService.getById(l.conta_origem_id)
-          if (c) {
-            await db
-              .from('contas')
-              .update({ saldo_atual: Number(c.saldo_atual) - v })
-              .eq('id', l.conta_origem_id)
+        if (l.tipo === 'transferencia') {
+          // Reverte saldos de transferência atomicamente via RPC
+          await db.rpc('restaurar_saldo_transferencia_rpc', {
+            p_workspace_id: workspaceId,
+            p_lancamento_id: l.id,
+          })
+        } else {
+          const v = Number(l.valor)
+          if (l.tipo === 'despesa' && l.conta_origem_id) {
+            const c = await contaService.getById(l.conta_origem_id)
+            if (c) {
+              await db
+                .from('contas')
+                .update({ saldo_atual: Number(c.saldo_atual) + v })
+                .eq('id', l.conta_origem_id)
+            }
+          } else if (l.tipo === 'receita' && l.conta_origem_id) {
+            const c = await contaService.getById(l.conta_origem_id)
+            if (c) {
+              await db
+                .from('contas')
+                .update({ saldo_atual: Number(c.saldo_atual) - v })
+                .eq('id', l.conta_origem_id)
+            }
           }
         }
         await db.from('movimentacoes_conta').delete().eq('lancamento_id', l.id)

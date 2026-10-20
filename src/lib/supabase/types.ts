@@ -1418,6 +1418,14 @@ export type Database = {
         Args: { token_input: string }
         Returns: Json
       }
+      aplicar_saldo_transferencia_rpc: {
+        Args: {
+          p_lancamento_id: string
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       atualizar_fechamento_cartao_rpc: {
         Args: {
           p_cartao_id: string
@@ -1489,6 +1497,10 @@ export type Database = {
           p_user_id?: string
           p_workspace_id: string
         }
+        Returns: Json
+      }
+      restaurar_saldo_transferencia_rpc: {
+        Args: { p_lancamento_id: string; p_workspace_id: string }
         Returns: Json
       }
       somar_meses_competencia: {

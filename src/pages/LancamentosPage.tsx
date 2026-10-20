@@ -56,6 +56,8 @@ import {
 import { ModalLancamento } from '@/components/ModalLancamento'
 import { ModalConciliacao } from '@/components/ModalConciliacao'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
+import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
+import { faturaService } from '@/services/sap'
 import { toast } from 'sonner'
 
 export default function LancamentosPage() {
@@ -87,6 +89,10 @@ export default function LancamentosPage() {
   const [lancamentoEmEdicao, setLancamentoEmEdicao] = useState<Lancamento | null>(null)
   const [tipoModalPadrao, setTipoModalPadrao] = useState<TipoLancamento>('despesa')
   const [modalConciliacaoOpen, setModalConciliacaoOpen] = useState(false)
+
+  // Modal de aviso persistente de fatura paga
+  const [bloqueioFaturaInfo, setBloqueioFaturaInfo] = useState<InfoBloqueioFatura | null>(null)
+  const [modalBloqueioOpen, setModalBloqueioOpen] = useState(false)
 
   // Modal de escolha de escopo (alterar/excluir série parcelada)
   const [modalEscopoOpen, setModalEscopoOpen] = useState(false)
@@ -166,7 +172,25 @@ export default function LancamentosPage() {
     setModalLancamentoOpen(true)
   }
 
-  const abrirEdicaoLancamento = (l: Lancamento) => {
+  const abrirEdicaoLancamento = async (l: Lancamento) => {
+    // Se pertencer a cartão de crédito e a fatura estiver paga, bloqueia alteração com aviso persistente
+    if (wsId && l.cartao_id && l.competencia) {
+      try {
+        const fat = await faturaService.getFatura(wsId, l.cartao_id, l.competencia)
+        if (fat && fat.status === 'paga') {
+          setBloqueioFaturaInfo({
+            competencia: l.competencia,
+            acao: 'alteracao',
+            detalhes: `A fatura de ${l.competencia} já está quitada. Desfaça o pagamento na tela de Cartões antes de alterar este lançamento.`,
+          })
+          setModalBloqueioOpen(true)
+          return
+        }
+      } catch (e) {
+        console.warn('Erro ao verificar fatura no abrirEdicaoLancamento:', e)
+      }
+    }
+
     setLancamentoEmEdicao(l)
     setTipoModalPadrao(l.tipo)
     setModalLancamentoOpen(true)
@@ -240,13 +264,40 @@ export default function LancamentosPage() {
       setLancamentoEmEdicao(null)
       await carregarDados()
     } catch (err: any) {
-      toast.error('Erro ao salvar lançamento: ' + (err.message || 'verifique os dados'))
+      if (err?.message && err.message.includes('fatura') && err.message.includes('paga')) {
+        setBloqueioFaturaInfo({
+          competencia: dados.competencia || dados.data?.substring(0, 7) || 'atual',
+          acao: dados.id ? 'alteracao' : 'inclusao',
+          detalhes: err.message,
+        })
+        setModalBloqueioOpen(true)
+      } else {
+        toast.error('Erro ao salvar lançamento: ' + (err.message || 'verifique os dados'))
+      }
       throw err
     }
   }
 
   const handleExcluirLancamento = async (l: Lancamento) => {
     if (!wsId) return
+
+    // Se o lançamento estiver em cartão e a fatura estiver paga, bloqueia exclusão
+    if (l.cartao_id && l.competencia) {
+      try {
+        const fat = await faturaService.getFatura(wsId, l.cartao_id, l.competencia)
+        if (fat && fat.status === 'paga') {
+          setBloqueioFaturaInfo({
+            competencia: l.competencia,
+            acao: 'exclusao',
+            detalhes: `A fatura de ${l.competencia} já foi paga. Desfaça o pagamento da fatura na tela de Cartões para liberar a exclusão.`,
+          })
+          setModalBloqueioOpen(true)
+          return
+        }
+      } catch (e) {
+        console.warn('Erro ao verificar fatura na exclusão:', e)
+      }
+    }
 
     // Frente 4: Se for compra parcelada em cartão, exclusão total do original sem modal de escopo
     const ehParceladoCartao =
@@ -351,6 +402,19 @@ export default function LancamentosPage() {
 
   const handleTogglePago = async (l: Lancamento) => {
     if (!wsId) return
+
+    // Se estiver em fatura de cartão, não permite toggle manual
+    if (l.meio_pagamento_tipo === 'CARTAO' || l.cartao_id) {
+      setBloqueioFaturaInfo({
+        competencia: l.competencia || l.data?.substring(0, 7) || 'atual',
+        acao: 'alteracao',
+        detalhes:
+          'Lançamentos em cartão de crédito são quitados exclusivamente através do pagamento da fatura na tela de Cartões.',
+      })
+      setModalBloqueioOpen(true)
+      return
+    }
+
     try {
       const novoStatus = l.status_pagamento !== 'pago'
       await lancamentoService.togglePago(l.id, wsId, novoStatus, user?.id)
@@ -978,6 +1042,16 @@ export default function LancamentosPage() {
           setDadosEdicaoPendentes(null)
         }}
         loading={processandoEscopo}
+      />
+
+      {/* MODAL DE AVISO DE BLOQUEIO POR FATURA PAGA (FECHA APENAS COM BOTÃO X) */}
+      <ModalAvisoBloqueioFatura
+        open={modalBloqueioOpen}
+        onClose={() => {
+          setModalBloqueioOpen(false)
+          setBloqueioFaturaInfo(null)
+        }}
+        info={bloqueioFaturaInfo}
       />
     </div>
   )
