@@ -1454,6 +1454,36 @@ export const faturaService = {
     return `${ano}-${String(mes).padStart(2, '0')}`
   },
 
+  // Retorna a data (YYYY-MM-DD) do dia de fechamento correspondente à fatura de uma dada competência
+  // Regra: se compra até o fechamento cai na competência do vencimento:
+  // Se vencimento > fechamento (ex: fecha 10, vence 20): o fechamento é no MESMO ano-mês do vencimento (competência).
+  // Se vencimento <= fechamento (ex: fecha 25, vence 05): o fechamento ocorre no mês ANTERIOR ao do vencimento.
+  calcularDataFechamentoDaCompetencia(
+    competencia: string,
+    diaFechamento: number,
+    diaVencimento = 20,
+  ): string {
+    const [anoStr, mesStr] = competencia.split('-')
+    let ano = parseInt(anoStr, 10)
+    let mes = parseInt(mesStr, 10) // Mês da competência (mês do vencimento da fatura)
+
+    const fech = diaFechamento || 10
+    const venc = diaVencimento || 20
+
+    if (venc <= fech) {
+      // O fechamento foi no mês anterior
+      mes -= 1
+      if (mes < 1) {
+        mes = 12
+        ano -= 1
+      }
+    }
+
+    const ultDiaMes = new Date(ano, mes, 0).getDate()
+    const dia = Math.min(fech, ultDiaMes)
+    return `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+  },
+
   async getFatura(workspaceId: string, cartaoId: string, competencia: string): Promise<any | null> {
     const { data, error } = await db
       .from('faturas')
@@ -2055,6 +2085,18 @@ export const lancamentoService = {
           cartaoObj.dia_fechamento,
           cartaoObj.dia_vencimento,
         )
+
+        // REQUISITO 2: Bloquear inclusão de novos lançamentos dentro de uma fatura paga
+        const faturaExistente = await faturaService.getFatura(
+          dados.workspace_id,
+          dados.cartao_id,
+          competenciaInicial,
+        )
+        if (faturaExistente && faturaExistente.status === 'paga') {
+          throw new Error(
+            `A fatura de ${competenciaInicial} já está com pagamento realizado. Não é permitido incluir novos lançamentos nesta fatura. Para liberar a inclusão, desfaça o pagamento da fatura de ${competenciaInicial} na tela de Cartões clicando em "Reabrir".`,
+          )
+        }
       }
     }
 
@@ -2932,7 +2974,36 @@ export const lancamentoService = {
     // Se o lançamento anterior já alterou saldo de contas e está sendo editado, revertemos os saldos do anterior
     if (anterior.status_pagamento === 'pago') {
       const vAnt = Number(anterior.valor)
-      if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
+      if (
+        anterior.tipo === 'transferencia' &&
+        anterior.conta_origem_id &&
+        anterior.conta_destino_id
+      ) {
+        // REQUISITO 6: Usar RPC atômica restaurar_saldo_transferencia_rpc
+        try {
+          await db.rpc('restaurar_saldo_transferencia_rpc', {
+            p_workspace_id: workspaceId,
+            p_lancamento_id: id,
+          })
+        } catch (errRpc) {
+          console.warn('Fallback manual para restauração de transferência:', errRpc)
+          const cO = await contaService.getById(anterior.conta_origem_id)
+          const cD = await contaService.getById(anterior.conta_destino_id)
+          if (cO) {
+            await db
+              .from('contas')
+              .update({ saldo_atual: Number(cO.saldo_atual) + vAnt })
+              .eq('id', anterior.conta_origem_id)
+          }
+          if (cD) {
+            await db
+              .from('contas')
+              .update({ saldo_atual: Number(cD.saldo_atual) - vAnt })
+              .eq('id', anterior.conta_destino_id)
+          }
+          await db.from('movimentacoes_conta').delete().eq('lancamento_id', id)
+        }
+      } else if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
         const c = await contaService.getById(anterior.conta_origem_id)
         if (c) {
           await db
@@ -2947,25 +3018,6 @@ export const lancamentoService = {
             .from('contas')
             .update({ saldo_atual: Number(c.saldo_atual) - vAnt })
             .eq('id', anterior.conta_origem_id)
-        }
-      } else if (
-        anterior.tipo === 'transferencia' &&
-        anterior.conta_origem_id &&
-        anterior.conta_destino_id
-      ) {
-        const cO = await contaService.getById(anterior.conta_origem_id)
-        const cD = await contaService.getById(anterior.conta_destino_id)
-        if (cO) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(cO.saldo_atual) + vAnt })
-            .eq('id', anterior.conta_origem_id)
-        }
-        if (cD) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(cD.saldo_atual) - vAnt })
-            .eq('id', anterior.conta_destino_id)
         }
       }
     }
@@ -3141,7 +3193,35 @@ export const lancamentoService = {
     // Se estava pago, reverter saldo
     if (anterior.status_pagamento === 'pago') {
       const vAnt = Number(anterior.valor)
-      if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
+      if (
+        anterior.tipo === 'transferencia' &&
+        anterior.conta_origem_id &&
+        anterior.conta_destino_id
+      ) {
+        // REQUISITO 6: Usar RPC atômica restaurar_saldo_transferencia_rpc
+        try {
+          await db.rpc('restaurar_saldo_transferencia_rpc', {
+            p_workspace_id: workspaceId,
+            p_lancamento_id: id,
+          })
+        } catch (errRpc) {
+          console.warn('Fallback manual para restauração de transferência:', errRpc)
+          const cO = await contaService.getById(anterior.conta_origem_id)
+          const cD = await contaService.getById(anterior.conta_destino_id)
+          if (cO) {
+            await db
+              .from('contas')
+              .update({ saldo_atual: Number(cO.saldo_atual) + vAnt })
+              .eq('id', anterior.conta_origem_id)
+          }
+          if (cD) {
+            await db
+              .from('contas')
+              .update({ saldo_atual: Number(cD.saldo_atual) - vAnt })
+              .eq('id', anterior.conta_destino_id)
+          }
+        }
+      } else if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
         const c = await contaService.getById(anterior.conta_origem_id)
         if (c) {
           await db
@@ -3156,25 +3236,6 @@ export const lancamentoService = {
             .from('contas')
             .update({ saldo_atual: Number(c.saldo_atual) - vAnt })
             .eq('id', anterior.conta_origem_id)
-        }
-      } else if (
-        anterior.tipo === 'transferencia' &&
-        anterior.conta_origem_id &&
-        anterior.conta_destino_id
-      ) {
-        const cO = await contaService.getById(anterior.conta_origem_id)
-        const cD = await contaService.getById(anterior.conta_destino_id)
-        if (cO) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(cO.saldo_atual) + vAnt })
-            .eq('id', anterior.conta_origem_id)
-        }
-        if (cD) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(cD.saldo_atual) - vAnt })
-            .eq('id', anterior.conta_destino_id)
         }
       }
     }
@@ -3278,7 +3339,56 @@ export const lancamentoService = {
 
     if (pago && anterior.status_pagamento !== 'pago') {
       // Baixar saldo
-      if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
+      if (
+        anterior.tipo === 'transferencia' &&
+        anterior.conta_origem_id &&
+        anterior.conta_destino_id
+      ) {
+        // REQUISITO 6: Aplicar saldo de transferência
+        try {
+          await db.rpc('aplicar_saldo_transferencia_rpc', {
+            p_workspace_id: workspaceId,
+            p_lancamento_id: id,
+            p_user_id: userId || null,
+          })
+        } catch (errRpc) {
+          console.warn('Fallback manual para aplicação de transferência:', errRpc)
+          const cOrigem = await contaService.getById(anterior.conta_origem_id)
+          const cDestino = await contaService.getById(anterior.conta_destino_id)
+          if (cOrigem && cDestino) {
+            await db
+              .from('contas')
+              .update({ saldo_atual: Number(cOrigem.saldo_atual) - valorNum })
+              .eq('id', anterior.conta_origem_id)
+            await db
+              .from('contas')
+              .update({ saldo_atual: Number(cDestino.saldo_atual) + valorNum })
+              .eq('id', anterior.conta_destino_id)
+            await db.from('movimentacoes_conta').insert([
+              {
+                workspace_id: workspaceId,
+                conta_id: anterior.conta_origem_id,
+                lancamento_id: id,
+                tipo: 'transferencia_saida',
+                valor: valorNum,
+                data: dataPag || anterior.data,
+                descricao: `Transf. saída para ${cDestino.nome}`,
+                created_by: userId,
+              },
+              {
+                workspace_id: workspaceId,
+                conta_id: anterior.conta_destino_id,
+                lancamento_id: id,
+                tipo: 'transferencia_entrada',
+                valor: valorNum,
+                data: dataPag || anterior.data,
+                descricao: `Transf. entrada de ${cOrigem.nome}`,
+                created_by: userId,
+              },
+            ])
+          }
+        }
+      } else if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
         const c = await contaService.getById(anterior.conta_origem_id)
         if (c) {
           await db
@@ -3317,7 +3427,35 @@ export const lancamentoService = {
       }
     } else if (!pago && anterior.status_pagamento === 'pago') {
       // Desfazer pagamento / estornar
-      if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
+      if (
+        anterior.tipo === 'transferencia' &&
+        anterior.conta_origem_id &&
+        anterior.conta_destino_id
+      ) {
+        // REQUISITO 6: Restaurar saldos de transferência ao desfazer pagamento
+        try {
+          await db.rpc('restaurar_saldo_transferencia_rpc', {
+            p_workspace_id: workspaceId,
+            p_lancamento_id: id,
+          })
+        } catch (errRpc) {
+          console.warn('Fallback manual para restauração de transferência:', errRpc)
+          const cOrig = await contaService.getById(anterior.conta_origem_id)
+          const cDest = await contaService.getById(anterior.conta_destino_id)
+          if (cOrig) {
+            await db
+              .from('contas')
+              .update({ saldo_atual: Number(cOrig.saldo_atual) + valorNum })
+              .eq('id', anterior.conta_origem_id)
+          }
+          if (cDest) {
+            await db
+              .from('contas')
+              .update({ saldo_atual: Number(cDest.saldo_atual) - valorNum })
+              .eq('id', anterior.conta_destino_id)
+          }
+        }
+      } else if (anterior.tipo === 'despesa' && anterior.conta_origem_id) {
         const c = await contaService.getById(anterior.conta_origem_id)
         if (c) {
           await db

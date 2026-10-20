@@ -1418,10 +1418,29 @@ export type Database = {
         Args: { token_input: string }
         Returns: Json
       }
-      calcular_competencia_cartao: {
-        Args: { p_data: string; p_dia_fechamento: number }
-        Returns: string
+      atualizar_fechamento_cartao_rpc: {
+        Args: {
+          p_cartao_id: string
+          p_novo_dia_fechamento: number
+          p_novo_dia_vencimento?: number
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
       }
+      calcular_competencia_cartao:
+        | {
+            Args: { p_data: string; p_dia_fechamento: number }
+            Returns: string
+          }
+        | {
+            Args: {
+              p_data: string
+              p_dia_fechamento: number
+              p_dia_vencimento: number
+            }
+            Returns: string
+          }
       excluir_lancamento_parcelado_rpc: {
         Args: {
           p_lancamento_id: string

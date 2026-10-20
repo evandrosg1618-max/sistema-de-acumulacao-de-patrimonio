@@ -95,6 +95,10 @@ export default function CartoesPage() {
   const [cartaoIdParaNovoLanc, setCartaoIdParaNovoLanc] = useState<string>('')
   const [dataPadraoParaNovoLanc, setDataPadraoParaNovoLanc] = useState<string>('')
 
+  // Modal de aviso de bloqueio por fatura paga (fecha apenas com botão 'X')
+  const [bloqueioFaturaInfo, setBloqueioFaturaInfo] = useState<InfoBloqueioFatura | null>(null)
+  const [modalBloqueioOpen, setModalBloqueioOpen] = useState(false)
+
   // Modal de escolha de escopo de série
   const [modalEscopoOpen, setModalEscopoOpen] = useState(false)
   const [acaoEscopo, setAcaoEscopo] = useState<'editar' | 'excluir'>('excluir')
@@ -288,18 +292,55 @@ export default function CartoesPage() {
     }
   }
 
-  // FRENTE 1: Ações de Lançamentos dentro da Fatura
+  // REQUISITOS 2, 3 e 4: Ações de Lançamentos dentro da Fatura
   const abrirNovoLancamentoNaFatura = (cartao: Cartao) => {
+    const resumo = resumosFatura[cartao.id]
+    // Requisito 2: Bloquear inclusão se a fatura já estiver paga
+    if (resumo?.status === 'paga' || (resumo?.fatura && resumo.fatura.status === 'paga')) {
+      setBloqueioFaturaInfo({
+        competencia: competenciaFiltro,
+        acao: 'inclusao',
+        detalhes: `A fatura de ${cartao.nome} (${competenciaFiltro}) já foi paga. Desfaça o pagamento para liberar novos lançamentos.`,
+      })
+      setModalBloqueioOpen(true)
+      return
+    }
+
     setLancamentoFaturaEmEdicao(null)
     setCartaoIdParaNovoLanc(cartao.id)
-    // Data padrão: usar primeiro dia da competência ou data de hoje se coincidir
-    const [ano, mes] = competenciaFiltro.split('-')
-    const dataEstimada = `${ano}-${mes}-01`
-    setDataPadraoParaNovoLanc(dataEstimada)
+
+    // Requisito 4: Preencher previamente a data do lançamento com o dia e mês de fechamento
+    // correspondentes à competência da fatura que está sendo editada
+    const dataFechamentoComp = faturaService.calcularDataFechamentoDaCompetencia(
+      competenciaFiltro,
+      cartao.dia_fechamento,
+      cartao.dia_vencimento,
+    )
+    setDataPadraoParaNovoLanc(dataFechamentoComp)
     setModalLancamentoOpen(true)
   }
 
   const abrirEdicaoLancamentoFatura = async (item: any) => {
+    const compItem = item.competencia || competenciaFiltro
+    const resumo = resumosFatura[item.cartao_id]
+
+    // Se a fatura estiver paga, bloqueia edição com aviso persistente (Requisito 3)
+    if (
+      (resumo && resumo.status === 'paga' && resumo.fatura?.competencia === compItem) ||
+      (wsId &&
+        item.cartao_id &&
+        compItem &&
+        (await faturaService.getFatura(wsId, item.cartao_id, compItem))?.status === 'paga')
+    ) {
+      setBloqueioFaturaInfo({
+        competencia: compItem,
+        acao: 'alteracao',
+        detalhes: `A fatura desta compra (${compItem}) já foi paga. Para alterar, reabra a fatura primeiro.`,
+      })
+      setModalBloqueioOpen(true)
+      return
+    }
+
     // Se o item for uma parcela ou pertencer a um lançamento original (pai),
     // carrega o lançamento original completo para que a edição ocorra exclusivamente sobre o original.
     let alvoParaEdicao = item
@@ -323,6 +364,28 @@ export default function CartoesPage() {
   const handleSalvarLancamentoFatura = async (dados: any, criarOutro = false) => {
     if (!wsId) return
     try {
+      // Revalidação prévia de fatura paga
+      if (dados.cartao_id && dados.data) {
+        const cartaoObj = cartoes.find((c) => c.id === dados.cartao_id)
+        if (cartaoObj) {
+          const compCalculada = faturaService.calcularCompetenciaCartao(
+            dados.data,
+            cartaoObj.dia_fechamento,
+            cartaoObj.dia_vencimento,
+          )
+          const fat = await faturaService.getFatura(wsId, dados.cartao_id, compCalculada)
+          if (fat && fat.status === 'paga') {
+            setBloqueioFaturaInfo({
+              competencia: compCalculada,
+              acao: dados.id ? 'alteracao' : 'inclusao',
+              detalhes: `A fatura de ${compCalculada} já está quitada. Desfaça o pagamento para salvar.`,
+            })
+            setModalBloqueioOpen(true)
+            return
+          }
+        }
+      }
+
       if (dados.id) {
         const ehParcelado =
           (dados.quantidade_parcelas && dados.quantidade_parcelas > 1) ||
@@ -365,13 +428,37 @@ export default function CartoesPage() {
       setLancamentoFaturaEmEdicao(null)
       await carregarCartoes()
     } catch (err: any) {
-      toast.error('Erro ao salvar lançamento: ' + (err.message || ''))
+      if (err.message && err.message.includes('fatura') && err.message.includes('paga')) {
+        setBloqueioFaturaInfo({
+          competencia: competenciaFiltro,
+          acao: dados.id ? 'alteracao' : 'inclusao',
+          detalhes: err.message,
+        })
+        setModalBloqueioOpen(true)
+      } else {
+        toast.error('Erro ao salvar lançamento: ' + (err.message || ''))
+      }
       throw err
     }
   }
 
   const handleExcluirLancamentoFatura = async (item: any) => {
     if (!wsId) return
+
+    const compItem = item.competencia || competenciaFiltro
+    // Verificar se fatura está paga antes de permitir excluir
+    if (item.cartao_id && compItem) {
+      const fat = await faturaService.getFatura(wsId, item.cartao_id, compItem)
+      if (fat && fat.status === 'paga') {
+        setBloqueioFaturaInfo({
+          competencia: compItem,
+          acao: 'exclusao',
+          detalhes: `A fatura de ${compItem} já foi paga. Para excluir, reabra a fatura primeiro.`,
+        })
+        setModalBloqueioOpen(true)
+        return
+      }
+    }
 
     // Se o item for uma parcela ou pertencer a um lançamento original (pai),
     // a exclusão deve direcionar e impactar o lançamento original.
@@ -1201,6 +1288,16 @@ export default function CartoesPage() {
           setDadosEdicaoPendentes(null)
         }}
         loading={processandoEscopo}
+      />
+
+      {/* Modal Aviso Bloqueio Fatura Paga (Requisito 3: só fecha com botão X) */}
+      <ModalAvisoBloqueioFatura
+        open={modalBloqueioOpen}
+        onClose={() => {
+          setModalBloqueioOpen(false)
+          setBloqueioFaturaInfo(null)
+        }}
+        info={bloqueioFaturaInfo}
       />
 
       {/* Modal Cadastro/Edição */}
