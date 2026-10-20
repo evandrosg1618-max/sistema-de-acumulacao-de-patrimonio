@@ -111,6 +111,13 @@ export default function LancamentosPage() {
       setLoading(false)
       return
     }
+    // REQUISITO 2: Materialização preguiçosa de fixos pendentes
+    try {
+      await fixoService.materializarPendentes(wsId, user?.id)
+    } catch (matErr) {
+      console.warn('Erro silencioso na materialização prévia de fixos:', matErr)
+    }
+
     setLoading(true)
     try {
       const filtrosConsulta: any = {
@@ -200,6 +207,17 @@ export default function LancamentosPage() {
 
   const handleSalvarLancamento = async (dados: any, criarOutro = false) => {
     if (!wsId) return
+
+    // REQUISITO 4: Ao salvar alteração de um lançamento com serie_id preenchido, interceptar e abrir ModalEscolhaEscopoSerie
+    if (dados.id && (lancamentoEmEdicao?.serie_id || dados.serie_id)) {
+      setDadosEdicaoPendentes(dados)
+      setLancamentoAlvoEscopo(lancamentoEmEdicao)
+      setAcaoEscopo('editar')
+      setModalLancamentoOpen(false)
+      setModalEscopoOpen(true)
+      return
+    }
+
     // Outras séries parceladas (recorrentes/contas) mantêm escopo se aplicável
     if (dados.id) {
       const ehParceladoCartao =
@@ -253,22 +271,34 @@ export default function LancamentosPage() {
             )
             toast.success('Compra parcelada regenerada com sucesso!')
           } else {
-            await lancamentoService.update(dados.id, wsId, dados, user?.id)
+            await lancamentoService.salvarUnificado(
+              {
+                ...dados,
+                workspace_id: wsId,
+              },
+              user?.id,
+            )
             toast.success('Lançamento atualizado com sucesso!')
           }
         } else {
-          await lancamentoService.create({
-            ...dados,
-            workspace_id: wsId,
-            created_by: user?.id,
-          })
+          // REQUISITO 1: Chamada unificada para criação atômica de fixos/únicos
+          await lancamentoService.salvarUnificado(
+            {
+              ...dados,
+              workspace_id: wsId,
+              created_by: user?.id,
+            },
+            user?.id,
+          )
           toast.success(
             `${
-              dados.tipo === 'despesa'
-                ? 'Despesa registrada'
-                : dados.tipo === 'receita'
-                  ? 'Receita registrada'
-                  : 'Transferência registrada'
+              dados.regime === 'fixo'
+                ? 'Lançamento fixo e projeções criados'
+                : dados.tipo === 'despesa'
+                  ? 'Despesa registrada'
+                  : dados.tipo === 'receita'
+                    ? 'Receita registrada'
+                    : 'Transferência registrada'
             } com sucesso!`,
           )
         }
@@ -285,7 +315,8 @@ export default function LancamentosPage() {
           setModalBloqueioOpen(true)
         } else {
           toast.error(
-            'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+            err.message ||
+              'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
           )
         }
         throw err
@@ -393,27 +424,53 @@ export default function LancamentosPage() {
             }`,
           )
         } else {
-          const res = await lancamentoService.updateComEscopo(
-            lancamentoAlvoEscopo.id,
-            wsId,
-            escopo,
-            {
-              descricao: dadosEdicaoPendentes?.descricao,
-              valor: dadosEdicaoPendentes?.valor,
-              data: dadosEdicaoPendentes?.data,
-              categoria_id: dadosEdicaoPendentes?.categoria_id,
-              subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
-              observacao: dadosEdicaoPendentes?.observacao,
-            },
-            user?.id,
-          )
-          toast.success(
-            `${res.alterados} lançamento(s) atualizado(s). ${
-              res.faturasRecalculadas.length > 0
-                ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
-                : ''
-            }`,
-          )
+          // Se for fixo com serie_id, chama alterarComEscopo do fixoService
+          if (lancamentoAlvoEscopo?.serie_id) {
+            const escopoFixo =
+              escopo === 'este' ? 'este' : escopo === 'este_e_proximos' ? 'este_e_futuros' : 'todos'
+            const resFixo = await fixoService.alterarComEscopo(
+              wsId,
+              lancamentoAlvoEscopo.id,
+              escopoFixo,
+              {
+                descricao: dadosEdicaoPendentes?.descricao,
+                valor: dadosEdicaoPendentes?.valor ? Number(dadosEdicaoPendentes.valor) : undefined,
+                categoria_id: dadosEdicaoPendentes?.categoria_id,
+                subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
+                observacao: dadosEdicaoPendentes?.observacao,
+              },
+              user?.id,
+            )
+            toast.success(
+              `${resFixo.afetados} lançamento(s) da série atualizado(s). ${
+                resFixo.faturas_recalculadas?.length > 0
+                  ? `Faturas: ${resFixo.faturas_recalculadas.join(', ')}`
+                  : ''
+              }`,
+            )
+          } else {
+            const res = await lancamentoService.updateComEscopo(
+              lancamentoAlvoEscopo.id,
+              wsId,
+              escopo,
+              {
+                descricao: dadosEdicaoPendentes?.descricao,
+                valor: dadosEdicaoPendentes?.valor,
+                data: dadosEdicaoPendentes?.data,
+                categoria_id: dadosEdicaoPendentes?.categoria_id,
+                subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
+                observacao: dadosEdicaoPendentes?.observacao,
+              },
+              user?.id,
+            )
+            toast.success(
+              `${res.alterados} lançamento(s) atualizado(s). ${
+                res.faturasRecalculadas.length > 0
+                  ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
+                  : ''
+              }`,
+            )
+          }
         }
         setModalEscopoOpen(false)
         setLancamentoAlvoEscopo(null)

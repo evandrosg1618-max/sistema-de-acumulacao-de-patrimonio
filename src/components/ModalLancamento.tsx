@@ -156,6 +156,19 @@ export function ModalLancamento({
       const descLimpa = (initialData.descricao || '').replace(/\s*\(\d+\/\d+\)$/, '').trim()
       setDescricao(descLimpa)
       setQuantidadeParcelas(initialData.total_parcelas || initialData.quantidade_parcelas || 1)
+      if (initialData.regime === 'fixo' || initialData.serie_id) {
+        setModoRepeticao('fixo')
+        setMostrarOpcoesRepeticao(false)
+      } else if (
+        initialData.regime === 'parcelado' ||
+        (initialData.quantidade_parcelas && initialData.quantidade_parcelas > 1)
+      ) {
+        setModoRepeticao('parcelado')
+        setMostrarOpcoesRepeticao(false)
+      } else {
+        setModoRepeticao('nenhum')
+        setMostrarOpcoesRepeticao(false)
+      }
     } else {
       setTipo(tipoPadrao)
       setDescricao('')
@@ -597,69 +610,67 @@ export function ModalLancamento({
                 })()}
 
               {/* BARRA DE ÍCONES (Conforme OCR OrganiZe):
-                  1. Repetir (Fixo/Parcelado) - Ativo/expansível
+                  1. Repetir (Fixo/Parcelado) - Ativo/expansível (exibido na inclusão e edição)
                   2. Observações - placeholder desabilitado (não configurar agora)
                   3. Anexar arquivo - placeholder desabilitado (não configurar agora)
                   4. Tags - placeholder desabilitado (não configurar agora)
               */}
-              {!initialData && (
-                <div className="pt-1">
-                  <div className="flex items-center gap-2 border-y border-slate-100 py-2">
-                    <button
-                      type="button"
-                      onClick={() => setMostrarOpcoesRepeticao(!mostrarOpcoesRepeticao)}
-                      className={`p-2 rounded-lg border transition flex items-center gap-1.5 text-xs font-semibold ${
-                        mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum'
-                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs'
-                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                      }`}
-                      title="Repetir lançamento: Fixo ou Parcelado"
-                    >
-                      <RotateCw
-                        className={`w-4 h-4 ${mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum' ? 'text-emerald-600' : 'text-slate-500'}`}
-                      />
-                      <span>
-                        Repetir{' '}
-                        {modoRepeticao === 'fixo'
-                          ? '(Fixo)'
-                          : modoRepeticao === 'parcelado'
-                            ? `(${quantidadeParcelas}x)`
-                            : ''}
-                      </span>
-                    </button>
+              <div className="pt-1">
+                <div className="flex items-center gap-2 border-y border-slate-100 py-2">
+                  <button
+                    type="button"
+                    onClick={() => setMostrarOpcoesRepeticao(!mostrarOpcoesRepeticao)}
+                    className={`p-2 rounded-lg border transition flex items-center gap-1.5 text-xs font-semibold ${
+                      mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum'
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                    title="Repetir lançamento: Fixo ou Parcelado"
+                  >
+                    <RotateCw
+                      className={`w-4 h-4 ${mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum' ? 'text-emerald-600' : 'text-slate-500'}`}
+                    />
+                    <span>
+                      Repetir{' '}
+                      {modoRepeticao === 'fixo'
+                        ? '(Fixo)'
+                        : modoRepeticao === 'parcelado'
+                          ? `(${quantidadeParcelas}x)`
+                          : ''}
+                    </span>
+                  </button>
 
-                    <button
-                      type="button"
-                      disabled
-                      title="Observações (disponível abaixo)"
-                      className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
-                    >
-                      <FileText className="w-4 h-4" />
-                    </button>
+                  <button
+                    type="button"
+                    disabled
+                    title="Observações (disponível abaixo)"
+                    className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                  >
+                    <FileText className="w-4 h-4" />
+                  </button>
 
-                    <button
-                      type="button"
-                      disabled
-                      title="Anexar arquivo (em breve)"
-                      className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
-                    >
-                      <Paperclip className="w-4 h-4" />
-                    </button>
+                  <button
+                    type="button"
+                    disabled
+                    title="Anexar arquivo (em breve)"
+                    className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </button>
 
-                    <button
-                      type="button"
-                      disabled
-                      title="Tags (em breve)"
-                      className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
-                    >
-                      <Tag className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    disabled
+                    title="Tags (em breve)"
+                    className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                  >
+                    <Tag className="w-4 h-4" />
+                  </button>
                 </div>
-              )}
+              </div>
 
               {/* PAINEL EXPANSÍVEL: REPETIR DESPESA / LANÇAMENTO (OCR OrganiZe Página 2) */}
-              {!initialData && mostrarOpcoesRepeticao && (
+              {mostrarOpcoesRepeticao && (
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
                   <div className="text-xs font-bold text-slate-800 uppercase tracking-wide">
                     Repetir{' '}

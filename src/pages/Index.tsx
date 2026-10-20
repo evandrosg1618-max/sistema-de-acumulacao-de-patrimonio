@@ -158,6 +158,13 @@ export default function Index() {
       setLoading(false)
       return
     }
+    // REQUISITO 2: Materialização preguiçosa de fixos pendentes
+    try {
+      await fixoService.materializarPendentes(wsId, user?.id)
+    } catch (matErr) {
+      console.warn('Erro silencioso na materialização prévia de fixos:', matErr)
+    }
+
     setLoading(true)
     try {
       const [contasList, dinheiroList, cartoesList, orcamentosList, resumo, catsList] =
@@ -541,18 +548,24 @@ export default function Index() {
     if (!wsId) return
     await runWithLock(async () => {
       try {
-        await lancamentoService.create({
-          ...dados,
-          workspace_id: wsId,
-          created_by: user?.id,
-        })
+        // REQUISITO 1: Chamada unificada para criação atômica de fixos/únicos na Visão Geral
+        await lancamentoService.salvarUnificado(
+          {
+            ...dados,
+            workspace_id: wsId,
+            created_by: user?.id,
+          },
+          user?.id,
+        )
         toast.success(
           `${
-            dados.tipo === 'despesa'
-              ? 'Despesa registrada'
-              : dados.tipo === 'receita'
-                ? 'Receita registrada'
-                : 'Transferência registrada'
+            dados.regime === 'fixo'
+              ? 'Lançamento fixo e projeções criados'
+              : dados.tipo === 'despesa'
+                ? 'Despesa registrada'
+                : dados.tipo === 'receita'
+                  ? 'Receita registrada'
+                  : 'Transferência registrada'
           } com sucesso!`,
         )
         await carregarDashboard()
@@ -566,7 +579,8 @@ export default function Index() {
           setModalBloqueioOpen(true)
         } else {
           toast.error(
-            'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+            err.message ||
+              'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
           )
         }
         throw err

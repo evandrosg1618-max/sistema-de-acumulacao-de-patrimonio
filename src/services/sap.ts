@@ -3215,6 +3215,79 @@ export const lancamentoService = {
     await this.deleteComEscopo(lancamentoPaiId, workspaceId, 'todos', userId)
   },
 
+  // Função unificada atômica para salvar lançamentos (únicos, parcelados ou fixos)
+  async salvarUnificado(
+    dados: {
+      id?: string
+      serie_id?: string | null
+      workspace_id: string
+      tipo: 'despesa' | 'receita' | 'transferencia'
+      regime?: 'unico' | 'fixo' | 'parcelado'
+      data: string
+      descricao: string
+      valor: number
+      meio_pagamento_tipo: 'CONTA' | 'CARTAO' | 'DINHEIRO'
+      conta_origem_id?: string | null
+      conta_destino_id?: string | null
+      cartao_id?: string | null
+      categoria_id?: string | null
+      subcategoria_id?: string | null
+      status_pagamento?: 'pago' | 'pendente'
+      data_pagamento?: string | null
+      observacao?: string | null
+      quantidade_parcelas?: number
+      created_by?: string
+      fixo?: {
+        prazo: 'indeterminado' | 'determinado'
+        periodicidade: 'mensal' | 'semestral' | 'anual'
+        quantidade_total?: number | null
+        pago_primeira?: boolean
+      } | null
+    },
+    userId?: string,
+  ): Promise<any> {
+    const wsId = dados.workspace_id
+
+    // REQUISITO 1: Criação de lançamento fixo/recorrente via RPC atômica criar_serie_fixa_rpc
+    if (!dados.id && dados.regime === 'fixo' && dados.fixo) {
+      return await fixoService.criarSerieFixa(
+        wsId,
+        {
+          tipo: dados.tipo,
+          descricao: dados.descricao,
+          valor: Number(dados.valor),
+          data_inicio: dados.data,
+          prazo: dados.fixo.prazo || 'indeterminado',
+          periodicidade: dados.fixo.periodicidade || 'mensal',
+          quantidade_total: dados.fixo.quantidade_total
+            ? Number(dados.fixo.quantidade_total)
+            : null,
+          meio_pagamento_tipo: dados.meio_pagamento_tipo,
+          conta_origem_id: dados.conta_origem_id || null,
+          conta_destino_id: dados.conta_destino_id || null,
+          cartao_id: dados.cartao_id || null,
+          categoria_id: dados.categoria_id || null,
+          subcategoria_id: dados.subcategoria_id || null,
+          observacao: dados.observacao || null,
+          pago_primeira: Boolean(dados.fixo.pago_primeira),
+        },
+        userId || dados.created_by,
+      )
+    }
+
+    // Se for novo (único ou parcelado)
+    if (!dados.id) {
+      return await this.create({
+        ...dados,
+        workspace_id: wsId,
+        created_by: userId || dados.created_by,
+      })
+    }
+
+    // Se for edição
+    return await this.update(dados.id, wsId, dados, userId)
+  },
+
   async update(
     id: string,
     workspaceId: string,
@@ -3250,30 +3323,28 @@ export const lancamentoService = {
       }
     }
 
-    // Se o lançamento anterior já alterou saldo de contas e está sendo editado, revertemos os saldos do anterior de forma atômica
-    if (anterior.status_pagamento === 'pago') {
-      if (anterior.tipo === 'transferencia') {
-        await db.rpc('restaurar_saldo_transferencia_rpc', {
-          p_workspace_id: workspaceId,
-          p_lancamento_id: id,
-        })
-      } else {
-        await db.rpc('toggle_pago_lancamento_rpc', {
-          p_workspace_id: workspaceId,
-          p_lancamento_id: id,
-          p_pago: false,
-          p_user_id: userId || null,
-        })
-      }
-    }
+    // Tratar toggle de status de pagamento usando a RPC atômica toggle_pago_lancamento_rpc
+    const meioFinal = updates.meio_pagamento_tipo || anterior.meio_pagamento_tipo
+    const statusDesejado =
+      meioFinal === 'CARTAO' ? 'pendente' : (updates.status_pagamento ?? anterior.status_pagamento)
 
-    // Deletar movimentações antigas deste lançamento
-    await db.from('movimentacoes_conta').delete().eq('lancamento_id', id)
+    // Se o status de pagamento foi alterado explicitamente em contas bancárias/dinheiro
+    if (
+      meioFinal !== 'CARTAO' &&
+      updates.status_pagamento !== undefined &&
+      updates.status_pagamento !== anterior.status_pagamento
+    ) {
+      await db.rpc('toggle_pago_lancamento_rpc', {
+        p_workspace_id: workspaceId,
+        p_lancamento_id: id,
+        p_pago: updates.status_pagamento === 'pago',
+        p_user_id: userId || null,
+      })
+    }
 
     // Calcular nova competência caso a data ou cartão tenham mudado
     const dataFinal = updates.data || anterior.data
     const cartaoFinal = updates.cartao_id !== undefined ? updates.cartao_id : anterior.cartao_id
-    const meioFinal = updates.meio_pagamento_tipo || anterior.meio_pagamento_tipo
 
     let novaCompetencia = dataFinal.substring(0, 7)
     if (meioFinal === 'CARTAO' && cartaoFinal) {
@@ -3288,8 +3359,35 @@ export const lancamentoService = {
     }
 
     const valorFinal = updates.valor !== undefined ? Number(updates.valor) : Number(anterior.valor)
-    const statusFinal =
-      meioFinal === 'CARTAO' ? 'pendente' : updates.status_pagamento || anterior.status_pagamento
+
+    // Se o valor mudou em lançamento já pago, ajusta a movimentação e saldo da conta
+    if (
+      anterior.status_pagamento === 'pago' &&
+      statusDesejado === 'pago' &&
+      valorFinal !== Number(anterior.valor) &&
+      meioFinal !== 'CARTAO'
+    ) {
+      const delta = valorFinal - Number(anterior.valor)
+      const cId =
+        updates.conta_origem_id !== undefined ? updates.conta_origem_id : anterior.conta_origem_id
+      if (cId) {
+        const c = await contaService.getById(cId)
+        if (c) {
+          const ajusteConta = anterior.tipo === 'despesa' ? -delta : delta
+          await db
+            .from('contas')
+            .update({
+              saldo_atual: Number(c.saldo_atual) + ajusteConta,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', cId)
+          await db
+            .from('movimentacoes_conta')
+            .update({ valor: valorFinal, descricao: updates.descricao || anterior.descricao })
+            .eq('lancamento_id', id)
+        }
+      }
+    }
 
     const { data: updated, error } = await db
       .from('lancamentos')
@@ -3297,7 +3395,7 @@ export const lancamentoService = {
         ...updates,
         valor: valorFinal,
         competencia: novaCompetencia,
-        status_pagamento: statusFinal,
+        status_pagamento: statusDesejado,
         updated_at: new Date().toISOString(),
       })
       .eq('id', id)
@@ -3306,90 +3404,6 @@ export const lancamentoService = {
       .single()
 
     if (error) throw error
-
-    // Aplicar novo saldo se pago
-    if (statusFinal === 'pago') {
-      const cOrigemId =
-        updates.conta_origem_id !== undefined ? updates.conta_origem_id : anterior.conta_origem_id
-      const cDestinoId =
-        updates.conta_destino_id !== undefined
-          ? updates.conta_destino_id
-          : anterior.conta_destino_id
-      const tipo = anterior.tipo
-
-      if (tipo === 'despesa' && cOrigemId) {
-        const c = await contaService.getById(cOrigemId)
-        if (c) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(c.saldo_atual) - valorFinal })
-            .eq('id', cOrigemId)
-          await db.from('movimentacoes_conta').insert({
-            workspace_id: workspaceId,
-            conta_id: cOrigemId,
-            lancamento_id: id,
-            tipo: 'saida',
-            valor: valorFinal,
-            data: dataFinal,
-            descricao: updates.descricao || anterior.descricao,
-            created_by: userId,
-          })
-        }
-      } else if (tipo === 'receita' && cOrigemId) {
-        const c = await contaService.getById(cOrigemId)
-        if (c) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(c.saldo_atual) + valorFinal })
-            .eq('id', cOrigemId)
-          await db.from('movimentacoes_conta').insert({
-            workspace_id: workspaceId,
-            conta_id: cOrigemId,
-            lancamento_id: id,
-            tipo: 'entrada',
-            valor: valorFinal,
-            data: dataFinal,
-            descricao: updates.descricao || anterior.descricao,
-            created_by: userId,
-          })
-        }
-      } else if (tipo === 'transferencia' && cOrigemId && cDestinoId) {
-        const cO = await contaService.getById(cOrigemId)
-        const cD = await contaService.getById(cDestinoId)
-        if (cO && cD) {
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(cO.saldo_atual) - valorFinal })
-            .eq('id', cOrigemId)
-          await db
-            .from('contas')
-            .update({ saldo_atual: Number(cD.saldo_atual) + valorFinal })
-            .eq('id', cDestinoId)
-          await db.from('movimentacoes_conta').insert([
-            {
-              workspace_id: workspaceId,
-              conta_id: cOrigemId,
-              lancamento_id: id,
-              tipo: 'transferencia_saida',
-              valor: valorFinal,
-              data: dataFinal,
-              descricao: `Transf. saída para ${cD.nome}`,
-              created_by: userId,
-            },
-            {
-              workspace_id: workspaceId,
-              conta_id: cDestinoId,
-              lancamento_id: id,
-              tipo: 'transferencia_entrada',
-              valor: valorFinal,
-              data: dataFinal,
-              descricao: `Transf. entrada de ${cO.nome}`,
-              created_by: userId,
-            },
-          ])
-        }
-      }
-    }
 
     // Se afetou faturas de cartão, recalcular faturas antiga e nova
     if (anterior.cartao_id && anterior.competencia) {

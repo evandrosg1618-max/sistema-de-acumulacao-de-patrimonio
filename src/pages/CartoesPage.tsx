@@ -127,6 +127,13 @@ export default function CartoesPage() {
 
   const carregarCartoes = async () => {
     if (!wsId) return
+    // REQUISITO 2: Materialização preguiçosa de fixos pendentes
+    try {
+      await fixoService.materializarPendentes(wsId, user?.id)
+    } catch (matErr) {
+      console.warn('Erro silencioso na materialização prévia de fixos:', matErr)
+    }
+
     setLoading(true)
     try {
       const [data, contasList, catsList] = await Promise.all([
@@ -376,6 +383,17 @@ export default function CartoesPage() {
 
   const handleSalvarLancamentoFatura = async (dados: any, criarOutro = false) => {
     if (!wsId) return
+
+    // REQUISITO 4: Interceptar série fixa para escolha de escopo
+    if (dados.id && (lancamentoFaturaEmEdicao?.serie_id || dados.serie_id)) {
+      setDadosEdicaoPendentes(dados)
+      setLancamentoAlvoEscopo(lancamentoFaturaEmEdicao)
+      setAcaoEscopo('editar')
+      setModalLancamentoOpen(false)
+      setModalEscopoOpen(true)
+      return
+    }
+
     // Revalidação prévia de fatura paga
     if (dados.cartao_id && dados.data) {
       const cartaoObj = cartoes.find((c) => c.id === dados.cartao_id)
@@ -426,16 +444,30 @@ export default function CartoesPage() {
             )
             toast.success('Compra parcelada regenerada com sucesso!')
           } else {
-            await lancamentoService.update(dados.id, wsId, dados, user?.id)
+            await lancamentoService.salvarUnificado(
+              {
+                ...dados,
+                workspace_id: wsId,
+              },
+              user?.id,
+            )
             toast.success('Lançamento atualizado com sucesso!')
           }
         } else {
-          await lancamentoService.create({
-            ...dados,
-            workspace_id: wsId,
-            created_by: user?.id,
-          })
-          toast.success('Compra incluída na fatura do cartão com sucesso!')
+          // REQUISITO 1: Chamada unificada para criação atômica no cartão (fixos/únicos)
+          await lancamentoService.salvarUnificado(
+            {
+              ...dados,
+              workspace_id: wsId,
+              created_by: user?.id,
+            },
+            user?.id,
+          )
+          toast.success(
+            dados.regime === 'fixo'
+              ? 'Lançamento fixo e projeções na fatura criados!'
+              : 'Compra incluída na fatura do cartão com sucesso!',
+          )
         }
 
         setModalLancamentoOpen(false)
@@ -557,27 +589,52 @@ export default function CartoesPage() {
           }`,
         )
       } else {
-        const res = await lancamentoService.updateComEscopo(
-          lancamentoAlvoEscopo.id,
-          wsId,
-          escopo,
-          {
-            descricao: dadosEdicaoPendentes?.descricao,
-            valor: dadosEdicaoPendentes?.valor,
-            data: dadosEdicaoPendentes?.data,
-            categoria_id: dadosEdicaoPendentes?.categoria_id,
-            subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
-            observacao: dadosEdicaoPendentes?.observacao,
-          },
-          user?.id,
-        )
-        toast.success(
-          `${res.alterados} lançamento(s) atualizado(s). ${
-            res.faturasRecalculadas.length > 0
-              ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
-              : ''
-          }`,
-        )
+        if (lancamentoAlvoEscopo?.serie_id) {
+          const escopoFixo =
+            escopo === 'este' ? 'este' : escopo === 'este_e_proximos' ? 'este_e_futuros' : 'todos'
+          const resFixo = await fixoService.alterarComEscopo(
+            wsId,
+            lancamentoAlvoEscopo.id,
+            escopoFixo,
+            {
+              descricao: dadosEdicaoPendentes?.descricao,
+              valor: dadosEdicaoPendentes?.valor ? Number(dadosEdicaoPendentes.valor) : undefined,
+              categoria_id: dadosEdicaoPendentes?.categoria_id,
+              subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
+              observacao: dadosEdicaoPendentes?.observacao,
+            },
+            user?.id,
+          )
+          toast.success(
+            `${resFixo.afetados} lançamento(s) da série atualizado(s). ${
+              resFixo.faturas_recalculadas?.length > 0
+                ? `Faturas: ${resFixo.faturas_recalculadas.join(', ')}`
+                : ''
+            }`,
+          )
+        } else {
+          const res = await lancamentoService.updateComEscopo(
+            lancamentoAlvoEscopo.id,
+            wsId,
+            escopo,
+            {
+              descricao: dadosEdicaoPendentes?.descricao,
+              valor: dadosEdicaoPendentes?.valor,
+              data: dadosEdicaoPendentes?.data,
+              categoria_id: dadosEdicaoPendentes?.categoria_id,
+              subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
+              observacao: dadosEdicaoPendentes?.observacao,
+            },
+            user?.id,
+          )
+          toast.success(
+            `${res.alterados} lançamento(s) atualizado(s). ${
+              res.faturasRecalculadas.length > 0
+                ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
+                : ''
+            }`,
+          )
+        }
       }
       setModalEscopoOpen(false)
       setLancamentoAlvoEscopo(null)
