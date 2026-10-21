@@ -99,12 +99,16 @@ export default function LancamentosPage() {
   const [bloqueioFaturaInfo, setBloqueioFaturaInfo] = useState<InfoBloqueioFatura | null>(null)
   const [modalBloqueioOpen, setModalBloqueioOpen] = useState(false)
 
-  // Modal de escolha de escopo (alterar/excluir série parcelada)
+  // Modal de escolha de escopo único "Todos" (alterar/excluir série recorrente ou parcelada)
   const [modalEscopoOpen, setModalEscopoOpen] = useState(false)
   const [acaoEscopo, setAcaoEscopo] = useState<'editar' | 'excluir'>('excluir')
   const [lancamentoAlvoEscopo, setLancamentoAlvoEscopo] = useState<any>(null)
   const [dadosEdicaoPendentes, setDadosEdicaoPendentes] = useState<any>(null)
   const [processandoEscopo, setProcessandoEscopo] = useState(false)
+  const [statusSerieFixa, setStatusSerieFixa] = useState<{
+    temPagas: boolean
+    competenciasPagas: string[]
+  }>({ temPagas: false, competenciasPagas: [] })
 
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
@@ -255,6 +259,19 @@ export default function LancamentosPage() {
       setLancamentoAlvoEscopo(lancamentoEmEdicao)
       setAcaoEscopo('editar')
       setModalLancamentoOpen(false)
+
+      // Inspecionar status de pagas no backend
+      try {
+        const infoStatus = await fixoService.obterStatusSerieFixa(dados.id, wsId)
+        setStatusSerieFixa({
+          temPagas: Boolean(infoStatus.tem_pagas),
+          competenciasPagas: infoStatus.competencias_pagas || [],
+        })
+      } catch (e) {
+        console.warn('Erro ao obter status da série fixa:', e)
+        setStatusSerieFixa({ temPagas: false, competenciasPagas: [] })
+      }
+
       setModalEscopoOpen(true)
       return
     }
@@ -386,10 +403,23 @@ export default function LancamentosPage() {
       }
     }
 
-    // REQUISITO 2 & 4: Se for recorrente fixo (serie_id), abrir modal de escopo com opções "Este e os próximos" e "Todos"
+    // REQUISITO 2 & 4: Se for recorrente fixo (serie_id), abrir modal de escopo único "Todos"
     if (l.serie_id || l.regime === 'fixo') {
       setLancamentoAlvoEscopo(l)
       setAcaoEscopo('excluir')
+
+      // Inspecionar status de pagas no backend
+      try {
+        const infoStatus = await fixoService.obterStatusSerieFixa(l.id, wsId)
+        setStatusSerieFixa({
+          temPagas: Boolean(infoStatus.tem_pagas),
+          competenciasPagas: infoStatus.competencias_pagas || [],
+        })
+      } catch (e) {
+        console.warn('Erro ao obter status da série fixa:', e)
+        setStatusSerieFixa({ temPagas: false, competenciasPagas: [] })
+      }
+
       setModalEscopoOpen(true)
       return
     }
@@ -489,18 +519,12 @@ export default function LancamentosPage() {
             )
           }
         } else {
-          // Se for fixo com serie_id, chama alterarComEscopo do fixoService
+          // Se for fixo com serie_id, chama alterarComEscopo do fixoService com todos os campos novos
           if (lancamentoAlvoEscopo?.serie_id) {
-            const escopoFixo =
-              escopo === 'este_e_proximos'
-                ? 'este_e_proximos'
-                : escopo === 'todos'
-                  ? 'todos'
-                  : 'este_e_proximos'
             const resFixo = await fixoService.alterarComEscopo(
               lancamentoAlvoEscopo.id,
               wsId,
-              escopoFixo,
+              'todos',
               {
                 descricao: dadosEdicaoPendentes?.descricao || lancamentoAlvoEscopo.descricao,
                 valor: Number(dadosEdicaoPendentes?.valor ?? lancamentoAlvoEscopo.valor),
@@ -511,11 +535,15 @@ export default function LancamentosPage() {
                 prazo: dadosEdicaoPendentes?.fixo?.prazo,
                 quantidade_total: dadosEdicaoPendentes?.fixo?.quantidade_total,
                 periodicidade: dadosEdicaoPendentes?.fixo?.periodicidade,
+                meio_pagamento_tipo: dadosEdicaoPendentes?.meio_pagamento_tipo,
+                conta_origem_id: dadosEdicaoPendentes?.conta_origem_id,
+                conta_destino_id: dadosEdicaoPendentes?.conta_destino_id,
+                cartao_id: dadosEdicaoPendentes?.cartao_id,
               },
               user?.id,
             )
             toast.success(
-              `Série recorrente atualizada no banco! ${resFixo.alterados || 0} ocorrência(s) regenerada(s). ${
+              `Série recorrente atualizada com sucesso! ${resFixo.alterados || 0} ocorrência(s) regenerada(s). ${
                 resFixo.faturas_recalculadas && resFixo.faturas_recalculadas.length > 0
                   ? `Faturas: ${resFixo.faturas_recalculadas.join(', ')}`
                   : ''
@@ -1361,18 +1389,30 @@ export default function LancamentosPage() {
         onSalvar={handleSalvarConciliacao}
       />
 
-      {/* MODAL DE ESCOLHA DE ESCOPO DE SÉRIE PARCELADA */}
+      {/* MODAL DE ESCOLHA DE ESCOPO ÚNICO "TODOS" */}
       <ModalEscolhaEscopoSerie
         open={modalEscopoOpen}
-        acao={acaoEscopo}
-        lancamento={lancamentoAlvoEscopo}
-        onConfirmar={handleConfirmarEscopo}
-        onCancelar={() => {
-          setModalEscopoOpen(false)
-          setLancamentoAlvoEscopo(null)
-          setDadosEdicaoPendentes(null)
+        onOpenChange={(aberto) => {
+          if (!aberto) {
+            setModalEscopoOpen(false)
+            setLancamentoAlvoEscopo(null)
+            setDadosEdicaoPendentes(null)
+          }
         }}
+        tipoAcao={acaoEscopo}
+        regime={
+          lancamentoAlvoEscopo?.serie_id || lancamentoAlvoEscopo?.regime === 'fixo'
+            ? 'fixo'
+            : 'parcelado'
+        }
+        descricaoLancamento={dadosEdicaoPendentes?.descricao || lancamentoAlvoEscopo?.descricao}
+        numeroParcela={lancamentoAlvoEscopo?.numero_parcela}
+        totalParcelas={lancamentoAlvoEscopo?.total_parcelas}
+        temPagas={statusSerieFixa.temPagas}
+        competenciasPagas={statusSerieFixa.competenciasPagas}
+        dataEscolhida={dadosEdicaoPendentes?.data || lancamentoAlvoEscopo?.data}
         loading={processandoEscopo}
+        onConfirmar={handleConfirmarEscopo}
       />
 
       {/* MODAL DE AVISO DE BLOQUEIO POR FATURA PAGA (FECHA APENAS COM BOTÃO X) */}

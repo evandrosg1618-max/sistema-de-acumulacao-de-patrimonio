@@ -103,12 +103,16 @@ export default function CartoesPage() {
   const [bloqueioFaturaInfo, setBloqueioFaturaInfo] = useState<InfoBloqueioFatura | null>(null)
   const [modalBloqueioOpen, setModalBloqueioOpen] = useState(false)
 
-  // Modal de escolha de escopo de série
+  // Modal de escolha de escopo único "Todos"
   const [modalEscopoOpen, setModalEscopoOpen] = useState(false)
   const [acaoEscopo, setAcaoEscopo] = useState<'editar' | 'excluir'>('excluir')
   const [lancamentoAlvoEscopo, setLancamentoAlvoEscopo] = useState<any>(null)
   const [dadosEdicaoPendentes, setDadosEdicaoPendentes] = useState<any>(null)
   const [processandoEscopo, setProcessandoEscopo] = useState(false)
+  const [statusSerieFixa, setStatusSerieFixa] = useState<{
+    temPagas: boolean
+    competenciasPagas: string[]
+  }>({ temPagas: false, competenciasPagas: [] })
 
   // Competência selecionada para visualização detalhada em cada cartão
   const [competenciaFiltro, setCompetenciaFiltro] = useState<string>(getCurrentAnoMes())
@@ -385,12 +389,24 @@ export default function CartoesPage() {
   const handleSalvarLancamentoFatura = async (dados: any, criarOutro = false) => {
     if (!wsId) return
 
-    // REQUISITO 4: Interceptar série fixa para escolha de escopo
+    // REQUISITO 4: Interceptar série fixa para escolha de escopo único "Todos"
     if (dados.id && (lancamentoFaturaEmEdicao?.serie_id || dados.serie_id)) {
       setDadosEdicaoPendentes(dados)
       setLancamentoAlvoEscopo(lancamentoFaturaEmEdicao)
       setAcaoEscopo('editar')
       setModalLancamentoOpen(false)
+
+      try {
+        const infoStatus = await fixoService.obterStatusSerieFixa(dados.id, wsId)
+        setStatusSerieFixa({
+          temPagas: Boolean(infoStatus.tem_pagas),
+          competenciasPagas: infoStatus.competencias_pagas || [],
+        })
+      } catch (e) {
+        console.warn('Erro ao obter status da série fixa na fatura:', e)
+        setStatusSerieFixa({ temPagas: false, competenciasPagas: [] })
+      }
+
       setModalEscopoOpen(true)
       return
     }
@@ -525,10 +541,22 @@ export default function CartoesPage() {
       }
     }
 
-    // REQUISITO 2 & 4: Se for recorrente fixo (serie_id ou regime fixo), abrir modal de escopo ("Este e os próximos" e "Todos")
+    // REQUISITO 2 & 4: Se for recorrente fixo (serie_id ou regime fixo), abrir modal de escopo único "Todos"
     if (alvoParaExclusao.serie_id || alvoParaExclusao.regime === 'fixo') {
       setLancamentoAlvoEscopo(alvoParaExclusao)
       setAcaoEscopo('excluir')
+
+      try {
+        const infoStatus = await fixoService.obterStatusSerieFixa(alvoParaExclusao.id, wsId)
+        setStatusSerieFixa({
+          temPagas: Boolean(infoStatus.tem_pagas),
+          competenciasPagas: infoStatus.competencias_pagas || [],
+        })
+      } catch (e) {
+        console.warn('Erro ao obter status da série fixa na fatura:', e)
+        setStatusSerieFixa({ temPagas: false, competenciasPagas: [] })
+      }
+
       setModalEscopoOpen(true)
       return
     }
@@ -615,16 +643,10 @@ export default function CartoesPage() {
         }
       } else {
         if (lancamentoAlvoEscopo?.serie_id) {
-          const escopoFixo =
-            escopo === 'este_e_proximos'
-              ? 'este_e_proximos'
-              : escopo === 'todos'
-                ? 'todos'
-                : 'este_e_proximos'
           const resFixo = await fixoService.alterarComEscopo(
             lancamentoAlvoEscopo.id,
             wsId,
-            escopoFixo,
+            'todos',
             {
               descricao: dadosEdicaoPendentes?.descricao || lancamentoAlvoEscopo.descricao,
               valor: Number(dadosEdicaoPendentes?.valor ?? lancamentoAlvoEscopo.valor),
@@ -635,11 +657,15 @@ export default function CartoesPage() {
               prazo: dadosEdicaoPendentes?.fixo?.prazo,
               quantidade_total: dadosEdicaoPendentes?.fixo?.quantidade_total,
               periodicidade: dadosEdicaoPendentes?.fixo?.periodicidade,
+              meio_pagamento_tipo: dadosEdicaoPendentes?.meio_pagamento_tipo,
+              conta_origem_id: dadosEdicaoPendentes?.conta_origem_id,
+              conta_destino_id: dadosEdicaoPendentes?.conta_destino_id,
+              cartao_id: dadosEdicaoPendentes?.cartao_id,
             },
             user?.id,
           )
           toast.success(
-            `Série recorrente atualizada no banco! ${resFixo.alterados || 0} ocorrência(s) regenerada(s). ${
+            `Série recorrente atualizada com sucesso! ${resFixo.alterados || 0} ocorrência(s) regenerada(s). ${
               resFixo.faturas_recalculadas && resFixo.faturas_recalculadas.length > 0
                 ? `Faturas: ${resFixo.faturas_recalculadas.join(', ')}`
                 : ''
@@ -1488,18 +1514,30 @@ export default function CartoesPage() {
         userId={user?.id}
       />
 
-      {/* Modal de Escolha de Escopo (série parcelada da fatura) */}
+      {/* Modal de Escolha de Escopo Único "Todos" */}
       <ModalEscolhaEscopoSerie
         open={modalEscopoOpen}
-        acao={acaoEscopo}
-        lancamento={lancamentoAlvoEscopo}
-        onConfirmar={handleConfirmarEscopoFatura}
-        onCancelar={() => {
-          setModalEscopoOpen(false)
-          setLancamentoAlvoEscopo(null)
-          setDadosEdicaoPendentes(null)
+        onOpenChange={(aberto) => {
+          if (!aberto) {
+            setModalEscopoOpen(false)
+            setLancamentoAlvoEscopo(null)
+            setDadosEdicaoPendentes(null)
+          }
         }}
+        tipoAcao={acaoEscopo}
+        regime={
+          lancamentoAlvoEscopo?.serie_id || lancamentoAlvoEscopo?.regime === 'fixo'
+            ? 'fixo'
+            : 'parcelado'
+        }
+        descricaoLancamento={dadosEdicaoPendentes?.descricao || lancamentoAlvoEscopo?.descricao}
+        numeroParcela={lancamentoAlvoEscopo?.numero_parcela}
+        totalParcelas={lancamentoAlvoEscopo?.total_parcelas}
+        temPagas={statusSerieFixa.temPagas}
+        competenciasPagas={statusSerieFixa.competenciasPagas}
+        dataEscolhida={dadosEdicaoPendentes?.data || lancamentoAlvoEscopo?.data}
         loading={processandoEscopo}
+        onConfirmar={handleConfirmarEscopoFatura}
       />
 
       {/* Modal Aviso Bloqueio Fatura Paga (Requisito 3: só fecha com botão X) */}

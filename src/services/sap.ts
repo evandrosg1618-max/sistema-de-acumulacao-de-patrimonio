@@ -681,11 +681,35 @@ export const fixoService = {
     return lancamentoService.excluirFixoComEscopo(lancamentoId, workspaceId, escopo, userId)
   },
 
+  async obterStatusSerieFixa(
+    lancamentoId: string,
+    workspaceId: string,
+  ): Promise<{
+    encontrado: boolean
+    serie_id?: string
+    tem_pagas?: boolean
+    competencias_pagas?: string[]
+    total_nao_pagos?: number
+    descricao?: string
+    data_inicio?: string
+    valor?: number
+  }> {
+    const { data, error } = await db.rpc('obter_status_serie_fixa_rpc', {
+      p_workspace_id: workspaceId,
+      p_lancamento_id: lancamentoId,
+    })
+    if (error) {
+      console.warn('Erro ao obter status da série fixa:', error)
+      return { encontrado: false, tem_pagas: false, competencias_pagas: [] }
+    }
+    return data as any
+  },
+
   // Alias para lancamentoService.alterarFixoComEscopo para compatibilidade entre páginas
   async alterarComEscopo(
     lancamentoId: string,
     workspaceId: string,
-    escopo: 'este' | 'este_e_proximos' | 'todos',
+    escopo: 'todos' | 'este_e_proximos' | 'este',
     novosDados: {
       valor: number
       data: string
@@ -696,6 +720,10 @@ export const fixoService = {
       prazo?: 'indeterminado' | 'determinado' | null
       quantidade_total?: number | null
       periodicidade?: 'mensal' | 'semestral' | 'anual' | null
+      meio_pagamento_tipo?: 'CONTA' | 'CARTAO' | 'DINHEIRO' | null
+      conta_origem_id?: string | null
+      conta_destino_id?: string | null
+      cartao_id?: string | null
     },
     userId?: string,
   ) {
@@ -3010,7 +3038,7 @@ export const lancamentoService = {
   async alterarFixoComEscopo(
     lancamentoId: string,
     workspaceId: string,
-    escopo: 'este' | 'este_e_proximos' | 'todos',
+    escopo: 'todos' | 'este_e_proximos' | 'este',
     novosDados: {
       valor: number
       data: string
@@ -3021,6 +3049,10 @@ export const lancamentoService = {
       prazo?: 'indeterminado' | 'determinado' | null
       quantidade_total?: number | null
       periodicidade?: 'mensal' | 'semestral' | 'anual' | null
+      meio_pagamento_tipo?: 'CONTA' | 'CARTAO' | 'DINHEIRO' | null
+      conta_origem_id?: string | null
+      conta_destino_id?: string | null
+      cartao_id?: string | null
     },
     userId?: string,
   ): Promise<{
@@ -3031,6 +3063,7 @@ export const lancamentoService = {
     faturas_pagas?: string[]
     mensagem?: string
     alterados?: number
+    pagas_preservadas?: number
     faturas_recalculadas?: string[]
   }> {
     const { data, error } = await db.rpc('alterar_fixo_escopo_rpc', {
@@ -3048,6 +3081,10 @@ export const lancamentoService = {
         ? Number(novosDados.quantidade_total)
         : null,
       p_nova_periodicidade: novosDados.periodicidade || null,
+      p_novo_meio_pagamento_tipo: novosDados.meio_pagamento_tipo || null,
+      p_nova_conta_origem_id: novosDados.conta_origem_id || null,
+      p_nova_conta_destino_id: novosDados.conta_destino_id || null,
+      p_novo_cartao_id: novosDados.cartao_id || null,
       p_user_id: userId || null,
     })
 

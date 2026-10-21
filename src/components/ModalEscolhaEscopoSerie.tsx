@@ -1,4 +1,3 @@
-import React, { useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -8,161 +7,198 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
-import { Label } from '@/components/ui/label'
-import { AlertCircle, Trash2, Edit3, HelpCircle } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Calendar, CheckCircle2, Loader2 } from 'lucide-react'
 
-export type EscopoSerie = 'este' | 'este_e_proximos' | 'todos'
+export type EscopoSerie = 'todos'
 
 interface ModalEscolhaEscopoSerieProps {
   open: boolean
-  acao: 'editar' | 'excluir'
-  lancamento: any
-  onConfirmar: (escopo: EscopoSerie) => void
-  onCancelar: () => void
+  onOpenChange: (open: boolean) => void
+  tipoAcao: 'editar' | 'excluir'
+  regime: 'fixo' | 'parcelado'
+  descricaoLancamento?: string
+  numeroParcela?: number
+  totalParcelas?: number
+  ehUltimaParcela?: boolean
+  // Build 5: Regra de escopo único "Todos"
+  temPagas?: boolean
+  competenciasPagas?: string[]
+  dataEscolhida?: string // Formato YYYY-MM-DD ou data formatada para exibição
   loading?: boolean
+  onConfirmar: (escopo: EscopoSerie) => void
+}
+
+function formatarDataBR(dataStr?: string): string {
+  if (!dataStr) return ''
+  try {
+    const limpo = dataStr.substring(0, 10)
+    const partes = limpo.split('-')
+    if (partes.length === 3) {
+      const [ano, mes, dia] = partes
+      return `${dia}/${mes}/${ano}`
+    }
+    return dataStr
+  } catch {
+    return dataStr
+  }
 }
 
 export function ModalEscolhaEscopoSerie({
   open,
-  acao,
-  lancamento,
-  onConfirmar,
-  onCancelar,
+  onOpenChange,
+  tipoAcao,
+  regime,
+  descricaoLancamento,
+  numeroParcela,
+  totalParcelas,
+  temPagas = false,
+  competenciasPagas = [],
+  dataEscolhida,
   loading = false,
+  onConfirmar,
 }: ModalEscolhaEscopoSerieProps) {
-  const ehFixo = lancamento?.regime === 'fixo' || Boolean(lancamento?.serie_id)
-  const [escopo, setEscopo] = useState<EscopoSerie>(ehFixo ? 'este_e_proximos' : 'este')
+  const isEditar = tipoAcao === 'editar'
+  const isFixo = regime === 'fixo'
 
-  // Ao abrir ou trocar lançamento, ajusta o default
-  React.useEffect(() => {
-    if (open && lancamento) {
-      const isFix = lancamento.regime === 'fixo' || Boolean(lancamento.serie_id)
-      setEscopo(isFix ? 'este_e_proximos' : 'este')
-    }
-  }, [open, lancamento])
-
-  if (!lancamento) return null
-
-  const numParcela = lancamento.numero_parcela || 1
-  const totalParcelas = lancamento.total_parcelas || lancamento.quantidade_parcelas || 1
-  const ehEdicao = acao === 'editar'
-  const tipoTexto =
-    lancamento.tipo === 'receita'
-      ? 'receita'
-      : lancamento.tipo === 'transferencia'
-        ? 'transferência'
-        : 'despesa'
+  const dataFormatada = formatarDataBR(dataEscolhida)
+  const textoCompetencias =
+    competenciasPagas && competenciasPagas.length > 0
+      ? competenciasPagas.join(', ')
+      : 'competências anteriores'
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onCancelar()}>
-      <DialogContent className="sm:max-w-md bg-white text-slate-900 border-slate-200">
+    <Dialog open={open} onOpenChange={loading ? () => {} : onOpenChange}>
+      <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
-          <div className="flex items-center gap-2 text-slate-800">
-            {ehEdicao ? (
-              <Edit3 className="w-5 h-5 text-indigo-600" />
+          <div className="flex items-center gap-2">
+            {isEditar ? (
+              <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600">
+                <Calendar className="w-5 h-5" />
+              </div>
             ) : (
-              <Trash2 className="w-5 h-5 text-rose-600" />
+              <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/40 text-red-600">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
             )}
-            <DialogTitle className="text-base font-bold">
-              {ehFixo
-                ? ehEdicao
-                  ? `Alterar ${tipoTexto} recorrente`
-                  : `Excluir ${tipoTexto} recorrente`
-                : ehEdicao
-                  ? 'Alterar lançamento parcelado'
-                  : 'Excluir lançamento parcelado'}
-            </DialogTitle>
+            <div>
+              <DialogTitle className="text-lg font-semibold text-foreground">
+                {isEditar
+                  ? isFixo
+                    ? 'Confirmar alteração da série recorrente'
+                    : 'Confirmar alteração de compra parcelada'
+                  : isFixo
+                    ? 'Confirmar exclusão da série recorrente'
+                    : 'Confirmar exclusão de compra parcelada'}
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                {descricaoLancamento ? (
+                  <span className="font-medium text-foreground">{descricaoLancamento}</span>
+                ) : null}
+                {!isFixo && numeroParcela && totalParcelas ? (
+                  <span className="ml-1 text-xs">
+                    (Parcela {numeroParcela}/{totalParcelas})
+                  </span>
+                ) : null}
+              </DialogDescription>
+            </div>
           </div>
-          <DialogDescription className="text-xs text-slate-500 pt-1">
-            {ehFixo ? (
-              <>
-                &laquo;{lancamento.descricao}&raquo; é um lançamento recorrente. Como deseja aplicar
-                esta {ehEdicao ? 'alteração' : 'exclusão'}? O sistema recalculará atomicamente todas
-                as ocorrências afetadas.
-              </>
-            ) : (
-              <>
-                Este lançamento faz parte de uma compra parcelada (parcela{' '}
-                <strong>
-                  {numParcela}/{totalParcelas}
-                </strong>
-                : &quot;{lancamento.descricao}&quot;). Como deseja aplicar esta{' '}
-                {ehEdicao ? 'alteração' : 'exclusão'}?
-              </>
-            )}
-          </DialogDescription>
         </DialogHeader>
 
-        <div className="py-3 space-y-4">
-          <RadioGroup
-            value={escopo}
-            onValueChange={(val) => setEscopo(val as EscopoSerie)}
-            className="space-y-2.5"
-          >
-            {/* Regra do usuário (Item 4): Para recorrentes, "Apenas este" NÃO faz sentido e é REMOVIDO. Preservado apenas para compras parceladas. */}
-            {!ehFixo && (
-              <div className="flex items-start space-x-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
-                <RadioGroupItem value="este" id="escopo-este" className="mt-0.5" />
-                <div className="space-y-0.5 cursor-pointer">
-                  <Label
-                    htmlFor="escopo-este"
-                    className="font-semibold text-xs text-slate-800 cursor-pointer"
-                  >
-                    {ehEdicao ? 'Alterar apenas este' : 'Excluir apenas este'}
-                  </Label>
-                  <p className="text-[11px] text-slate-500">
-                    Aplica a ação exclusivamente à parcela atual ({numParcela}/{totalParcelas}). As
-                    demais permanecem inalteradas.
-                  </p>
+        <div className="space-y-4 py-2">
+          {/* Card informativo com os textos exatos solicitados */}
+          <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+            {isEditar ? (
+              /* FLUXO DE EDIÇÃO */
+              !temPagas ? (
+                /* Edição - Se NÃO houver recorrência paga: 3 linhas */
+                <div className="space-y-2.5 text-sm text-foreground">
+                  <div className="flex items-start gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span>Não existem recorrências pagas</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-muted-foreground">
+                    <span className="text-foreground font-medium">•</span>
+                    <span>Serão alteradas todas as recorrências não pagas</span>
+                  </div>
+                  {dataFormatada ? (
+                    <div className="p-2.5 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
+                      <p className="text-xs font-bold text-red-600 dark:text-red-400 leading-relaxed">
+                        • A data escolhida ({dataFormatada}) será a data inicial das novas
+                        recorrências. Confira se está correta.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                /* Edição - Se HOUVER recorrências pagas: 4 linhas */
+                <div className="space-y-2.5 text-sm text-foreground">
+                  <div className="flex items-start gap-2 text-amber-600 dark:text-amber-400 font-medium">
+                    <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                    <span>Existem recorrências pagas na competência de {textoCompetencias}</span>
+                  </div>
+                  <div className="flex items-start gap-2 text-muted-foreground">
+                    <span className="text-foreground font-medium">•</span>
+                    <span>
+                      Ao confirmar a operação, serão alteradas todas as recorrências não pagas
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/60 p-2 rounded">
+                    <span>
+                      • Caso deseje alterar também as recorrências pagas, desfaça o pagamento dos
+                      respectivos lançamentos ou fatura.
+                    </span>
+                  </div>
+                  {dataFormatada ? (
+                    <div className="p-2.5 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
+                      <p className="text-xs font-bold text-red-600 dark:text-red-400 leading-relaxed">
+                        • A data escolhida ({dataFormatada}) será a data inicial das novas
+                        recorrências. Confira se está correta.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            ) : /* FLUXO DE EXCLUSÃO */
+            !temPagas ? (
+              /* Exclusão - Se NÃO houver recorrência paga: 2 linhas */
+              <div className="space-y-2.5 text-sm text-foreground">
+                <div className="flex items-start gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                  <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>Não existem recorrências pagas</span>
+                </div>
+                <div className="flex items-start gap-2 text-muted-foreground">
+                  <span className="text-foreground font-medium">•</span>
+                  <span>Serão excluídas todas as recorrências</span>
+                </div>
+              </div>
+            ) : (
+              /* Exclusão - Se HOUVER recorrências pagas: 3 linhas */
+              <div className="space-y-2.5 text-sm text-foreground">
+                <div className="flex items-start gap-2 text-amber-600 dark:text-amber-400 font-medium">
+                  <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>Existem recorrências pagas na competência de {textoCompetencias}</span>
+                </div>
+                <div className="flex items-start gap-2 text-muted-foreground">
+                  <span className="text-foreground font-medium">•</span>
+                  <span>
+                    Ao confirmar a operação, serão excluídas todas as recorrências não pagas
+                  </span>
+                </div>
+                <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/60 p-2 rounded">
+                  <span>
+                    • Caso deseje excluir também as recorrências pagas, desfaça o pagamento dos
+                    respectivos lançamentos ou da fatura.
+                  </span>
                 </div>
               </div>
             )}
+          </div>
 
-            <div className="flex items-start space-x-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
-              <RadioGroupItem value="este_e_proximos" id="escopo-proximos" className="mt-0.5" />
-              <div className="space-y-0.5 cursor-pointer">
-                <Label
-                  htmlFor="escopo-proximos"
-                  className="font-semibold text-xs text-slate-800 cursor-pointer"
-                >
-                  {ehEdicao ? 'Alterar este e os próximos' : 'Excluir este e os próximos'}
-                </Label>
-                <p className="text-[11px] text-slate-500">
-                  {ehFixo
-                    ? 'Aplica a esta ocorrência e a todas as futuras da série. As ocorrências anteriores não são alteradas.'
-                    : `Aplica da parcela ${numParcela} até a ${totalParcelas}. As parcelas anteriores não são afetadas.`}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start space-x-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
-              <RadioGroupItem value="todos" id="escopo-todos" className="mt-0.5" />
-              <div className="space-y-0.5 cursor-pointer">
-                <Label
-                  htmlFor="escopo-todos"
-                  className="font-semibold text-xs text-slate-800 cursor-pointer"
-                >
-                  {ehEdicao ? 'Alterar todos' : 'Excluir todos'}
-                </Label>
-                <p className="text-[11px] text-slate-500">
-                  {ehFixo
-                    ? 'Aplica a todas as ocorrências da série (exclui e recria/recalcula tudo de acordo com a alteração).'
-                    : `Aplica a todas as ${totalParcelas} parcelas da série de uma única vez.`}
-                </p>
-              </div>
-            </div>
-          </RadioGroup>
-
-          <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 flex items-start gap-2 text-xs text-amber-900">
-            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-            <div className="space-y-0.5">
-              <p className="font-semibold text-[11px]">Recálculo de Faturas</p>
-              <p className="text-[11px] text-amber-800">
-                Se alguma das parcelas pertencer a uma fatura já paga, a operação será bloqueada até
-                que o pagamento da referida fatura seja desfeito na tela de Cartões.
-              </p>
-            </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground px-1">
+            <span className="inline-block w-2 h-2 rounded-full bg-primary shrink-0" />
+            <span>
+              Escopo da operação: <strong>Todos</strong> (recorrências e parcelas da série)
+            </span>
           </div>
         </div>
 
@@ -170,23 +206,20 @@ export function ModalEscolhaEscopoSerie({
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            onClick={onCancelar}
+            onClick={() => onOpenChange(false)}
             disabled={loading}
-            className="text-xs"
           >
             Cancelar
           </Button>
           <Button
             type="button"
-            size="sm"
-            onClick={() => onConfirmar(escopo)}
+            variant={isEditar ? 'default' : 'destructive'}
+            onClick={() => onConfirmar('todos')}
             disabled={loading}
-            className={`text-xs text-white ${
-              ehEdicao ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-rose-600 hover:bg-rose-700'
-            }`}
+            className="gap-2"
           >
-            {loading ? 'Processando...' : 'Confirmar e Recalcular'}
+            {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isEditar ? 'Confirmar alteração' : 'Confirmar exclusão'}
           </Button>
         </DialogFooter>
       </DialogContent>
