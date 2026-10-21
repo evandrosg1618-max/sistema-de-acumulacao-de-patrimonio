@@ -45,7 +45,7 @@ import {
   PeriodicidadeFixo,
   PrazoFixo,
 } from '@/types/sap'
-import { orcamentoService, faturaService } from '@/services/sap'
+import { orcamentoService, faturaService, fixoService } from '@/services/sap'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
 
@@ -162,6 +162,25 @@ export function ModalLancamento({
       if (initialData.regime === 'fixo' || initialData.serie_id) {
         setModoRepeticao('fixo')
         setMostrarOpcoesRepeticao(false)
+        if (initialData.serie_id && workspaceId) {
+          fixoService.getSerieById(initialData.serie_id, workspaceId).then((serie) => {
+            if (serie) {
+              if (serie.prazo === 'determinado' || serie.prazo === 'indeterminado') {
+                setFixoPrazo(serie.prazo)
+              }
+              if (serie.quantidade_total) {
+                setFixoOcorrencias(serie.quantidade_total)
+              }
+              if (
+                serie.periodicidade === 'mensal' ||
+                serie.periodicidade === 'semestral' ||
+                serie.periodicidade === 'anual'
+              ) {
+                setFixoPeriodicidade(serie.periodicidade)
+              }
+            }
+          })
+        }
       } else if (
         initialData.regime === 'parcelado' ||
         (initialData.quantidade_parcelas && initialData.quantidade_parcelas > 1)

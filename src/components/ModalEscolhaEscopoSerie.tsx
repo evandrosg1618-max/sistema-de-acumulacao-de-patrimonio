@@ -31,14 +31,22 @@ export function ModalEscolhaEscopoSerie({
   onCancelar,
   loading = false,
 }: ModalEscolhaEscopoSerieProps) {
-  const [escopo, setEscopo] = useState<EscopoSerie>('este')
+  const ehFixo = lancamento?.regime === 'fixo' || Boolean(lancamento?.serie_id)
+  const [escopo, setEscopo] = useState<EscopoSerie>(ehFixo ? 'este_e_proximos' : 'este')
+
+  // Ao abrir ou trocar lançamento, ajusta o default
+  React.useEffect(() => {
+    if (open && lancamento) {
+      const isFix = lancamento.regime === 'fixo' || Boolean(lancamento.serie_id)
+      setEscopo(isFix ? 'este_e_proximos' : 'este')
+    }
+  }, [open, lancamento])
 
   if (!lancamento) return null
 
   const numParcela = lancamento.numero_parcela || 1
   const totalParcelas = lancamento.total_parcelas || lancamento.quantidade_parcelas || 1
   const ehEdicao = acao === 'editar'
-  const ehFixo = lancamento.regime === 'fixo' || Boolean(lancamento.serie_id)
   const tipoTexto =
     lancamento.tipo === 'receita'
       ? 'receita'
@@ -59,8 +67,8 @@ export function ModalEscolhaEscopoSerie({
             <DialogTitle className="text-base font-bold">
               {ehFixo
                 ? ehEdicao
-                  ? `Alterar ${tipoTexto} fixa`
-                  : `Excluir ${tipoTexto} fixa`
+                  ? `Alterar ${tipoTexto} recorrente`
+                  : `Excluir ${tipoTexto} recorrente`
                 : ehEdicao
                   ? 'Alterar lançamento parcelado'
                   : 'Excluir lançamento parcelado'}
@@ -69,8 +77,9 @@ export function ModalEscolhaEscopoSerie({
           <DialogDescription className="text-xs text-slate-500 pt-1">
             {ehFixo ? (
               <>
-                &laquo;{lancamento.descricao}&raquo; é uma {tipoTexto} fixa recorrente. Como deseja
-                prosseguir?
+                &laquo;{lancamento.descricao}&raquo; é um lançamento recorrente. Como deseja aplicar
+                esta {ehEdicao ? 'alteração' : 'exclusão'}? O sistema recalculará atomicamente todas
+                as ocorrências afetadas.
               </>
             ) : (
               <>
@@ -91,22 +100,24 @@ export function ModalEscolhaEscopoSerie({
             onValueChange={(val) => setEscopo(val as EscopoSerie)}
             className="space-y-2.5"
           >
-            <div className="flex items-start space-x-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
-              <RadioGroupItem value="este" id="escopo-este" className="mt-0.5" />
-              <div className="space-y-0.5 cursor-pointer">
-                <Label
-                  htmlFor="escopo-este"
-                  className="font-semibold text-xs text-slate-800 cursor-pointer"
-                >
-                  {ehEdicao ? 'Alterar apenas este' : 'Excluir apenas este'}
-                </Label>
-                <p className="text-[11px] text-slate-500">
-                  {ehFixo
-                    ? 'Aplica exclusivamente a esta ocorrência pontual. Transforma-a em exceção mantendo as demais inalteradas.'
-                    : `Aplica a ação exclusivamente à parcela atual (${numParcela}/${totalParcelas}). As demais permanecem inalteradas.`}
-                </p>
+            {/* Regra do usuário (Item 4): Para recorrentes, "Apenas este" NÃO faz sentido e é REMOVIDO. Preservado apenas para compras parceladas. */}
+            {!ehFixo && (
+              <div className="flex items-start space-x-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
+                <RadioGroupItem value="este" id="escopo-este" className="mt-0.5" />
+                <div className="space-y-0.5 cursor-pointer">
+                  <Label
+                    htmlFor="escopo-este"
+                    className="font-semibold text-xs text-slate-800 cursor-pointer"
+                  >
+                    {ehEdicao ? 'Alterar apenas este' : 'Excluir apenas este'}
+                  </Label>
+                  <p className="text-[11px] text-slate-500">
+                    Aplica a ação exclusivamente à parcela atual ({numParcela}/{totalParcelas}). As
+                    demais permanecem inalteradas.
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="flex items-start space-x-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer transition">
               <RadioGroupItem value="este_e_proximos" id="escopo-proximos" className="mt-0.5" />
@@ -119,7 +130,7 @@ export function ModalEscolhaEscopoSerie({
                 </Label>
                 <p className="text-[11px] text-slate-500">
                   {ehFixo
-                    ? 'Aplica a esta ocorrência e a todas as futuras desta série. As ocorrências anteriores não são afetadas.'
+                    ? 'Aplica a esta ocorrência e a todas as futuras da série. As ocorrências anteriores não são alteradas.'
                     : `Aplica da parcela ${numParcela} até a ${totalParcelas}. As parcelas anteriores não são afetadas.`}
                 </p>
               </div>
@@ -136,7 +147,7 @@ export function ModalEscolhaEscopoSerie({
                 </Label>
                 <p className="text-[11px] text-slate-500">
                   {ehFixo
-                    ? 'Aplica a todas as ocorrências da série (em série indeterminada, equivale a encerrar a recorrência).'
+                    ? 'Aplica a todas as ocorrências da série (exclui e recria/recalcula tudo de acordo com a alteração).'
                     : `Aplica a todas as ${totalParcelas} parcelas da série de uma única vez.`}
                 </p>
               </div>

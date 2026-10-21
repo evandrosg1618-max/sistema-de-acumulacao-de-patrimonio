@@ -525,6 +525,14 @@ export default function CartoesPage() {
       }
     }
 
+    // REQUISITO 2 & 4: Se for recorrente fixo (serie_id ou regime fixo), abrir modal de escopo ("Este e os próximos" e "Todos")
+    if (alvoParaExclusao.serie_id || alvoParaExclusao.regime === 'fixo') {
+      setLancamentoAlvoEscopo(alvoParaExclusao)
+      setAcaoEscopo('excluir')
+      setModalEscopoOpen(true)
+      return
+    }
+
     const ehParcelado =
       (alvoParaExclusao.total_parcelas && alvoParaExclusao.total_parcelas > 1) ||
       (alvoParaExclusao.quantidade_parcelas && alvoParaExclusao.quantidade_parcelas > 1) ||
@@ -576,23 +584,43 @@ export default function CartoesPage() {
     setProcessandoEscopo(true)
     try {
       if (acaoEscopo === 'excluir') {
-        const res = await lancamentoService.deleteComEscopo(
-          lancamentoAlvoEscopo.id,
-          wsId,
-          escopo,
-          user?.id,
-        )
-        toast.success(
-          `${res.excluidos} lançamento(s) excluído(s). ${
-            res.faturasRecalculadas.length > 0
-              ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
-              : ''
-          }`,
-        )
+        if (lancamentoAlvoEscopo?.serie_id || lancamentoAlvoEscopo?.regime === 'fixo') {
+          const resFixo = await fixoService.excluirFixoComEscopo(
+            lancamentoAlvoEscopo.id,
+            wsId,
+            escopo,
+            user?.id,
+          )
+          toast.success(
+            `${resFixo.excluidos || 1} lançamento(s) recorrente(s) excluído(s). ${
+              resFixo.faturas_recalculadas && resFixo.faturas_recalculadas.length > 0
+                ? `Faturas recalculadas: ${resFixo.faturas_recalculadas.join(', ')}`
+                : ''
+            }`,
+          )
+        } else {
+          const res = await lancamentoService.deleteComEscopo(
+            lancamentoAlvoEscopo.id,
+            wsId,
+            escopo,
+            user?.id,
+          )
+          toast.success(
+            `${res.excluidos} lançamento(s) excluído(s). ${
+              res.faturasRecalculadas.length > 0
+                ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
+                : ''
+            }`,
+          )
+        }
       } else {
         if (lancamentoAlvoEscopo?.serie_id) {
           const escopoFixo =
-            escopo === 'este' ? 'este' : escopo === 'este_e_proximos' ? 'este_e_proximos' : 'todos'
+            escopo === 'este_e_proximos'
+              ? 'este_e_proximos'
+              : escopo === 'todos'
+                ? 'todos'
+                : 'este_e_proximos'
           const resFixo = await fixoService.alterarComEscopo(
             lancamentoAlvoEscopo.id,
             wsId,
@@ -604,11 +632,14 @@ export default function CartoesPage() {
               categoria_id: dadosEdicaoPendentes?.categoria_id,
               subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
               observacao: dadosEdicaoPendentes?.observacao,
+              prazo: dadosEdicaoPendentes?.fixo?.prazo,
+              quantidade_total: dadosEdicaoPendentes?.fixo?.quantidade_total,
+              periodicidade: dadosEdicaoPendentes?.fixo?.periodicidade,
             },
             user?.id,
           )
           toast.success(
-            `${resFixo.alterados || 1} lançamento(s) da série atualizado(s). ${
+            `Série recorrente atualizada no banco! ${resFixo.alterados || 0} ocorrência(s) regenerada(s). ${
               resFixo.faturas_recalculadas && resFixo.faturas_recalculadas.length > 0
                 ? `Faturas: ${resFixo.faturas_recalculadas.join(', ')}`
                 : ''

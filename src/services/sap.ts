@@ -683,6 +683,9 @@ export const fixoService = {
       categoria_id?: string | null
       subcategoria_id?: string | null
       observacao?: string | null
+      prazo?: 'indeterminado' | 'determinado' | null
+      quantidade_total?: number | null
+      periodicidade?: 'mensal' | 'semestral' | 'anual' | null
     },
     userId?: string,
   ) {
@@ -1813,6 +1816,16 @@ export const faturaService = {
     isAtrasada: boolean
     itens: any[]
   }> {
+    // Garante que o valor da fatura esteja sempre sincronizado no banco
+    try {
+      await db.rpc('recalcular_fatura_rpc', {
+        p_workspace_id: workspaceId,
+        p_cartao_id: cartaoId,
+        p_competencia: competencia,
+      })
+    } catch (e) {
+      console.warn('recalcular_fatura_rpc em getResumoFaturaCompetencia:', e)
+    }
     const fatura = await this.getOrCreateFatura(workspaceId, cartaoId, competencia)
     if (forcarRecalculoTotal) {
       await this.recalcularValorFatura(workspaceId, cartaoId, competencia)
@@ -2030,6 +2043,34 @@ export const faturaService = {
     }))
   },
 
+  async getFaturasDoMes(workspaceId: string, competencia: string): Promise<any[]> {
+    const { data, error } = await db
+      .from('faturas')
+      .select(`
+        id,
+        cartao_id,
+        competencia,
+        data_fechamento,
+        data_vencimento,
+        valor_total,
+        status,
+        cartoes (id, nome, cor, dia_vencimento, dia_fechamento)
+      `)
+      .eq('workspace_id', workspaceId)
+      .eq('competencia', competencia)
+
+    if (error) {
+      console.warn('Erro ao listar faturas do mês:', error)
+      return []
+    }
+
+    return (data || []).map((f: any) => ({
+      ...f,
+      valor_total: Number(f.valor_total || 0),
+      cartao: f.cartoes,
+    }))
+  },
+
   async pagarFatura(dados: {
     workspace_id: string
     fatura_id: string
@@ -2138,8 +2179,8 @@ export const lancamentoService = {
       `)
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
-      .order('data', { ascending: false })
-      .order('created_at', { ascending: false })
+      .order('data', { ascending: true })
+      .order('created_at', { ascending: true })
 
     // Se for a tela geral de Lançamentos (sem filtro de cartão específico de fatura),
     // oculta os filhos de compras parceladas no cartão (numero_parcela > 1 e serie_id is null)
@@ -2944,7 +2985,15 @@ export const lancamentoService = {
       )
     }
 
-    return data as any
+    const res = data as any
+    if (res && res.bloqueado) {
+      throw new Error(
+        res.mensagem ||
+          'Exclusão bloqueada: o escopo selecionado contém lançamentos pagos ou faturas quitadas.',
+      )
+    }
+
+    return res
   },
 
   // Build 5: Fixo / Recorrente - Alteração por escopo delegada para a RPC atômica idempotente com proteção de pagos
@@ -2959,6 +3008,9 @@ export const lancamentoService = {
       categoria_id?: string | null
       subcategoria_id?: string | null
       observacao?: string | null
+      prazo?: 'indeterminado' | 'determinado' | null
+      quantidade_total?: number | null
+      periodicidade?: 'mensal' | 'semestral' | 'anual' | null
     },
     userId?: string,
   ): Promise<{
@@ -2975,12 +3027,17 @@ export const lancamentoService = {
       p_workspace_id: workspaceId,
       p_lancamento_id: lancamentoId,
       p_escopo: escopo,
-      p_novo_valor: novosDados.valor,
+      p_novo_valor: Number(novosDados.valor),
       p_nova_data: novosDados.data,
       p_nova_descricao: novosDados.descricao,
       p_nova_categoria_id: novosDados.categoria_id || null,
       p_nova_subcategoria_id: novosDados.subcategoria_id || null,
       p_nova_observacao: novosDados.observacao || null,
+      p_novo_prazo: novosDados.prazo || null,
+      p_nova_quantidade_total: novosDados.quantidade_total
+        ? Number(novosDados.quantidade_total)
+        : null,
+      p_nova_periodicidade: novosDados.periodicidade || null,
       p_user_id: userId || null,
     })
 
@@ -2991,7 +3048,15 @@ export const lancamentoService = {
       )
     }
 
-    return data as any
+    const res = data as any
+    if (res && res.bloqueado) {
+      throw new Error(
+        res.mensagem ||
+          'Alteração bloqueada: o escopo selecionado contém lançamentos pagos ou faturas fechadas/pagas.',
+      )
+    }
+
+    return res
   },
 
   // Alterar com escopo: 'este' | 'este_e_proximos' | 'todos'

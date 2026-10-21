@@ -15,9 +15,7 @@ import {
   TrendingDown,
   TrendingUp,
   ArrowRightLeft,
-  Filter,
   CheckCircle2,
-  Clock,
   CreditCard,
   Wallet,
   Banknote,
@@ -27,13 +25,15 @@ import {
   Trash2,
   Scale,
   Calendar,
-  AlertCircle,
-  Tag,
   ArrowUpDown,
   RefreshCw,
   FileCheck,
   ThumbsUp,
   ThumbsDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -69,16 +69,17 @@ export default function LancamentosPage() {
   const [contas, setContas] = useState<Conta[]>([])
   const [cartoes, setCartoes] = useState<Cartao[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
+  const [faturasMes, setFaturasMes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
-  // Filtros
-  const [modoFiltroData, setModoFiltroData] = useState<'competencia' | 'periodo' | 'especifica'>(
-    'competencia',
-  )
+  // Filtros conforme modelo da referência visual
+  // Opções de data: 'hoje' | 'esta_semana' | 'este_mes' | 'periodo' | 'mes'
+  const [filtroPeriodoTipo, setFiltroPeriodoTipo] = useState<
+    'hoje' | 'esta_semana' | 'este_mes' | 'periodo' | 'mes'
+  >('mes')
   const [anoMes, setAnoMes] = useState(getCurrentAnoMes())
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
-  const [dataEspecifica, setDataEspecifica] = useState('')
 
   const [filtroTipo, setFiltroTipo] = useState<string>('todos')
   const [filtroConta, setFiltroConta] = useState<string>('todas')
@@ -86,6 +87,7 @@ export default function LancamentosPage() {
   const [filtroCategoria, setFiltroCategoria] = useState<string>('todas')
   const [filtroStatus, setFiltroStatus] = useState<string>('todos')
   const [busca, setBusca] = useState('')
+  const [mostrarBusca, setMostrarBusca] = useState(false)
 
   // Modais
   const [modalLancamentoOpen, setModalLancamentoOpen] = useState(false)
@@ -107,12 +109,47 @@ export default function LancamentosPage() {
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
 
+  const navegarMes = (direcao: number) => {
+    const [a, m] = anoMes.split('-').map(Number)
+    const d = new Date(a, m - 1 + direcao, 1)
+    const novoAno = d.getFullYear()
+    const novoMes = String(d.getMonth() + 1).padStart(2, '0')
+    setAnoMes(`${novoAno}-${novoMes}`)
+    setFiltroPeriodoTipo('mes')
+  }
+
+  const aplicarFiltroRapido = (tipo: 'hoje' | 'esta_semana' | 'este_mes' | 'periodo') => {
+    const hoje = new Date()
+    const hojeStr = hoje.toISOString().slice(0, 10)
+    setFiltroPeriodoTipo(tipo)
+
+    if (tipo === 'hoje') {
+      setDataInicio(hojeStr)
+      setDataFim(hojeStr)
+    } else if (tipo === 'esta_semana') {
+      const diaSemana = hoje.getDay() // 0 = domingo
+      const primeiro = new Date(hoje)
+      primeiro.setDate(hoje.getDate() - diaSemana)
+      const ultimo = new Date(primeiro)
+      ultimo.setDate(primeiro.getDate() + 6)
+      setDataInicio(primeiro.toISOString().slice(0, 10))
+      setDataFim(ultimo.toISOString().slice(0, 10))
+    } else if (tipo === 'este_mes') {
+      const esteAnoMes = getCurrentAnoMes()
+      setAnoMes(esteAnoMes)
+      setFiltroPeriodoTipo('mes')
+    } else if (tipo === 'periodo') {
+      if (!dataInicio) setDataInicio(hojeStr)
+      if (!dataFim) setDataFim(hojeStr)
+    }
+  }
+
   const carregarDados = async () => {
     if (!wsId) {
       setLoading(false)
       return
     }
-    // REQUISITO 2: Materialização preguiçosa de fixos pendentes
+    // Materialização preguiçosa de fixos pendentes
     try {
       await fixoService.materializarPendentes(wsId, user?.id)
     } catch (matErr) {
@@ -130,26 +167,30 @@ export default function LancamentosPage() {
         busca: busca,
       }
 
-      if (modoFiltroData === 'competencia') {
+      if (filtroPeriodoTipo === 'mes') {
         filtrosConsulta.competencia = anoMes
-      } else if (modoFiltroData === 'periodo') {
+      } else if (
+        filtroPeriodoTipo === 'hoje' ||
+        filtroPeriodoTipo === 'esta_semana' ||
+        filtroPeriodoTipo === 'periodo'
+      ) {
         if (dataInicio) filtrosConsulta.dataInicio = dataInicio
         if (dataFim) filtrosConsulta.dataFim = dataFim
-      } else if (modoFiltroData === 'especifica') {
-        if (dataEspecifica) filtrosConsulta.dataEspecifica = dataEspecifica
       }
 
-      const [lancsData, contasList, cartoesList, catsList] = await Promise.all([
+      const [lancsData, contasList, cartoesList, catsList, faturasList] = await Promise.all([
         lancamentoService.list(wsId, filtrosConsulta),
         contaService.list(wsId, false),
         cartaoService.list(wsId, false),
         categoriaService.listComSubcategorias(wsId),
+        faturaService.getFaturasDoMes(wsId, anoMes),
       ])
 
       setLancamentos(lancsData)
       setContas(contasList)
       setCartoes(cartoesList)
       setCategorias(catsList)
+      setFaturasMes(faturasList)
     } catch (err: any) {
       console.error('Erro ao listar lançamentos:', err)
       toast.error('Erro ao carregar lançamentos: ' + (err.message || ''))
@@ -162,11 +203,10 @@ export default function LancamentosPage() {
     carregarDados()
   }, [
     wsId,
-    modoFiltroData,
+    filtroPeriodoTipo,
     anoMes,
     dataInicio,
     dataFim,
-    dataEspecifica,
     filtroTipo,
     filtroConta,
     filtroCartao,
@@ -346,6 +386,14 @@ export default function LancamentosPage() {
       }
     }
 
+    // REQUISITO 2 & 4: Se for recorrente fixo (serie_id), abrir modal de escopo com opções "Este e os próximos" e "Todos"
+    if (l.serie_id || l.regime === 'fixo') {
+      setLancamentoAlvoEscopo(l)
+      setAcaoEscopo('excluir')
+      setModalEscopoOpen(true)
+      return
+    }
+
     // Frente 4: Se for compra parcelada em cartão, exclusão total do original sem modal de escopo
     const ehParceladoCartao =
       l.meio_pagamento_tipo === 'CARTAO' &&
@@ -411,28 +459,44 @@ export default function LancamentosPage() {
     await runWithLock(async () => {
       try {
         if (acaoEscopo === 'excluir') {
-          const res = await lancamentoService.deleteComEscopo(
-            lancamentoAlvoEscopo.id,
-            wsId,
-            escopo,
-            user?.id,
-          )
-          toast.success(
-            `${res.excluidos} lançamento(s) excluído(s). ${
-              res.faturasRecalculadas.length > 0
-                ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
-                : ''
-            }`,
-          )
+          if (lancamentoAlvoEscopo?.serie_id || lancamentoAlvoEscopo?.regime === 'fixo') {
+            const resFixo = await fixoService.excluirFixoComEscopo(
+              lancamentoAlvoEscopo.id,
+              wsId,
+              escopo,
+              user?.id,
+            )
+            toast.success(
+              `${resFixo.excluidos || 1} lançamento(s) recorrente(s) excluído(s). ${
+                resFixo.faturas_recalculadas && resFixo.faturas_recalculadas.length > 0
+                  ? `Faturas recalculadas: ${resFixo.faturas_recalculadas.join(', ')}`
+                  : ''
+              }`,
+            )
+          } else {
+            const res = await lancamentoService.deleteComEscopo(
+              lancamentoAlvoEscopo.id,
+              wsId,
+              escopo,
+              user?.id,
+            )
+            toast.success(
+              `${res.excluidos} lançamento(s) excluído(s). ${
+                res.faturasRecalculadas.length > 0
+                  ? `Faturas recalculadas: ${res.faturasRecalculadas.join(', ')}`
+                  : ''
+              }`,
+            )
+          }
         } else {
           // Se for fixo com serie_id, chama alterarComEscopo do fixoService
           if (lancamentoAlvoEscopo?.serie_id) {
             const escopoFixo =
-              escopo === 'este'
-                ? 'este'
-                : escopo === 'este_e_proximos'
-                  ? 'este_e_proximos'
-                  : 'todos'
+              escopo === 'este_e_proximos'
+                ? 'este_e_proximos'
+                : escopo === 'todos'
+                  ? 'todos'
+                  : 'este_e_proximos'
             const resFixo = await fixoService.alterarComEscopo(
               lancamentoAlvoEscopo.id,
               wsId,
@@ -444,11 +508,14 @@ export default function LancamentosPage() {
                 categoria_id: dadosEdicaoPendentes?.categoria_id,
                 subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
                 observacao: dadosEdicaoPendentes?.observacao,
+                prazo: dadosEdicaoPendentes?.fixo?.prazo,
+                quantidade_total: dadosEdicaoPendentes?.fixo?.quantidade_total,
+                periodicidade: dadosEdicaoPendentes?.fixo?.periodicidade,
               },
               user?.id,
             )
             toast.success(
-              `${resFixo.alterados || 1} lançamento(s) da série atualizado(s). ${
+              `Série recorrente atualizada no banco! ${resFixo.alterados || 0} ocorrência(s) regenerada(s). ${
                 resFixo.faturas_recalculadas && resFixo.faturas_recalculadas.length > 0
                   ? `Faturas: ${resFixo.faturas_recalculadas.join(', ')}`
                   : ''
@@ -583,300 +650,396 @@ export default function LancamentosPage() {
 
   const saldoLiquidoPeriodo = totalReceitas - totalDespesas
 
+  // Formatação do label do grupo de data: ex: "01/10/26"
+  const formatarDataGrupo = (dataStr: string) => {
+    if (!dataStr) return ''
+    const parts = dataStr.split('-')
+    if (parts.length === 3) {
+      const [ano, mes, dia] = parts
+      return `${dia}/${mes}/${ano.slice(-2)}`
+    }
+    return dataStr
+  }
+
+  // Montar lista mista de itens do dia: lançamentos normais + Faturas de Cartão que vencem nesta data
+  // 1. Agrupar todas as datas presentes em lançamentos ou faturas
+  const todasDatasSet = new Set<string>()
+  lancamentos.forEach((l) => {
+    if (l.data) todasDatasSet.add(l.data)
+  })
+
+  // Para faturas do mês, associar à sua data de vencimento
+  const faturasPorData: Record<string, any[]> = {}
+  faturasMes.forEach((fat) => {
+    let dataVenc = fat.data_vencimento
+    if (!dataVenc && fat.competencia) {
+      const dv = fat.cartao?.dia_vencimento || 10
+      dataVenc = `${fat.competencia}-${String(dv).padStart(2, '0')}`
+    }
+    if (dataVenc) {
+      todasDatasSet.add(dataVenc)
+      if (!faturasPorData[dataVenc]) faturasPorData[dataVenc] = []
+      faturasPorData[dataVenc].push(fat)
+    }
+  })
+
+  // Ordenação CRESCENTE por data (Requisito 5)
+  const datasOrdenadas = Array.from(todasDatasSet).sort((a, b) => a.localeCompare(b))
+
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-6">
-      {/* 1. CABEÇALHO COM TOTAIS DO PERÍODO & ATALHOS DE CRIAÇÃO */}
-      <div className="bg-white rounded-2xl p-5 md:p-6 border border-slate-200/80 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center">
-              <ArrowUpDown className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
-                Lançamentos Financeiros
-              </h1>
-              <p className="text-xs text-slate-500">
-                Controle integral de receitas, despesas, transferências e conciliação bancária.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-6 pt-1">
-            <div>
-              <span className="text-[11px] text-slate-400 font-medium uppercase tracking-wider block">
-                Entradas
-              </span>
-              <span className="text-base font-bold text-emerald-600">
-                {formatMoneyBRL(totalReceitas)}
-              </span>
-            </div>
-            <div className="h-7 w-px bg-slate-200" />
-            <div>
-              <span className="text-[11px] text-slate-400 font-medium uppercase tracking-wider block">
-                Saídas
-              </span>
-              <span className="text-base font-bold text-rose-600">
-                {formatMoneyBRL(totalDespesas)}
-              </span>
-            </div>
-            <div className="h-7 w-px bg-slate-200" />
-            <div>
-              <span className="text-[11px] text-slate-400 font-medium uppercase tracking-wider block">
-                Resultado do Mês
-              </span>
-              <span
-                className={`text-base font-bold ${
-                  saldoLiquidoPeriodo >= 0 ? 'text-blue-600' : 'text-rose-600'
-                }`}
-              >
-                {formatMoneyBRL(saldoLiquidoPeriodo)}
-              </span>
-            </div>
-          </div>
+    <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6">
+      {/* 1. BALÃO COM VALORES TOTAIS (Preservado conforme solicitado) */}
+      <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">
+            Lançamentos Financeiros
+          </h1>
+          <p className="text-xs text-slate-500">
+            Controle de fluxo de caixa familiar e acompanhamento de faturas
+          </p>
         </div>
 
-        {/* Botões de Ação */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            onClick={() => abrirNovoLancamento('despesa')}
-            className="flex items-center gap-2 px-4 py-2 rounded-full border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs sm:text-sm font-semibold transition shadow-2xs"
-          >
-            <TrendingDown className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span>Despesa</span>
-          </button>
-
-          <button
-            onClick={() => abrirNovoLancamento('receita')}
-            className="flex items-center gap-2 px-4 py-2 rounded-full border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs sm:text-sm font-semibold transition shadow-2xs"
-          >
-            <TrendingUp className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span>Receita</span>
-          </button>
-
-          <button
-            onClick={() => abrirNovoLancamento('transferencia')}
-            className="flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs sm:text-sm font-semibold transition shadow-2xs"
-          >
-            <ArrowRightLeft className="w-3.5 h-3.5 stroke-[2.5]" />
-            <span>Transferência</span>
-          </button>
-
-          <button
-            onClick={() => setModalConciliacaoOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-full border border-teal-200 bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs sm:text-sm font-semibold transition shadow-2xs"
-            title="Comparar com extrato bancário e conciliar divergências"
-          >
-            <Scale className="w-3.5 h-3.5" />
-            <span>Conciliar Conta</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 2. BARRA DE FILTROS & NAVEGAÇÃO POR COMPETÊNCIA, DATA E PERÍODO */}
-      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs space-y-3">
-        {/* Linha superior: Modo de Data + Campos de Data + Busca */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
-          {/* Seletor de Modo de Filtro de Data */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200 text-xs">
-              <button
-                type="button"
-                onClick={() => setModoFiltroData('competencia')}
-                className={`px-2.5 py-1 rounded-md font-semibold transition ${
-                  modoFiltroData === 'competencia'
-                    ? 'bg-white text-teal-800 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Competência
-              </button>
-              <button
-                type="button"
-                onClick={() => setModoFiltroData('periodo')}
-                className={`px-2.5 py-1 rounded-md font-semibold transition ${
-                  modoFiltroData === 'periodo'
-                    ? 'bg-white text-teal-800 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Período (De/Até)
-              </button>
-              <button
-                type="button"
-                onClick={() => setModoFiltroData('especifica')}
-                className={`px-2.5 py-1 rounded-md font-semibold transition ${
-                  modoFiltroData === 'especifica'
-                    ? 'bg-white text-teal-800 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                Data Específica
-              </button>
-            </div>
-
-            {/* Inputs contextuais ao modo escolhido */}
-            {modoFiltroData === 'competencia' && (
-              <div className="flex items-center gap-1.5">
-                <Input
-                  type="month"
-                  value={anoMes}
-                  onChange={(e) => setAnoMes(e.target.value)}
-                  className="w-36 text-xs h-8 font-semibold bg-white text-slate-900 border-slate-300 focus:ring-teal-500"
-                />
-                <span className="text-xs font-semibold text-teal-700 hidden sm:inline">
-                  {formatAnoMesPT(anoMes)}
-                </span>
-              </div>
-            )}
-
-            {modoFiltroData === 'periodo' && (
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <div className="flex items-center gap-1 text-xs">
-                  <span className="text-slate-500 font-medium">De:</span>
-                  <Input
-                    type="date"
-                    value={dataInicio}
-                    onChange={(e) => setDataInicio(e.target.value)}
-                    className="w-32 text-xs h-8 bg-white text-slate-900 border-slate-300"
-                  />
-                </div>
-                <div className="flex items-center gap-1 text-xs">
-                  <span className="text-slate-500 font-medium">Até:</span>
-                  <Input
-                    type="date"
-                    value={dataFim}
-                    onChange={(e) => setDataFim(e.target.value)}
-                    className="w-32 text-xs h-8 bg-white text-slate-900 border-slate-300"
-                  />
-                </div>
-              </div>
-            )}
-
-            {modoFiltroData === 'especifica' && (
-              <div className="flex items-center gap-1 text-xs">
-                <span className="text-slate-500 font-medium">Data:</span>
-                <Input
-                  type="date"
-                  value={dataEspecifica}
-                  onChange={(e) => setDataEspecifica(e.target.value)}
-                  className="w-36 text-xs h-8 bg-white text-slate-900 border-slate-300"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Busca por texto */}
-          <div className="relative flex-1 max-w-sm">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2" />
-            <Input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar descrição de lançamento..."
-              className="pl-9 text-xs h-8 bg-white text-slate-900 placeholder:text-slate-400 border-slate-300"
-            />
-          </div>
-        </div>
-
-        {/* Filtros em Linha com visual claro e alto contraste */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-slate-100 text-xs">
+        <div className="flex items-center gap-4 sm:gap-6 bg-slate-50 px-5 py-2.5 rounded-xl border border-slate-200">
           <div>
-            <Label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-              Tipo
-            </Label>
-            <Select value={filtroTipo} onValueChange={setFiltroTipo}>
-              <SelectTrigger className="h-8 text-xs bg-white text-slate-900 font-medium border-slate-300 shadow-2xs hover:bg-slate-50">
-                <SelectValue placeholder="Tipo" />
-              </SelectTrigger>
-              <SelectContent className="bg-white text-slate-900 border-slate-200">
-                <SelectItem value="todos">Todos os Tipos</SelectItem>
-                <SelectItem value="despesa">Somente Despesas</SelectItem>
-                <SelectItem value="receita">Somente Receitas</SelectItem>
-                <SelectItem value="transferencia">Transferências</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-              Conta
-            </Label>
-            <Select value={filtroConta} onValueChange={setFiltroConta}>
-              <SelectTrigger className="h-8 text-xs bg-white text-slate-900 font-medium border-slate-300 shadow-2xs hover:bg-slate-50">
-                <SelectValue placeholder="Conta" />
-              </SelectTrigger>
-              <SelectContent className="bg-white text-slate-900 border-slate-200 max-h-56">
-                <SelectItem value="todas">Todas as Contas</SelectItem>
-                {contas.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-              Cartão
-            </Label>
-            <Select value={filtroCartao} onValueChange={setFiltroCartao}>
-              <SelectTrigger className="h-8 text-xs bg-white text-slate-900 font-medium border-slate-300 shadow-2xs hover:bg-slate-50">
-                <SelectValue placeholder="Cartão" />
-              </SelectTrigger>
-              <SelectContent className="bg-white text-slate-900 border-slate-200 max-h-56">
-                <SelectItem value="todos">Todos os Cartões</SelectItem>
-                {cartoes.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div>
-            <Label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-              Status Pagamento
-            </Label>
-            <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-              <SelectTrigger className="h-8 text-xs bg-white text-slate-900 font-medium border-slate-300 shadow-2xs hover:bg-slate-50">
-                <SelectValue placeholder="Status" />
-              </SelectTrigger>
-              <SelectContent className="bg-white text-slate-900 border-slate-200">
-                <SelectItem value="todos">Todos os Status</SelectItem>
-                <SelectItem value="pago">Somente Pagos / Realizados</SelectItem>
-                <SelectItem value="pendente">Somente Pendentes / Previstos</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </div>
-
-      {/* 3. LISTAGEM CRONOLÓGICA DE LANÇAMENTOS */}
-      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-        <div className="p-4 px-5 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-              {lancamentos.length} Lançamento{lancamentos.length === 1 ? '' : 's'} no período
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+              Entradas
+            </span>
+            <span className="text-sm sm:text-base font-bold text-emerald-600">
+              {formatMoneyBRL(totalReceitas)}
             </span>
           </div>
-          <button
-            onClick={() => carregarDados()}
-            className="text-xs text-slate-400 hover:text-slate-600 flex items-center gap-1 transition"
+          <div className="h-6 w-px bg-slate-200" />
+          <div>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+              Saídas
+            </span>
+            <span className="text-sm sm:text-base font-bold text-rose-600">
+              {formatMoneyBRL(totalDespesas)}
+            </span>
+          </div>
+          <div className="h-6 w-px bg-slate-200" />
+          <div>
+            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
+              Resultado Mês
+            </span>
+            <span
+              className={`text-sm sm:text-base font-bold ${
+                saldoLiquidoPeriodo >= 0 ? 'text-blue-600' : 'text-rose-600'
+              }`}
+            >
+              {formatMoneyBRL(saldoLiquidoPeriodo)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. BARRA SUPERIOR MODELO REFERÊNCIA VISUAL (Botão + Lançamento, Seletor Mês com Setas, Ações) */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+        {/* Botão + Lançamento */}
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <Button
+            onClick={() => abrirNovoLancamento('despesa')}
+            className="bg-neutral-800 hover:bg-neutral-900 text-white font-medium text-xs sm:text-sm rounded-xl px-4 py-2 h-10 shadow-sm flex items-center gap-1.5"
           >
-            <RefreshCw className="w-3 h-3" />
-            <span>Atualizar</span>
-          </button>
+            <Plus className="w-4 h-4" />
+            <span>Lançamento</span>
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setModalConciliacaoOpen(true)}
+            className="h-10 text-xs rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50"
+            title="Conciliação Bancária"
+          >
+            <Scale className="w-3.5 h-3.5 mr-1 text-teal-600" />
+            <span>Conciliar</span>
+          </Button>
         </div>
 
+        {/* Centro: Filtro de Data no modelo da referência */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navegarMes(-1)}
+            className="h-9 w-9 text-slate-700 hover:bg-slate-100 rounded-lg"
+            title="Mês anterior"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+
+          {/* Dropdown com opções de período */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="px-3 py-1.5 text-xs sm:text-sm font-bold text-slate-800 hover:bg-slate-100 rounded-lg flex items-center gap-1.5 transition select-none"
+              >
+                <span>
+                  {filtroPeriodoTipo === 'mes'
+                    ? formatAnoMesPT(anoMes)
+                    : filtroPeriodoTipo === 'hoje'
+                      ? 'Hoje'
+                      : filtroPeriodoTipo === 'esta_semana'
+                        ? 'Esta Semana'
+                        : `${dataInicio.split('-').reverse().join('/')} até ${dataFim.split('-').reverse().join('/')}`}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="center" className="w-48 text-xs bg-white border-slate-200">
+              <DropdownMenuItem
+                onClick={() => aplicarFiltroRapido('hoje')}
+                className="cursor-pointer font-medium"
+              >
+                Hoje
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => aplicarFiltroRapido('esta_semana')}
+                className="cursor-pointer font-medium"
+              >
+                Esta semana
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => aplicarFiltroRapido('este_mes')}
+                className="cursor-pointer font-medium"
+              >
+                Este mês
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => aplicarFiltroRapido('periodo')}
+                className="cursor-pointer font-medium"
+              >
+                Escolher período
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navegarMes(1)}
+            className="h-9 w-9 text-slate-700 hover:bg-slate-100 rounded-lg"
+            title="Próximo mês"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
+
+        {/* Lado Direito: Ações rápidas */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => carregarDados()}
+            className="text-xs text-slate-600 h-9 rounded-lg"
+            title="Recarregar lançamentos do banco"
+          >
+            <RefreshCw className="w-3.5 h-3.5 mr-1" />
+            <span>Atualizar</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Caixa de período customizado quando 'periodo' estiver ativo */}
+      {filtroPeriodoTipo === 'periodo' && (
+        <div className="bg-white rounded-xl p-3 border border-slate-200 flex flex-wrap items-center gap-3 text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500 font-medium">De:</span>
+            <Input
+              type="date"
+              value={dataInicio}
+              onChange={(e) => setDataInicio(e.target.value)}
+              className="w-36 text-xs h-8"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500 font-medium">Até:</span>
+            <Input
+              type="date"
+              value={dataFim}
+              onChange={(e) => setDataFim(e.target.value)}
+              className="w-36 text-xs h-8"
+            />
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setFiltroPeriodoTipo('mes')}
+            className="h-8 text-xs text-slate-500 hover:text-slate-800"
+          >
+            <X className="w-3.5 h-3.5 mr-1" />
+            Voltar para mês
+          </Button>
+        </div>
+      )}
+
+      {/* 3. BARRA DE FILTROS "Origem / Tipo / Categorias / Status" (Estilo pill da referência visual) */}
+      <div className="bg-neutral-100/80 rounded-2xl p-2 px-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {/* Filtro: Origem (Contas e Cartões) */}
+          <Select
+            value={
+              filtroConta !== 'todas'
+                ? `conta:${filtroConta}`
+                : filtroCartao !== 'todos'
+                  ? `cartao:${filtroCartao}`
+                  : 'todas'
+            }
+            onValueChange={(val) => {
+              if (val.startsWith('conta:')) {
+                setFiltroConta(val.replace('conta:', ''))
+                setFiltroCartao('todos')
+              } else if (val.startsWith('cartao:')) {
+                setFiltroCartao(val.replace('cartao:', ''))
+                setFiltroConta('todas')
+              } else {
+                setFiltroConta('todas')
+                setFiltroCartao('todos')
+              }
+            }}
+          >
+            <SelectTrigger className="h-8 text-xs bg-transparent border-none shadow-none font-medium text-neutral-700 hover:bg-neutral-200/60 rounded-xl px-2.5">
+              <span>
+                {filtroConta !== 'todas'
+                  ? `Conta: ${contas.find((c) => c.id === filtroConta)?.nome || ''}`
+                  : filtroCartao !== 'todos'
+                    ? `Cartão: ${cartoes.find((c) => c.id === filtroCartao)?.nome || ''}`
+                    : 'Origem'}
+              </span>
+            </SelectTrigger>
+            <SelectContent className="bg-white text-slate-900 border-slate-200 max-h-64">
+              <SelectItem value="todas">Todas as origens</SelectItem>
+              {contas.length > 0 && (
+                <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Contas Bancárias
+                </div>
+              )}
+              {contas.map((c) => (
+                <SelectItem key={`conta:${c.id}`} value={`conta:${c.id}`}>
+                  {c.nome}
+                </SelectItem>
+              ))}
+              {cartoes.length > 0 && (
+                <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Cartões de Crédito
+                </div>
+              )}
+              {cartoes.map((c) => (
+                <SelectItem key={`cartao:${c.id}`} value={`cartao:${c.id}`}>
+                  {c.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Filtro: Tipo */}
+          <Select value={filtroTipo} onValueChange={setFiltroTipo}>
+            <SelectTrigger className="h-8 text-xs bg-transparent border-none shadow-none font-medium text-neutral-700 hover:bg-neutral-200/60 rounded-xl px-2.5">
+              <span>
+                {filtroTipo === 'despesa'
+                  ? 'Tipo: Despesas'
+                  : filtroTipo === 'receita'
+                    ? 'Tipo: Receitas'
+                    : filtroTipo === 'transferencia'
+                      ? 'Tipo: Transferências'
+                      : 'Tipo'}
+              </span>
+            </SelectTrigger>
+            <SelectContent className="bg-white text-slate-900 border-slate-200">
+              <SelectItem value="todos">Todos os tipos</SelectItem>
+              <SelectItem value="despesa">Somente Despesas</SelectItem>
+              <SelectItem value="receita">Somente Receitas</SelectItem>
+              <SelectItem value="transferencia">Transferências</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {/* Filtro: Categorias */}
+          <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
+            <SelectTrigger className="h-8 text-xs bg-transparent border-none shadow-none font-medium text-neutral-700 hover:bg-neutral-200/60 rounded-xl px-2.5">
+              <span>
+                {filtroCategoria !== 'todas'
+                  ? `Cat: ${categorias.find((c) => c.id === filtroCategoria)?.nome || ''}`
+                  : 'Categorias'}
+              </span>
+            </SelectTrigger>
+            <SelectContent className="bg-white text-slate-900 border-slate-200 max-h-64">
+              <SelectItem value="todas">Todas as categorias</SelectItem>
+              {categorias.map((cat) => (
+                <SelectItem key={cat.id} value={cat.id}>
+                  {cat.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {/* Filtro: Status */}
+          <Select value={filtroStatus} onValueChange={setFiltroStatus}>
+            <SelectTrigger className="h-8 text-xs bg-transparent border-none shadow-none font-medium text-neutral-700 hover:bg-neutral-200/60 rounded-xl px-2.5">
+              <span>
+                {filtroStatus === 'pago'
+                  ? 'Status: Pago'
+                  : filtroStatus === 'pendente'
+                    ? 'Status: Pendente'
+                    : 'Status'}
+              </span>
+            </SelectTrigger>
+            <SelectContent className="bg-white text-slate-900 border-slate-200">
+              <SelectItem value="todos">Todos os status</SelectItem>
+              <SelectItem value="pago">Somente Pagos</SelectItem>
+              <SelectItem value="pendente">Somente Pendentes</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Lupa de busca rápida */}
+        <div className="flex items-center">
+          {mostrarBusca ? (
+            <div className="flex items-center gap-1 bg-white rounded-full px-2 py-0.5 border border-slate-200">
+              <Search className="w-3.5 h-3.5 text-slate-400" />
+              <input
+                type="text"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Filtrar lançamentos..."
+                className="text-xs bg-transparent border-none focus:outline-none w-36 sm:w-48 text-slate-800"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setBusca('')
+                  setMostrarBusca(false)
+                }}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMostrarBusca(true)}
+              className="p-1.5 rounded-full hover:bg-neutral-200/70 text-neutral-600 transition"
+              title="Buscar por descrição"
+            >
+              <Search className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 4. LISTAGEM AGRUPADA POR DATA EM ORDEM CRESCENTE (Visual fiel à referência) */}
+      <div className="space-y-6">
         {loading ? (
-          <div className="p-12 text-center text-xs text-slate-400 space-y-2">
+          <div className="bg-white rounded-2xl p-12 text-center text-xs text-slate-400 space-y-2 border border-slate-100 shadow-xs">
             <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
             <p>Carregando lançamentos...</p>
           </div>
-        ) : lancamentos.length === 0 ? (
-          <div className="p-12 text-center space-y-3">
+        ) : datasOrdenadas.length === 0 ? (
+          <div className="bg-white rounded-2xl p-12 text-center space-y-3 border border-slate-100 shadow-xs">
             <div className="w-14 h-14 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
               <Calendar className="w-7 h-7" />
             </div>
@@ -884,255 +1047,297 @@ export default function LancamentosPage() {
               Nenhum lançamento encontrado para os filtros selecionados
             </div>
             <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              Cadastre suas receitas, despesas do dia a dia ou transferências usando os botões
-              acima.
+              Cadastre suas receitas, despesas ou faturas usando os botões acima.
             </p>
             <Button
               onClick={() => abrirNovoLancamento('despesa')}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs mt-2"
+              className="bg-neutral-800 hover:bg-neutral-900 text-white text-xs mt-2"
             >
               <Plus className="w-3.5 h-3.5 mr-1" />
               Novo Lançamento
             </Button>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100">
-            {lancamentos.map((l) => {
-              const isDespesa = l.tipo === 'despesa'
-              const isReceita = l.tipo === 'receita'
-              const isTransf = l.tipo === 'transferencia'
-              const isPago = l.status_pagamento === 'pago'
-              const ehFixo = Boolean(l.serie_id || l.regime === 'fixo')
-              const ehPrevisao =
-                (l as any).natureza === 'previsao' ||
-                (l as any).natureza_previsao === true ||
-                (l.status_pagamento as string) === 'previsao'
+          datasOrdenadas.map((dataKey) => {
+            const lancsDoDia = lancamentos.filter((l) => l.data === dataKey)
+            const faturasDoDia = faturasPorData[dataKey] || []
 
-              // Meio de pagamento legível
-              const meioLabel =
-                l.meio_pagamento_tipo === 'CARTAO'
-                  ? l.cartao?.nome || 'Cartão de Crédito'
-                  : l.meio_pagamento_tipo === 'DINHEIRO'
-                    ? 'Dinheiro em Espécie'
-                    : isTransf
-                      ? `${l.conta_origem?.nome || 'Origem'} ➔ ${l.conta_destino?.nome || 'Destino'}`
-                      : l.conta_origem?.nome || 'Conta Corrente'
+            return (
+              <div key={dataKey} className="space-y-1.5">
+                {/* TÍTULO DO GRUPO: Data no topo (ex.: "01/10/26") */}
+                <div className="pt-2 pb-1 border-b border-slate-200/70">
+                  <span className="text-xs font-bold text-slate-500 tracking-wide">
+                    {formatarDataGrupo(dataKey)}
+                  </span>
+                </div>
 
-              return (
-                <div
-                  key={l.id}
-                  className={`p-4 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition group ${
-                    ehPrevisao ? 'bg-amber-50/30 hover:bg-amber-50/60' : 'hover:bg-slate-50/70'
-                  }`}
-                >
-                  {/* Esquerda: Ícone do Tipo + Descrição + Metadados */}
-                  <div className="flex items-start sm:items-center gap-3.5">
-                    {/* Ícone de status */}
-                    <div
-                      className={`w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 mt-0.5 sm:mt-0 ${
-                        isDespesa
-                          ? 'bg-rose-100 text-rose-600'
-                          : isReceita
-                            ? 'bg-emerald-100 text-emerald-600'
-                            : 'bg-blue-100 text-blue-600'
-                      }`}
-                    >
-                      {isDespesa && <TrendingDown className="w-4 h-4 stroke-[2.5]" />}
-                      {isReceita && <TrendingUp className="w-4 h-4 stroke-[2.5]" />}
-                      {isTransf && <ArrowRightLeft className="w-4 h-4 stroke-[2.5]" />}
-                    </div>
+                {/* Itens do grupo */}
+                <div className="space-y-1">
+                  {/* A) Lançamentos normais da data */}
+                  {lancsDoDia.map((l) => {
+                    const isDespesa = l.tipo === 'despesa'
+                    const isReceita = l.tipo === 'receita'
+                    const isTransf = l.tipo === 'transferencia'
+                    const isPago = l.status_pagamento === 'pago'
+                    const ehFixo = Boolean(l.serie_id || l.regime === 'fixo')
+                    const ehPrevisao =
+                      (l as any).natureza === 'previsao' ||
+                      (l as any).natureza_previsao === true ||
+                      (l.status_pagamento as string) === 'previsao'
 
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs sm:text-sm font-bold text-slate-800">
-                          {l.descricao}
-                        </span>
+                    const contaNome =
+                      l.meio_pagamento_tipo === 'CARTAO'
+                        ? l.cartao?.nome || 'Cartão de Crédito'
+                        : isTransf
+                          ? `${l.conta_origem?.nome || 'Origem'} ➔ ${l.conta_destino?.nome || 'Destino'}`
+                          : l.conta_origem?.nome || 'Conta Corrente'
 
-                        {/* Badge Fixo */}
-                        {ehFixo && (
-                          <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
-                            Fixo
-                          </Badge>
-                        )}
-
-                        {/* Badge de parcelamento no cartão: ex: 4 vezes de R$ 100,00 */}
-                        {l.meio_pagamento_tipo === 'CARTAO' &&
-                          (l.total_parcelas > 1 || l.quantidade_parcelas > 1) && (
-                            <Badge
-                              variant="outline"
-                              className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] py-0 px-1.5 font-medium"
-                            >
-                              {l.total_parcelas || l.quantidade_parcelas} vezes de{' '}
-                              {formatMoneyBRL(
-                                Number(l.valor) /
-                                  Number(l.total_parcelas || l.quantidade_parcelas || 1),
-                              )}
-                            </Badge>
-                          )}
-
-                        {/* Badges de Categoria com alto contraste */}
-                        {l.categoria && (
-                          <Badge
-                            variant="outline"
-                            className="text-[11px] font-semibold py-0.5 px-2.5 flex items-center gap-1.5 bg-slate-100 text-slate-800 border-slate-300 dark:bg-slate-800 dark:text-slate-100 dark:border-slate-600 shadow-2xs"
-                          >
-                            <span
-                              className="w-2 h-2 rounded-full shrink-0 ring-1 ring-black/10"
-                              style={{ backgroundColor: l.categoria.cor || '#4F46E5' }}
-                            />
-                            <span className="font-bold text-slate-900 dark:text-white">
-                              {l.categoria.nome}
-                            </span>
-                            {l.subcategoria && (
-                              <span className="font-semibold text-slate-600 dark:text-slate-300">
-                                / {l.subcategoria.nome}
-                              </span>
-                            )}
-                          </Badge>
-                        )}
-
-                        {/* Badge de Conciliado */}
-                        {l.conciliado && (
-                          <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] py-0">
-                            <FileCheck className="w-3 h-3 mr-1" />
-                            Conciliado
-                          </Badge>
-                        )}
-                      </div>
-
-                      {/* Informações complementares: Meio de pagamento, Data, Observações */}
-                      <div className="flex items-center gap-3 text-[11px] text-slate-400 flex-wrap">
-                        <span className="font-medium text-slate-600 flex items-center gap-1">
-                          {l.meio_pagamento_tipo === 'CARTAO' && (
-                            <CreditCard className="w-3 h-3 text-indigo-500" />
-                          )}
-                          {l.meio_pagamento_tipo === 'CONTA' && (
-                            <Wallet className="w-3 h-3 text-emerald-600" />
-                          )}
-                          {l.meio_pagamento_tipo === 'DINHEIRO' && (
-                            <Banknote className="w-3 h-3 text-emerald-600" />
-                          )}
-                          {meioLabel}
-                        </span>
-                        <span>•</span>
-                        <span>{l.data ? l.data.split('-').reverse().join('/') : ''}</span>
-                        {l.observacao && (
-                          <>
-                            <span>•</span>
-                            <span className="italic max-w-[200px] truncate">{l.observacao}</span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Direita: Valor + Status + Ações */}
-                  <div className="flex items-center justify-between sm:justify-end gap-4 self-end sm:self-auto w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                    <div className="text-right">
+                    return (
                       <div
-                        className={`text-sm sm:text-base font-bold ${
-                          isDespesa
-                            ? 'text-rose-600'
-                            : isReceita
-                              ? 'text-emerald-600'
-                              : 'text-blue-600'
+                        key={l.id}
+                        className={`p-2.5 px-3 rounded-xl flex items-center justify-between gap-3 transition group hover:bg-slate-50 ${
+                          ehPrevisao ? 'bg-amber-50/20' : 'bg-white'
                         }`}
                       >
-                        {isDespesa ? '- ' : isReceita ? '+ ' : ''}
-                        {formatMoneyBRL(l.valor)}
-                      </div>
-                      <div className="text-[10px] mt-1 flex items-center justify-end gap-1.5">
-                        {l.meio_pagamento_tipo === 'CARTAO' ? (
-                          <span
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed"
-                            title="Pagamento e desfazimento deste lançamento são feitos exclusivamente através da fatura do cartão."
+                        {/* Esquerda: Ícone circular colorido + Descrição + Tag / Conta */}
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          {/* Ícone circular */}
+                          <div
+                            className={`w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 shadow-2xs ${
+                              isDespesa
+                                ? 'bg-rose-500'
+                                : isReceita
+                                  ? 'bg-emerald-500'
+                                  : 'bg-emerald-600'
+                            }`}
+                            style={
+                              l.categoria?.cor ? { backgroundColor: l.categoria.cor } : undefined
+                            }
                           >
-                            <CreditCard className="w-3 h-3 text-indigo-500" />
-                            Pago na fatura
-                          </span>
-                        ) : ehPrevisao ? (
-                          <span
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700 border border-rose-300 opacity-90 cursor-not-allowed select-none"
-                            title="Lançamento futuro de série (projeção). Não é possível pagar uma projeção futura."
-                          >
-                            <ThumbsDown className="w-3.5 h-3.5 stroke-[2.5]" />
-                            <span>Não pago</span>
-                          </span>
-                        ) : isPago ? (
-                          <button
-                            type="button"
-                            disabled={isProcessing}
-                            onClick={() => handleTogglePago(l)}
-                            title="Lançamento PAGO. Clique para desfazer pagamento (alterar para Não Pago / estornar da conta)."
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-xs transition active:scale-95 cursor-pointer"
-                          >
-                            <ThumbsUp className="w-3.5 h-3.5 stroke-[2.5]" />
-                            <span>Pago</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={isProcessing}
-                            onClick={() => handleTogglePago(l)}
-                            title="Lançamento NÃO PAGO. Clique para confirmar pagamento (marcar como Pago e debitar da conta)."
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-xs transition active:scale-95 cursor-pointer"
-                          >
-                            <ThumbsDown className="w-3.5 h-3.5 stroke-[2.5]" />
-                            <span>Não Pago</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                            {isDespesa && <TrendingDown className="w-4 h-4 stroke-[2.5]" />}
+                            {isReceita && <TrendingUp className="w-4 h-4 stroke-[2.5]" />}
+                            {isTransf && <ArrowRightLeft className="w-4 h-4 stroke-[2.5]" />}
+                          </div>
 
-                    {/* Menu de Ações rápidas */}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-slate-400">
-                          <MoreVertical className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48 text-xs">
-                        {l.meio_pagamento_tipo !== 'CARTAO' && (
-                          <DropdownMenuItem
-                            onClick={() => handleTogglePago(l)}
-                            className="cursor-pointer"
+                          {/* Descrição & Metadados */}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
+                                {l.descricao}
+                              </span>
+
+                              {ehFixo && (
+                                <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1 font-semibold shrink-0">
+                                  Fixo
+                                </Badge>
+                              )}
+
+                              {l.meio_pagamento_tipo === 'CARTAO' &&
+                                (l.total_parcelas > 1 || l.quantidade_parcelas > 1) && (
+                                  <Badge
+                                    variant="outline"
+                                    className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] py-0 px-1 font-medium shrink-0"
+                                  >
+                                    {l.numero_parcela ? `${l.numero_parcela}/` : ''}
+                                    {l.total_parcelas || l.quantidade_parcelas}
+                                  </Badge>
+                                )}
+                            </div>
+
+                            {/* Linha de conta e tags */}
+                            <div className="flex items-center gap-2 text-[11px] text-slate-400 truncate mt-0.5">
+                              {ehFixo && (
+                                <span className="text-slate-400" title="Recorrente fixo">
+                                  🔁
+                                </span>
+                              )}
+                              <span className="text-slate-500 font-medium uppercase text-[10px] tracking-wider">
+                                {contaNome}
+                              </span>
+                              {l.categoria && (
+                                <>
+                                  <span>•</span>
+                                  <span className="text-slate-500">
+                                    {l.categoria.nome}
+                                    {l.subcategoria && ` / ${l.subcategoria.nome}`}
+                                  </span>
+                                </>
+                              )}
+                              {l.observacao && (
+                                <>
+                                  <span>•</span>
+                                  <span className="italic truncate">{l.observacao}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Direita: Valor + Ícone Pago / Não Pago (Thumbs up / down verde e cinza conforme referência) */}
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span
+                            className={`text-xs sm:text-sm font-bold ${
+                              isDespesa
+                                ? 'text-slate-800'
+                                : isReceita
+                                  ? 'text-emerald-600'
+                                  : 'text-slate-700'
+                            }`}
                           >
-                            <CheckCircle2 className="w-3.5 h-3.5 mr-2" />
-                            <span>{isPago ? 'Marcar como Pendente' : 'Marcar como Pago'}</span>
-                          </DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem
-                          onClick={() => handleToggleConciliado(l)}
-                          className="cursor-pointer"
-                        >
-                          <FileCheck className="w-3.5 h-3.5 mr-2 text-teal-600" />
-                          <span>
-                            {l.conciliado ? 'Desmarcar Conciliação' : 'Conciliar Manualmente'}
+                            {isDespesa ? '-' : isReceita ? '+' : ''}
+                            {formatMoneyBRL(l.valor).replace('R$', '').trim()}
                           </span>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => abrirEdicaoLancamento(l)}
-                          className="cursor-pointer"
-                        >
-                          <Edit2 className="w-3.5 h-3.5 mr-2 text-slate-500" />
-                          <span>Editar Lançamento</span>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          disabled={isProcessing}
-                          onClick={() => handleExcluirLancamento(l)}
-                          className="cursor-pointer text-rose-600 focus:text-rose-600"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 mr-2" />
-                          <span>Excluir / Cancelar</span>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
+
+                          {/* Botão de Toggle de Pagamento com ícone Thumbs up / down da referência */}
+                          {l.meio_pagamento_tipo === 'CARTAO' ? (
+                            <span
+                              className="text-slate-400 cursor-not-allowed"
+                              title="Pago na fatura do cartão"
+                            >
+                              <ThumbsDown className="w-4 h-4 text-slate-300" />
+                            </span>
+                          ) : isPago ? (
+                            <button
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => handleTogglePago(l)}
+                              title="Pago — clique para desfazer"
+                              className="p-1 text-emerald-600 hover:text-emerald-700 transition"
+                            >
+                              <ThumbsUp className="w-4 h-4 stroke-[2.5]" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => handleTogglePago(l)}
+                              title="Não pago — clique para confirmar pagamento"
+                              className="p-1 text-slate-400 hover:text-emerald-600 transition"
+                            >
+                              <ThumbsDown className="w-4 h-4 stroke-[2.5]" />
+                            </button>
+                          )}
+
+                          {/* Menu de Ações rápidas */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700"
+                              >
+                                <MoreVertical className="w-3.5 h-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              className="w-44 text-xs bg-white border-slate-200"
+                            >
+                              <DropdownMenuItem
+                                onClick={() => abrirEdicaoLancamento(l)}
+                                className="cursor-pointer"
+                              >
+                                <Edit2 className="w-3.5 h-3.5 mr-2 text-slate-500" />
+                                <span>Editar</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleToggleConciliado(l)}
+                                className="cursor-pointer"
+                              >
+                                <FileCheck className="w-3.5 h-3.5 mr-2 text-teal-600" />
+                                <span>{l.conciliado ? 'Desmarcar Conciliação' : 'Conciliar'}</span>
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                disabled={isProcessing}
+                                onClick={() => handleExcluirLancamento(l)}
+                                className="cursor-pointer text-rose-600 focus:text-rose-600"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 mr-2" />
+                                <span>Excluir</span>
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {/* B) ITENS "FATURA DO CARTÃO [NOME]" no vencimento (ITEM 5: fundo amarelo claro com marcador vermelho à esquerda, valor negativo à direita) */}
+                  {faturasDoDia.map((fat) => {
+                    const nomeCartao = fat.cartao?.nome || 'Cartão'
+                    const valorFatura = Number(fat.valor_total || 0)
+                    const ehPaga = fat.status === 'paga'
+                    const mesAnoFatura = formatAnoMesPT(fat.competencia)
+
+                    return (
+                      <div
+                        key={`fatura-${fat.id || fat.cartao_id}`}
+                        className="p-3 px-4 rounded-xl flex items-center justify-between gap-3 bg-[#FFF9E6] border border-amber-200/60 shadow-2xs transition"
+                      >
+                        {/* Esquerda: Marcador circular vermelho + Ícone cinza + Título da fatura */}
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            {/* Marcador / ponto vermelho destacado na lateral esquerda */}
+                            <span className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white" />
+                            {/* Ícone cinza de fatura */}
+                            <div className="w-9 h-9 rounded-full bg-slate-300 text-slate-600 flex items-center justify-center shrink-0">
+                              <CreditCard className="w-4 h-4" />
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs sm:text-sm font-bold text-slate-800">
+                                Fatura {mesAnoFatura}
+                              </span>
+                              <Badge
+                                variant="outline"
+                                className="bg-amber-100/70 text-amber-800 border-amber-300 text-[10px] py-0 px-1.5 font-bold"
+                              >
+                                Vencimento
+                              </Badge>
+                              {ehPaga ? (
+                                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] py-0 px-1.5 font-bold">
+                                  Paga
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] py-0 px-1.5 font-bold">
+                                  Aberta / Fechada
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="text-[11px] font-semibold text-slate-500">
+                              {nomeCartao}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Direita: Valor negativo em destaque e ícone de status */}
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs sm:text-sm font-bold text-slate-900">
+                            -{formatMoneyBRL(valorFatura).replace('R$', '').trim()}
+                          </span>
+
+                          {ehPaga ? (
+                            <ThumbsUp
+                              className="w-4 h-4 text-emerald-600 stroke-[2.5]"
+                              title="Fatura quitada"
+                            />
+                          ) : (
+                            <ThumbsDown
+                              className="w-4 h-4 text-slate-400 stroke-[2.5]"
+                              title="Fatura não paga"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-              )
-            })}
-          </div>
+              </div>
+            )
+          })
         )}
       </div>
 
