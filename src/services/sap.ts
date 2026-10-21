@@ -671,6 +671,16 @@ export const fixoService = {
     return { ehUltima, serie }
   },
 
+  // Alias para lancamentoService.excluirFixoComEscopo para compatibilidade entre páginas
+  async excluirFixoComEscopo(
+    lancamentoId: string,
+    workspaceId: string,
+    escopo: 'este' | 'este_e_proximos' | 'todos',
+    userId?: string,
+  ) {
+    return lancamentoService.excluirFixoComEscopo(lancamentoId, workspaceId, escopo, userId)
+  },
+
   // Alias para lancamentoService.alterarFixoComEscopo para compatibilidade entre páginas
   async alterarComEscopo(
     lancamentoId: string,

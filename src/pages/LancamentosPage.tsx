@@ -1320,15 +1320,13 @@ export default function LancamentosPage() {
                           </span>
 
                           {ehPaga ? (
-                            <ThumbsUp
-                              className="w-4 h-4 text-emerald-600 stroke-[2.5]"
-                              title="Fatura quitada"
-                            />
+                            <span title="Fatura quitada">
+                              <ThumbsUp className="w-4 h-4 text-emerald-600 stroke-[2.5]" />
+                            </span>
                           ) : (
-                            <ThumbsDown
-                              className="w-4 h-4 text-slate-400 stroke-[2.5]"
-                              title="Fatura não paga"
-                            />
+                            <span title="Fatura não paga">
+                              <ThumbsDown className="w-4 h-4 text-slate-400 stroke-[2.5]" />
+                            </span>
                           )}
                         </div>
                       </div>

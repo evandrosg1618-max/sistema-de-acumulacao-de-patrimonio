@@ -1492,21 +1492,40 @@ export type Database = {
         Args: { token_input: string }
         Returns: Json
       }
-      alterar_fixo_escopo_rpc: {
-        Args: {
-          p_escopo: string
-          p_lancamento_id: string
-          p_nova_categoria_id?: string
-          p_nova_data: string
-          p_nova_descricao: string
-          p_nova_observacao?: string
-          p_nova_subcategoria_id?: string
-          p_novo_valor: number
-          p_user_id?: string
-          p_workspace_id: string
-        }
-        Returns: Json
-      }
+      alterar_fixo_escopo_rpc:
+        | {
+            Args: {
+              p_escopo: string
+              p_lancamento_id: string
+              p_nova_categoria_id?: string
+              p_nova_data: string
+              p_nova_descricao: string
+              p_nova_observacao?: string
+              p_nova_periodicidade?: string
+              p_nova_quantidade_total?: number
+              p_nova_subcategoria_id?: string
+              p_novo_prazo?: string
+              p_novo_valor: number
+              p_user_id?: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_escopo: string
+              p_lancamento_id: string
+              p_nova_categoria_id?: string
+              p_nova_data: string
+              p_nova_descricao: string
+              p_nova_observacao?: string
+              p_nova_subcategoria_id?: string
+              p_novo_valor: number
+              p_user_id?: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
       aplicar_saldo_transferencia_rpc: {
         Args: {
           p_lancamento_id: string
