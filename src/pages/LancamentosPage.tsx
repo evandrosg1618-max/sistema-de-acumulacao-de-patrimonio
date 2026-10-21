@@ -955,13 +955,6 @@ export default function LancamentosPage() {
                           </Badge>
                         )}
 
-                        {/* Badge Previsão */}
-                        {ehPrevisao && (
-                          <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] py-0 px-1.5 font-semibold shrink-0">
-                            Previsão
-                          </Badge>
-                        )}
-
                         {/* Badge de parcelamento no cartão: ex: 4 vezes de R$ 100,00 */}
                         {l.meio_pagamento_tipo === 'CARTAO' &&
                           (l.total_parcelas > 1 || l.quantidade_parcelas > 1) && (
@@ -1059,11 +1052,11 @@ export default function LancamentosPage() {
                           </span>
                         ) : ehPrevisao ? (
                           <span
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-amber-100 text-amber-800 border border-amber-200 cursor-help"
-                            title="Pagamento liberado após materialização automática na virada da competência."
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700 border border-rose-300 opacity-90 cursor-not-allowed select-none"
+                            title="Lançamento futuro de série (projeção). Não é possível pagar uma projeção futura."
                           >
-                            <Clock className="w-3 h-3 text-amber-600" />
-                            <span>Previsão futura</span>
+                            <ThumbsDown className="w-3.5 h-3.5 stroke-[2.5]" />
+                            <span>Não pago</span>
                           </span>
                         ) : isPago ? (
                           <button

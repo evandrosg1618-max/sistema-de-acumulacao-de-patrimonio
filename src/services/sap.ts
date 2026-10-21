@@ -1879,8 +1879,8 @@ export const faturaService = {
       })
     }
 
-    // 2. Buscar compras à vista no cartão (regime = 'unico')
-    const { data: avulsosComp } = await db
+    // 2. Buscar compras no cartão avulsas (regime = 'unico') E lançamentos recorrentes/fixos deste cartão
+    const { data: lancsCartaoComp } = await db
       .from('lancamentos')
       .select(`
         id,
@@ -1889,6 +1889,9 @@ export const faturaService = {
         data,
         competencia,
         tipo,
+        regime,
+        serie_id,
+        natureza_previsao,
         meio_pagamento_tipo,
         cartao_id,
         conta_origem_id,
@@ -1906,14 +1909,52 @@ export const faturaService = {
       .eq('workspace_id', workspaceId)
       .eq('cartao_id', cartaoId)
       .eq('competencia', competencia)
-      .eq('regime', 'unico')
       .is('deleted_at', null)
       .order('data', { ascending: false })
 
-    for (const a of avulsosComp || []) {
+    // Determinar a próxima competência a vencer deste cartão para compor o total da fatura
+    const { data: faturasVencer } = await db
+      .from('faturas')
+      .select('competencia, data_vencimento')
+      .eq('workspace_id', workspaceId)
+      .eq('cartao_id', cartaoId)
+      .neq('status', 'paga')
+      .gte('data_vencimento', new Date().toISOString().slice(0, 10))
+      .order('data_vencimento', { ascending: true })
+      .limit(1)
+
+    let proximaComp = faturasVencer?.[0]?.competencia
+    if (!proximaComp) {
+      const { data: faturasTodas } = await db
+        .from('faturas')
+        .select('competencia, data_vencimento')
+        .eq('workspace_id', workspaceId)
+        .eq('cartao_id', cartaoId)
+        .neq('status', 'paga')
+        .order('data_vencimento', { ascending: true })
+        .limit(1)
+      proximaComp = faturasTodas?.[0]?.competencia
+    }
+
+    const ehProximaCompAVencer = competencia === proximaComp
+
+    for (const a of lancsCartaoComp || []) {
       const v = Number(a.valor || 0)
-      if (a.tipo === 'despesa') totalCompras += v
-      else if (a.tipo === 'receita') totalCompras -= v
+      const ehRecorrenteFixo = a.regime === 'fixo' || !!a.serie_id
+
+      if (ehRecorrenteFixo) {
+        // Regra do Usuário (Build 5): O recorrente aparece na fatura, mas na soma que compõe a fatura
+        // considerar APENAS o lançamento recorrente que cai na próxima competência a vencer.
+        if (ehProximaCompAVencer) {
+          if (a.tipo === 'despesa') totalCompras += v
+          else if (a.tipo === 'receita') totalCompras -= v
+        }
+      } else {
+        // Compra à vista normal
+        if (a.tipo === 'despesa') totalCompras += v
+        else if (a.tipo === 'receita') totalCompras -= v
+      }
+
       itensFatura.push(a)
     }
 
@@ -2070,10 +2111,11 @@ export const lancamentoService = {
       .order('created_at', { ascending: false })
 
     // Se for a tela geral de Lançamentos (sem filtro de cartão específico de fatura),
-    // oculta os filhos de parcelas (numero_parcela > 1) para que a compra parcelada apareça apenas
-    // como o lançamento ORIGINAL com o total e a especificação das parcelas.
+    // oculta os filhos de compras parceladas no cartão (numero_parcela > 1 e serie_id is null)
+    // para que a compra parcelada apareça apenas como o lançamento ORIGINAL com o total e a especificação das parcelas.
+    // Lançamentos de séries recorrentes (serie_id is not null) NUNCA são ocultados, pois cada mês é uma ocorrência válida da série.
     if (!filtros.cartaoId || filtros.cartaoId === 'todos') {
-      query = query.or('numero_parcela.is.null,numero_parcela.lte.1')
+      query = query.or('serie_id.not.is.null,numero_parcela.is.null,numero_parcela.lte.1')
     }
     if (filtros.dataEspecifica) {
       query = query.eq('data', filtros.dataEspecifica)
