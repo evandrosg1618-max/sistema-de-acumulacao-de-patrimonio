@@ -904,7 +904,9 @@ export default function LancamentosPage() {
               const isPago = l.status_pagamento === 'pago'
               const ehFixo = Boolean(l.serie_id || l.regime === 'fixo')
               const ehPrevisao =
-                (l as any).natureza === 'previsao' || l.status_pagamento === 'previsao'
+                (l as any).natureza === 'previsao' ||
+                (l as any).natureza_previsao === true ||
+                (l.status_pagamento as string) === 'previsao'
 
               // Meio de pagamento legível
               const meioLabel =

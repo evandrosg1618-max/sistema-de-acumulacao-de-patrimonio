@@ -3358,12 +3358,15 @@ export const lancamentoService = {
       updates.status_pagamento !== undefined &&
       updates.status_pagamento !== anterior.status_pagamento
     ) {
-      await db.rpc('toggle_pago_lancamento_rpc', {
+      const { data: toggleRes, error: toggleErr } = await db.rpc('toggle_pago_lancamento_rpc', {
         p_workspace_id: workspaceId,
         p_lancamento_id: id,
         p_pago: updates.status_pagamento === 'pago',
         p_user_id: userId || null,
       })
+      if (toggleErr) {
+        console.warn('Aviso ao executar toggle_pago_lancamento_rpc no update:', toggleErr)
+      }
     }
 
     // Calcular nova competência caso a data ou cartão tenham mudado

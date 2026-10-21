@@ -10,6 +10,7 @@ import {
   categoriaService,
   lancamentoService,
   lancamentoRapidoService,
+  fixoService,
 } from '@/services/sap'
 import { Conta, Cartao, Orcamento, Categoria, MeioPagamento, Fatura } from '@/types/sap'
 import { formatMoneyBRL, getCurrentAnoMes, formatAnoMesPT } from '@/lib/formatters'
@@ -381,15 +382,24 @@ export default function Index() {
             )
             toast.success('Compra parcelada regenerada com sucesso!')
           } else {
-            await lancamentoService.update(dados.id, wsId, dados, user?.id)
+            await lancamentoService.salvarUnificado(
+              {
+                ...dados,
+                workspace_id: wsId,
+              },
+              user?.id,
+            )
             toast.success('Lançamento atualizado com sucesso!')
           }
         } else {
-          await lancamentoService.create({
-            ...dados,
-            workspace_id: wsId,
-            created_by: user?.id,
-          })
+          await lancamentoService.salvarUnificado(
+            {
+              ...dados,
+              workspace_id: wsId,
+              created_by: user?.id,
+            },
+            user?.id,
+          )
           toast.success('Compra incluída na fatura do cartão com sucesso!')
         }
 
@@ -1145,11 +1155,20 @@ export default function Index() {
                                     const numP = l.numero_parcela || 1
                                     const totP = l.total_parcelas || l.quantidade_parcelas || 1
                                     const ehParcela = totP > 1
+                                    const ehFixo = Boolean(l.serie_id || l.regime === 'fixo')
+                                    const ehPrevisao =
+                                      (l as any).natureza === 'previsao' ||
+                                      (l as any).natureza_previsao === true ||
+                                      (l.status_pagamento as string) === 'previsao'
 
                                     return (
                                       <div
                                         key={l.id}
-                                        className="flex items-center justify-between p-2 sm:px-2.5 hover:bg-slate-50 text-xs transition"
+                                        className={`flex items-center justify-between p-2 sm:px-2.5 text-xs transition ${
+                                          ehPrevisao
+                                            ? 'bg-amber-50/40 hover:bg-amber-50/70'
+                                            : 'hover:bg-slate-50'
+                                        }`}
                                       >
                                         <div className="flex items-center gap-2 min-w-0">
                                           <span className="text-slate-400 text-[10px] font-mono shrink-0">
@@ -1163,6 +1182,16 @@ export default function Index() {
                                               {ehParcela && (
                                                 <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[9px] py-0 px-1 font-bold shrink-0">
                                                   {numP}/{totP}
+                                                </Badge>
+                                              )}
+                                              {ehFixo && (
+                                                <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[9px] py-0 px-1.5 font-bold shrink-0">
+                                                  Fixo
+                                                </Badge>
+                                              )}
+                                              {ehPrevisao && (
+                                                <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[9px] py-0 px-1.5 font-semibold shrink-0">
+                                                  Previsão
                                                 </Badge>
                                               )}
                                             </div>

@@ -136,10 +136,13 @@ export function ModalLancamento({
       setValor(initialData.valor ? initialData.valor.toFixed(2).replace('.', ',') : '')
       setData(initialData.data || new Date().toISOString().split('T')[0])
 
-      if (initialData.cartao_id) {
-        setPagoComDestino(`cartao:${initialData.cartao_id}`)
-      } else if (initialData.conta_origem_id) {
-        setPagoComDestino(`conta:${initialData.conta_origem_id}`)
+      if (initialData.cartao_id || initialData.meio_pagamento_tipo === 'CARTAO') {
+        const cId =
+          initialData.cartao_id || cartaoPadraoId || (cartoes.length > 0 ? cartoes[0].id : '')
+        setPagoComDestino(`cartao:${cId}`)
+      } else if (initialData.conta_origem_id || initialData.meio_pagamento_tipo === 'CONTA') {
+        const cOrigem = initialData.conta_origem_id || (contas.length > 0 ? contas[0].id : '')
+        setPagoComDestino(`conta:${cOrigem}`)
       } else if (initialData.meio_pagamento_tipo === 'DINHEIRO') {
         setPagoComDestino('dinheiro:principal')
       } else {

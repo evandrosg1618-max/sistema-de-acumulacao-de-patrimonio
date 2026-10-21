@@ -1155,7 +1155,9 @@ export default function CartoesPage() {
                                   const ehParcela = totP > 1
                                   const ehFixo = Boolean(l.serie_id || l.regime === 'fixo')
                                   const ehPrevisao =
-                                    l.natureza === 'previsao' || l.status_pagamento === 'previsao'
+                                    l.natureza === 'previsao' ||
+                                    l.natureza_previsao === true ||
+                                    l.status_pagamento === 'previsao'
 
                                   return (
                                     <div
