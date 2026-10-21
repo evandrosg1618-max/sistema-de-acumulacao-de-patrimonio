@@ -6,6 +6,7 @@ import {
   cartaoService,
   categoriaService,
   conciliacaoService,
+  fixoService,
 } from '@/services/sap'
 import { Lancamento, Conta, Cartao, Categoria, TipoLancamento } from '@/types/sap'
 import { formatMoneyBRL, getCurrentAnoMes, formatAnoMesPT } from '@/lib/formatters'
@@ -427,14 +428,19 @@ export default function LancamentosPage() {
           // Se for fixo com serie_id, chama alterarComEscopo do fixoService
           if (lancamentoAlvoEscopo?.serie_id) {
             const escopoFixo =
-              escopo === 'este' ? 'este' : escopo === 'este_e_proximos' ? 'este_e_futuros' : 'todos'
+              escopo === 'este'
+                ? 'este'
+                : escopo === 'este_e_proximos'
+                  ? 'este_e_proximos'
+                  : 'todos'
             const resFixo = await fixoService.alterarComEscopo(
-              wsId,
               lancamentoAlvoEscopo.id,
+              wsId,
               escopoFixo,
               {
-                descricao: dadosEdicaoPendentes?.descricao,
-                valor: dadosEdicaoPendentes?.valor ? Number(dadosEdicaoPendentes.valor) : undefined,
+                descricao: dadosEdicaoPendentes?.descricao || lancamentoAlvoEscopo.descricao,
+                valor: Number(dadosEdicaoPendentes?.valor ?? lancamentoAlvoEscopo.valor),
+                data: dadosEdicaoPendentes?.data || lancamentoAlvoEscopo.data,
                 categoria_id: dadosEdicaoPendentes?.categoria_id,
                 subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
                 observacao: dadosEdicaoPendentes?.observacao,
@@ -442,8 +448,8 @@ export default function LancamentosPage() {
               user?.id,
             )
             toast.success(
-              `${resFixo.afetados} lançamento(s) da série atualizado(s). ${
-                resFixo.faturas_recalculadas?.length > 0
+              `${resFixo.alterados || 1} lançamento(s) da série atualizado(s). ${
+                resFixo.faturas_recalculadas && resFixo.faturas_recalculadas.length > 0
                   ? `Faturas: ${resFixo.faturas_recalculadas.join(', ')}`
                   : ''
               }`,
@@ -896,6 +902,9 @@ export default function LancamentosPage() {
               const isReceita = l.tipo === 'receita'
               const isTransf = l.tipo === 'transferencia'
               const isPago = l.status_pagamento === 'pago'
+              const ehFixo = Boolean(l.serie_id || l.regime === 'fixo')
+              const ehPrevisao =
+                (l as any).natureza === 'previsao' || l.status_pagamento === 'previsao'
 
               // Meio de pagamento legível
               const meioLabel =
@@ -910,7 +919,9 @@ export default function LancamentosPage() {
               return (
                 <div
                   key={l.id}
-                  className="p-4 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/70 transition group"
+                  className={`p-4 px-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition group ${
+                    ehPrevisao ? 'bg-amber-50/30 hover:bg-amber-50/60' : 'hover:bg-slate-50/70'
+                  }`}
                 >
                   {/* Esquerda: Ícone do Tipo + Descrição + Metadados */}
                   <div className="flex items-start sm:items-center gap-3.5">
@@ -934,6 +945,20 @@ export default function LancamentosPage() {
                         <span className="text-xs sm:text-sm font-bold text-slate-800">
                           {l.descricao}
                         </span>
+
+                        {/* Badge Fixo */}
+                        {ehFixo && (
+                          <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
+                            Fixo
+                          </Badge>
+                        )}
+
+                        {/* Badge Previsão */}
+                        {ehPrevisao && (
+                          <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] py-0 px-1.5 font-semibold shrink-0">
+                            Previsão
+                          </Badge>
+                        )}
 
                         {/* Badge de parcelamento no cartão: ex: 4 vezes de R$ 100,00 */}
                         {l.meio_pagamento_tipo === 'CARTAO' &&
@@ -1029,6 +1054,14 @@ export default function LancamentosPage() {
                           >
                             <CreditCard className="w-3 h-3 text-indigo-500" />
                             Pago na fatura
+                          </span>
+                        ) : ehPrevisao ? (
+                          <span
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-amber-100 text-amber-800 border border-amber-200 cursor-help"
+                            title="Pagamento liberado após materialização automática na virada da competência."
+                          >
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            <span>Previsão futura</span>
                           </span>
                         ) : isPago ? (
                           <button

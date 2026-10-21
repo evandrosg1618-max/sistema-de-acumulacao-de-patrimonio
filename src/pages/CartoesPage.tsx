@@ -7,6 +7,7 @@ import {
   contaService,
   lancamentoService,
   categoriaService,
+  fixoService,
 } from '@/services/sap'
 import { Cartao, Fatura, Conta, Lancamento, TipoLancamento } from '@/types/sap'
 import { formatMoneyBRL, getCurrentAnoMes, formatAnoMesPT } from '@/lib/formatters'
@@ -591,14 +592,15 @@ export default function CartoesPage() {
       } else {
         if (lancamentoAlvoEscopo?.serie_id) {
           const escopoFixo =
-            escopo === 'este' ? 'este' : escopo === 'este_e_proximos' ? 'este_e_futuros' : 'todos'
+            escopo === 'este' ? 'este' : escopo === 'este_e_proximos' ? 'este_e_proximos' : 'todos'
           const resFixo = await fixoService.alterarComEscopo(
-            wsId,
             lancamentoAlvoEscopo.id,
+            wsId,
             escopoFixo,
             {
-              descricao: dadosEdicaoPendentes?.descricao,
-              valor: dadosEdicaoPendentes?.valor ? Number(dadosEdicaoPendentes.valor) : undefined,
+              descricao: dadosEdicaoPendentes?.descricao || lancamentoAlvoEscopo.descricao,
+              valor: Number(dadosEdicaoPendentes?.valor ?? lancamentoAlvoEscopo.valor),
+              data: dadosEdicaoPendentes?.data || lancamentoAlvoEscopo.data,
               categoria_id: dadosEdicaoPendentes?.categoria_id,
               subcategoria_id: dadosEdicaoPendentes?.subcategoria_id,
               observacao: dadosEdicaoPendentes?.observacao,
@@ -606,8 +608,8 @@ export default function CartoesPage() {
             user?.id,
           )
           toast.success(
-            `${resFixo.afetados} lançamento(s) da série atualizado(s). ${
-              resFixo.faturas_recalculadas?.length > 0
+            `${resFixo.alterados || 1} lançamento(s) da série atualizado(s). ${
+              resFixo.faturas_recalculadas && resFixo.faturas_recalculadas.length > 0
                 ? `Faturas: ${resFixo.faturas_recalculadas.join(', ')}`
                 : ''
             }`,
@@ -1151,11 +1153,18 @@ export default function CartoesPage() {
                                   const numP = l.numero_parcela || 1
                                   const totP = l.total_parcelas || l.quantidade_parcelas || 1
                                   const ehParcela = totP > 1
+                                  const ehFixo = Boolean(l.serie_id || l.regime === 'fixo')
+                                  const ehPrevisao =
+                                    l.natureza === 'previsao' || l.status_pagamento === 'previsao'
 
                                   return (
                                     <div
                                       key={l.id}
-                                      className="flex items-center justify-between p-2.5 sm:px-3 hover:bg-slate-50 text-xs transition group"
+                                      className={`flex items-center justify-between p-2.5 sm:px-3 text-xs transition group ${
+                                        ehPrevisao
+                                          ? 'bg-amber-50/40 hover:bg-amber-50/70'
+                                          : 'hover:bg-slate-50'
+                                      }`}
                                     >
                                       <div className="flex items-center gap-2.5 min-w-0">
                                         <span className="text-slate-400 text-[11px] font-mono shrink-0">
@@ -1169,6 +1178,16 @@ export default function CartoesPage() {
                                             {ehParcela && (
                                               <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
                                                 {numP}/{totP}
+                                              </Badge>
+                                            )}
+                                            {ehFixo && (
+                                              <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
+                                                Fixo
+                                              </Badge>
+                                            )}
+                                            {ehPrevisao && (
+                                              <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] py-0 px-1.5 font-semibold shrink-0">
+                                                Previsão
                                               </Badge>
                                             )}
                                           </div>

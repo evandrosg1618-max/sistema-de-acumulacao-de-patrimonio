@@ -670,6 +670,30 @@ export const fixoService = {
     const ehUltima = !posteriores || posteriores.length === 0
     return { ehUltima, serie }
   },
+
+  // Alias para lancamentoService.alterarFixoComEscopo para compatibilidade entre páginas
+  async alterarComEscopo(
+    lancamentoId: string,
+    workspaceId: string,
+    escopo: 'este' | 'este_e_proximos' | 'todos',
+    novosDados: {
+      valor: number
+      data: string
+      descricao: string
+      categoria_id?: string | null
+      subcategoria_id?: string | null
+      observacao?: string | null
+    },
+    userId?: string,
+  ) {
+    return lancamentoService.alterarFixoComEscopo(
+      lancamentoId,
+      workspaceId,
+      escopo,
+      novosDados,
+      userId,
+    )
+  },
 }
 
 export const cartaoService = {
