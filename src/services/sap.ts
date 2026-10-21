@@ -1809,6 +1809,8 @@ export const faturaService = {
     totalPago: number
     saldoDevedor: number
     status: 'aberta' | 'fechada' | 'paga'
+    statusExibicao: 'Aberta' | 'Fechada' | 'Paga'
+    isAtrasada: boolean
     itens: any[]
   }> {
     const fatura = await this.getOrCreateFatura(workspaceId, cartaoId, competencia)
@@ -1972,7 +1974,34 @@ export const faturaService = {
     const saldoDevedor = Math.max(0, totalCompras - totalPago)
 
     // Determina status dinâmico: se pago integralmente, 'paga'; caso contrário, segue fatura.status
-    const statusDinamico = totalPago >= totalCompras && totalCompras > 0 ? 'paga' : fatura.status
+    const statusDinamico =
+      (totalPago >= totalCompras && totalCompras > 0) || fatura.status === 'paga'
+        ? 'paga'
+        : fatura.status
+
+    // Regra Build 5: Exibição deriva de data atual × fechamento/vencimento/pagamento
+    // • "Aberta" = fatura cuja data atual AINDA NÃO chegou na data de fechamento;
+    // • Após a data de fechamento, exibir "Fechada" — e o botão Pagar continua, pois fechada ≠ paga;
+    // • Se fechada, não paga e data de vencimento já passou: tarja vermelha "Fatura atrasada"
+    const hojeStr = new Date().toISOString().slice(0, 10)
+    let statusExibicao: 'Aberta' | 'Fechada' | 'Paga' = 'Aberta'
+    let isAtrasada = false
+
+    if (statusDinamico === 'paga') {
+      statusExibicao = 'Paga'
+    } else {
+      const dataFech = fatura.data_fechamento || `${competencia}-01`
+      const dataVenc = fatura.data_vencimento || `${competencia}-28`
+
+      if (hojeStr >= dataFech) {
+        statusExibicao = 'Fechada'
+        if (hojeStr > dataVenc) {
+          isAtrasada = true
+        }
+      } else {
+        statusExibicao = 'Aberta'
+      }
+    }
 
     return {
       fatura,
@@ -1980,6 +2009,8 @@ export const faturaService = {
       totalPago,
       saldoDevedor,
       status: statusDinamico,
+      statusExibicao,
+      isAtrasada,
       itens: itensFatura,
     }
   },
