@@ -105,6 +105,7 @@ export function ModalLancamento({
 
   const [categoriaId, setCategoriaId] = useState('')
   const [subcategoriaId, setSubcategoriaId] = useState('')
+  const [buscaSubcategoria, setBuscaSubcategoria] = useState('')
   const [pago, setPago] = useState(true)
   const [observacao, setObservacao] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -132,6 +133,7 @@ export function ModalLancamento({
 
     if (initialData) {
       setTipo(initialData.tipo)
+>>>>REPLACE
       setDescricao(initialData.descricao || '')
       setValor(initialData.valor ? initialData.valor.toFixed(2).replace('.', ',') : '')
       setData(initialData.data || new Date().toISOString().split('T')[0])

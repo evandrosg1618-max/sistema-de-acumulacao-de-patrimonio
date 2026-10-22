@@ -694,15 +694,20 @@ export const fixoService = {
     data_inicio?: string
     valor?: number
   }> {
-    const { data, error } = await db.rpc('obter_status_serie_fixa_rpc', {
-      p_workspace_id: workspaceId,
-      p_lancamento_id: lancamentoId,
-    })
-    if (error) {
-      console.warn('Erro ao obter status da série fixa:', error)
+    try {
+      const { data, error } = await db.rpc('obter_status_serie_fixa_rpc', {
+        p_workspace_id: workspaceId,
+        p_lancamento_id: lancamentoId,
+      })
+      if (error) {
+        console.warn('Erro ao obter status da série fixa:', error)
+        return { encontrado: false, tem_pagas: false, competencias_pagas: [] }
+      }
+      return (data as any) || { encontrado: false, tem_pagas: false, competencias_pagas: [] }
+    } catch (e) {
+      console.warn('Exceção ao obter status da série fixa:', e)
       return { encontrado: false, tem_pagas: false, competencias_pagas: [] }
     }
-    return data as any
   },
 
   // Alias para lancamentoService.alterarFixoComEscopo para compatibilidade entre páginas
@@ -3486,15 +3491,24 @@ export const lancamentoService = {
 
     // Se for novo (único ou parcelado)
     if (!dados.id) {
+      const { fixo: _f, ...restNovo } = dados as any
       return await this.create({
-        ...dados,
+        ...restNovo,
         workspace_id: wsId,
         created_by: userId || dados.created_by,
       })
     }
 
-    // Se for edição
-    return await this.update(dados.id, wsId, dados, userId)
+    // Se for edição de lançamento existente:
+    // Remover campos não colunares da tabela lancamentos (como 'fixo', 'created_by', etc)
+    const {
+      fixo: _fixoParam,
+      created_by: _createdByParam,
+      serie_id: _serieIdParam,
+      ...camposParaAtualizar
+    } = dados as any
+
+    return await this.update(dados.id, wsId, camposParaAtualizar, userId)
   },
 
   async update(
@@ -3504,6 +3518,7 @@ export const lancamentoService = {
       descricao?: string
       valor?: number
       data?: string
+      regime?: 'unico' | 'fixo' | 'parcelado'
       categoria_id?: string | null
       subcategoria_id?: string | null
       status_pagamento?: 'pago' | 'pendente'
@@ -3512,6 +3527,7 @@ export const lancamentoService = {
       conta_destino_id?: string | null
       cartao_id?: string | null
       meio_pagamento_tipo?: 'CONTA' | 'CARTAO' | 'DINHEIRO'
+      quantidade_parcelas?: number
     },
     userId?: string,
   ): Promise<any> {
@@ -3601,10 +3617,22 @@ export const lancamentoService = {
       }
     }
 
+    // Higienizar explicitamente payload do update para garantir que apenas colunas válidas da tabela lancamentos sejam enviadas
+    const {
+      fixo: _discardFixo,
+      created_by: _discardCreatedBy,
+      total_parcelas: _discardTotal,
+      lancamento_pai_id: _discardPai,
+      numero_parcela: _discardNum,
+      id: _discardId,
+      workspace_id: _discardWs,
+      ...safeUpdates
+    } = updates as any
+
     const { data: updated, error } = await db
       .from('lancamentos')
       .update({
-        ...updates,
+        ...safeUpdates,
         valor: valorFinal,
         competencia: novaCompetencia,
         status_pagamento: statusDesejado,

@@ -124,7 +124,7 @@ export function ValorCalculadoraInput({
   return (
     <div className="space-y-1.5 relative">
       <div className="relative flex items-center">
-        <span className="absolute left-3 text-sm font-bold text-sky-800 z-10">R$</span>
+        <span className="absolute left-3 text-sm font-bold text-slate-700 z-10">R$</span>
         <Input
           ref={inputRef}
           id={id}
@@ -135,50 +135,50 @@ export function ValorCalculadoraInput({
           required={required}
           placeholder={placeholder}
           title="Em desktop: digite números e operadores (+, -, *, /) e aperte Enter para calcular"
-          className={`pl-10 pr-10 font-bold text-base bg-sky-50/80 border-sky-300 text-sky-950 placeholder:text-sky-400 focus-visible:ring-sky-500 focus-visible:border-sky-500 hover:bg-sky-50 ${className}`}
+          className={`pl-10 pr-10 font-bold text-base bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 hover:border-slate-400 ${className}`}
         />
         <button
           type="button"
           onClick={abrirCalc}
           title="Abrir calculadora integrada (botão = para aplicar)"
-          className="absolute right-2.5 p-1 text-sky-700 hover:text-sky-950 transition hover:bg-sky-100 rounded"
+          className="absolute right-2.5 p-1 text-slate-600 hover:text-slate-900 transition hover:bg-slate-100 rounded"
         >
-          <Calculator className="w-4 h-4" />
+          <Calculator className="w-4 h-4 text-emerald-600" />
         </button>
       </div>
 
       {showCalc && (
-        <div className="absolute right-0 top-12 z-50 bg-white rounded-xl shadow-2xl border border-sky-200 p-3 w-72 space-y-2 animate-in fade-in-50 zoom-in-95">
-          <div className="flex items-center justify-between pb-1 border-b border-sky-100">
-            <span className="text-[11px] font-bold text-sky-900 uppercase tracking-wider flex items-center gap-1">
-              <Calculator className="w-3.5 h-3.5 text-sky-700" />
+        <div className="absolute right-0 top-12 z-50 bg-white rounded-xl shadow-2xl border border-slate-300 p-3 w-72 space-y-2 animate-in fade-in-50 zoom-in-95">
+          <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+            <span className="text-[11px] font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1">
+              <Calculator className="w-3.5 h-3.5 text-emerald-600" />
               Calculadora SAP
             </span>
             <div className="flex items-center gap-1.5">
-              <span className="text-[10px] text-sky-600 hidden sm:inline">Teclado PC ativo</span>
+              <span className="text-[10px] text-slate-500 hidden sm:inline">Teclado PC ativo</span>
               <button
                 type="button"
                 onClick={() => setShowCalc(false)}
-                className="text-slate-400 hover:text-slate-600 p-0.5"
+                className="text-slate-500 hover:text-slate-800 p-0.5"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
 
-          {/* Visor em tonalidade azul claro com texto de alto contraste */}
-          <div className="bg-sky-50/90 p-2.5 rounded-lg text-right font-mono text-base font-bold text-sky-950 break-all min-h-[38px] border border-sky-200 shadow-inner">
+          {/* Visor em tonalidade contrastada com texto preto e fundo nítido */}
+          <div className="bg-slate-100 p-2.5 rounded-lg text-right font-mono text-lg font-bold text-slate-900 break-all min-h-[42px] border border-slate-300 shadow-inner">
             {expression || '0'}
           </div>
 
-          {/* Teclado da Calculadora: sempre disponível; no mobile é o teclado grande na tela */}
+          {/* Teclado da Calculadora: teclas com alto contraste (fundo cinza escuro/médio, letras pretas/escuras nítidas) */}
           <div className="grid grid-cols-4 gap-1.5 text-xs">
             <Button
               type="button"
               variant="outline"
               size="sm"
               onClick={handleClear}
-              className="col-span-2 text-rose-600 font-bold"
+              className="col-span-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold border-rose-300"
             >
               C
             </Button>
@@ -187,7 +187,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={handleBackspace}
-              className="text-slate-600"
+              className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold border-slate-300"
             >
               <Delete className="w-3.5 h-3.5" />
             </Button>
@@ -196,7 +196,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('/')}
-              className="text-emerald-700 font-bold"
+              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border-emerald-300 text-sm"
             >
               ÷
             </Button>
@@ -206,7 +206,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('7')}
-              className="font-semibold"
+              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               7
             </Button>
@@ -215,7 +215,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('8')}
-              className="font-semibold"
+              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               8
             </Button>
@@ -224,7 +224,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('9')}
-              className="font-semibold"
+              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               9
             </Button>
@@ -233,7 +233,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('*')}
-              className="text-emerald-700 font-bold"
+              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border-emerald-300 text-sm"
             >
               ×
             </Button>
@@ -243,7 +243,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('4')}
-              className="font-semibold"
+              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               4
             </Button>
@@ -252,7 +252,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('5')}
-              className="font-semibold"
+              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               5
             </Button>
@@ -261,7 +261,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('6')}
-              className="font-semibold"
+              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               6
             </Button>
@@ -270,7 +270,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('-')}
-              className="text-emerald-700 font-bold"
+              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border-emerald-300 text-sm"
             >
               -
             </Button>
@@ -280,7 +280,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('1')}
-              className="font-semibold"
+              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               1
             </Button>
@@ -289,7 +289,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('2')}
-              className="font-semibold"
+              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               2
             </Button>
@@ -298,7 +298,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('3')}
-              className="font-semibold"
+              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               3
             </Button>
@@ -307,7 +307,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('+')}
-              className="text-emerald-700 font-bold"
+              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border-emerald-300 text-sm"
             >
               +
             </Button>
@@ -317,7 +317,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('0')}
-              className="col-span-2 font-semibold"
+              className="col-span-2 bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               0
             </Button>
@@ -326,7 +326,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('.')}
-              className="font-bold"
+              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
             >
               .
             </Button>
@@ -334,7 +334,7 @@ export function ValorCalculadoraInput({
               type="button"
               size="sm"
               onClick={handleCalcular}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-base shadow-sm"
             >
               =
             </Button>
