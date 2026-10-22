@@ -72,14 +72,14 @@ export function ModalEscolhaEscopoSerie({
         <DialogHeader>
           <div className="flex items-center gap-2">
             {isEditar ? (
-              <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600">
+              <div className="p-2 rounded-full bg-blue-100 text-blue-600">
                 <Calendar className="w-5 h-5" />
               </div>
             ) : (
-              <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/40 text-red-600">
+              <div className="p-2 rounded-full bg-red-100 text-red-600">
                 <AlertTriangle className="w-5 h-5" />
               </div>
-            )}
+            )}{' '}
             <div>
               <DialogTitle className="text-lg font-semibold text-foreground">
                 {isEditar
@@ -112,17 +112,17 @@ export function ModalEscolhaEscopoSerie({
               !temPagas ? (
                 /* Edição - Se NÃO houver recorrência paga: 3 linhas */
                 <div className="space-y-2.5 text-sm text-foreground">
-                  <div className="flex items-start gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                  <div className="flex items-start gap-2 text-emerald-600 font-medium">
                     <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
                     <span>Não existem recorrências pagas</span>
                   </div>
-                  <div className="flex items-start gap-2 text-muted-foreground">
-                    <span className="text-foreground font-medium">•</span>
+                  <div className="flex items-start gap-2 text-slate-600">
+                    <span className="text-slate-900 font-medium">•</span>
                     <span>Serão alteradas todas as recorrências não pagas</span>
                   </div>
                   {dataFormatada ? (
-                    <div className="p-2.5 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
-                      <p className="text-xs font-bold text-red-600 dark:text-red-400 leading-relaxed">
+                    <div className="p-2.5 rounded-md bg-rose-50 border border-rose-200">
+                      <p className="text-xs font-bold text-rose-700 leading-relaxed">
                         • A data escolhida ({dataFormatada}) será a data inicial das novas
                         recorrências. Confira se está correta.
                       </p>
@@ -132,25 +132,25 @@ export function ModalEscolhaEscopoSerie({
               ) : (
                 /* Edição - Se HOUVER recorrências pagas: 4 linhas */
                 <div className="space-y-2.5 text-sm text-foreground">
-                  <div className="flex items-start gap-2 text-amber-600 dark:text-amber-400 font-medium">
+                  <div className="flex items-start gap-2 text-amber-700 font-medium">
                     <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                     <span>Existem recorrências pagas na competência de {textoCompetencias}</span>
                   </div>
-                  <div className="flex items-start gap-2 text-muted-foreground">
-                    <span className="text-foreground font-medium">•</span>
+                  <div className="flex items-start gap-2 text-slate-600">
+                    <span className="text-slate-900 font-medium">•</span>
                     <span>
                       Ao confirmar a operação, serão alteradas todas as recorrências não pagas
                     </span>
                   </div>
-                  <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/60 p-2 rounded">
+                  <div className="flex items-start gap-2 text-xs text-slate-600 bg-slate-100 p-2 rounded">
                     <span>
                       • Caso deseje alterar também as recorrências pagas, desfaça o pagamento dos
                       respectivos lançamentos ou fatura.
                     </span>
                   </div>
                   {dataFormatada ? (
-                    <div className="p-2.5 rounded-md bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900">
-                      <p className="text-xs font-bold text-red-600 dark:text-red-400 leading-relaxed">
+                    <div className="p-2.5 rounded-md bg-rose-50 border border-rose-200">
+                      <p className="text-xs font-bold text-rose-700 leading-relaxed">
                         • A data escolhida ({dataFormatada}) será a data inicial das novas
                         recorrências. Confira se está correta.
                       </p>
@@ -162,29 +162,29 @@ export function ModalEscolhaEscopoSerie({
             !temPagas ? (
               /* Exclusão - Se NÃO houver recorrência paga: 2 linhas */
               <div className="space-y-2.5 text-sm text-foreground">
-                <div className="flex items-start gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                <div className="flex items-start gap-2 text-emerald-600 font-medium">
                   <CheckCircle2 className="w-4 h-4 mt-0.5 shrink-0" />
                   <span>Não existem recorrências pagas</span>
                 </div>
-                <div className="flex items-start gap-2 text-muted-foreground">
-                  <span className="text-foreground font-medium">•</span>
+                <div className="flex items-start gap-2 text-slate-600">
+                  <span className="text-slate-900 font-medium">•</span>
                   <span>Serão excluídas todas as recorrências</span>
                 </div>
               </div>
             ) : (
               /* Exclusão - Se HOUVER recorrências pagas: 3 linhas */
               <div className="space-y-2.5 text-sm text-foreground">
-                <div className="flex items-start gap-2 text-amber-600 dark:text-amber-400 font-medium">
+                <div className="flex items-start gap-2 text-amber-700 font-medium">
                   <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
                   <span>Existem recorrências pagas na competência de {textoCompetencias}</span>
                 </div>
-                <div className="flex items-start gap-2 text-muted-foreground">
-                  <span className="text-foreground font-medium">•</span>
+                <div className="flex items-start gap-2 text-slate-600">
+                  <span className="text-slate-900 font-medium">•</span>
                   <span>
                     Ao confirmar a operação, serão excluídas todas as recorrências não pagas
                   </span>
                 </div>
-                <div className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/60 p-2 rounded">
+                <div className="flex items-start gap-2 text-xs text-slate-600 bg-slate-100 p-2 rounded">
                   <span>
                     • Caso deseje excluir também as recorrências pagas, desfaça o pagamento dos
                     respectivos lançamentos ou da fatura.

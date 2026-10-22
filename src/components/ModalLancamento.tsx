@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react'
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -127,13 +126,55 @@ export function ModalLancamento({
     return 'dinheiro:principal'
   }
 
+  // Lista de todas as subcategorias para o tipo atual ('despesa' ou 'receita'), ordenadas alfabeticamente
+  const subcategoriasDisponiveis = React.useMemo(() => {
+    if (tipo === 'transferencia') return []
+    const catsDoTipo = categorias.filter((c) =>
+      tipo === 'receita' ? c.tipo === 'receita' : c.tipo === 'despesa',
+    )
+    const lista: Array<{
+      id: string
+      nome: string
+      categoriaId: string
+      categoriaNome: string
+      categoriaCor?: string | null
+    }> = []
+
+    catsDoTipo.forEach((cat) => {
+      if (cat.subcategorias && cat.subcategorias.length > 0) {
+        cat.subcategorias.forEach((sub) => {
+          lista.push({
+            id: sub.id,
+            nome: sub.nome,
+            categoriaId: cat.id,
+            categoriaNome: cat.nome,
+            categoriaCor: cat.cor,
+          })
+        })
+      } else {
+        // Se a categoria não tem subcategorias cadastradas, gera opção padrão com o próprio nome da categoria
+        lista.push({
+          id: `cat-fallback-${cat.id}`,
+          nome: cat.nome,
+          categoriaId: cat.id,
+          categoriaNome: cat.nome,
+          categoriaCor: cat.cor,
+        })
+      }
+    })
+
+    // Ordenar estritamente em ordem alfabética pelo nome da subcategoria
+    return lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }))
+  }, [categorias, tipo])
+
   // Resetar/Inicializar formulário
   useEffect(() => {
     if (!open) return
 
+    setBuscaSubcategoria('')
+
     if (initialData) {
       setTipo(initialData.tipo)
->>>>REPLACE
       setDescricao(initialData.descricao || '')
       setValor(initialData.valor ? initialData.valor.toFixed(2).replace('.', ',') : '')
       setData(initialData.data || new Date().toISOString().split('T')[0])
@@ -154,7 +195,10 @@ export function ModalLancamento({
       setContaOrigemId(initialData.conta_origem_id || (contas.length > 0 ? contas[0].id : ''))
       setContaDestinoId(initialData.conta_destino_id || (contas.length > 1 ? contas[1].id : ''))
       setCategoriaId(initialData.categoria_id || '')
-      setSubcategoriaId(initialData.subcategoria_id || '')
+      setSubcategoriaId(
+        initialData.subcategoria_id ||
+          (initialData.categoria_id ? `cat-fallback-${initialData.categoria_id}` : ''),
+      )
       setPago(initialData.status_pagamento === 'pago')
       setObservacao(initialData.observacao || '')
       // Se for lançamento com parcelas, limpa eventual sufixo '(x/y)' do título
@@ -205,15 +249,13 @@ export function ModalLancamento({
       }
       setContaOrigemId(contas.length > 0 ? contas[0].id : '')
       setContaDestinoId(contas.length > 1 ? contas[1].id : '')
-      const catsDoTipo = categorias.filter((c) =>
-        tipoPadrao === 'receita' ? c.tipo === 'receita' : c.tipo === 'despesa',
-      )
-      setCategoriaId(catsDoTipo.length > 0 ? catsDoTipo[0].id : '')
+      setCategoriaId('')
       setSubcategoriaId('')
       setPago(true)
       setObservacao('')
       setQuantidadeParcelas(1)
       setMostrarOpcoesRepeticao(false)
+      // Requisito: botões "Lançamento fixo" e "Lançamento parcelado" iniciam desmarcados ao abrir o painel
       setModoRepeticao('nenhum')
       setFixoPrazo('indeterminado')
       setFixoOcorrencias(12)
@@ -221,22 +263,13 @@ export function ModalLancamento({
     }
   }, [open, initialData, tipoPadrao, cartaoPadraoId, dataPadrao])
 
-  // Ajustar categorias ao mudar o tipo
+  // Ajustar categoria/subcategoria ao mudar tipo
   useEffect(() => {
     if (tipo === 'transferencia') {
       setCategoriaId('')
       setSubcategoriaId('')
-    } else {
-      const catsDoTipo = categorias.filter((c) =>
-        tipo === 'receita' ? c.tipo === 'receita' : c.tipo === 'despesa',
-      )
-      if (catsDoTipo.length > 0 && !catsDoTipo.find((c) => c.id === categoriaId)) {
-        setCategoriaId(catsDoTipo[0].id)
-        setSubcategoriaId('')
-      }
     }
-  }, [tipo, categorias])
-
+  }, [tipo])
   // Buscar consumo e limite do orçamento da categoria para o mês da data selecionada
   useEffect(() => {
     if (!workspaceId || !categoriaId || tipo !== 'despesa') {
@@ -276,12 +309,32 @@ export function ModalLancamento({
     }
   }, [workspaceId, categoriaId, data, tipo])
 
-  const subcategoriasDaCategoria = categorias.find((c) => c.id === categoriaId)?.subcategorias || []
+  // Subcategorias filtradas pelo termo digitado pelo usuário (mantendo ordem alfabética)
+  const subcategoriasFiltradas = React.useMemo(() => {
+    if (!buscaSubcategoria.trim()) return subcategoriasDisponiveis
+    const termo = buscaSubcategoria.toLowerCase().trim()
+    return subcategoriasDisponiveis.filter(
+      (s) => s.nome.toLowerCase().includes(termo) || s.categoriaNome.toLowerCase().includes(termo),
+    )
+  }, [subcategoriasDisponiveis, buscaSubcategoria])
+
+  // Handler de seleção da Subcategoria (vincula categoria automaticamente)
+  const handleSelecionarSubcategoria = (subId: string) => {
+    setSubcategoriaId(subId)
+    const encontrada = subcategoriasDisponiveis.find((s) => s.id === subId)
+    if (encontrada) {
+      setCategoriaId(encontrada.categoriaId)
+    }
+  }
 
   const handleSubmeter = async (e: React.FormEvent, criarOutro = false) => {
     e.preventDefault()
 
     if (!descricao.trim()) {
+      return
+    }
+
+    if (tipo !== 'transferencia' && !subcategoriaId) {
       return
     }
 
@@ -359,7 +412,12 @@ export function ModalLancamento({
           conta_destino_id: tipo === 'transferencia' ? contaDestinoId || null : null,
           cartao_id: resolvedCartaoId,
           categoria_id: tipo !== 'transferencia' ? categoriaId || null : null,
-          subcategoria_id: tipo !== 'transferencia' && subcategoriaId ? subcategoriaId : null,
+          subcategoria_id:
+            tipo !== 'transferencia' &&
+            subcategoriaId &&
+            !subcategoriaId.startsWith('cat-fallback-')
+              ? subcategoriaId
+              : null,
           status_pagamento: meioFinal === 'CARTAO' ? 'pendente' : pago ? 'pago' : 'pendente',
           data_pagamento: pago ? data : null,
           observacao: observacao.trim() || null,
@@ -424,10 +482,10 @@ export function ModalLancamento({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white text-slate-900 border-slate-200 shadow-xl">
           <form onSubmit={(e) => handleSubmeter(e, false)}>
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
+            <DialogHeader className="pb-2 border-b border-slate-100">
+              <DialogTitle className="flex items-center gap-2 text-slate-900 font-bold text-base">
                 {tipo === 'despesa' && <TrendingDown className="w-5 h-5 text-rose-600" />}
                 {tipo === 'receita' && <TrendingUp className="w-5 h-5 text-emerald-600" />}
                 {tipo === 'transferencia' && <ArrowRightLeft className="w-5 h-5 text-blue-600" />}
@@ -435,11 +493,6 @@ export function ModalLancamento({
                   {initialData ? 'Editar Lançamento' : `Novo Lançamento — ${tipo.toUpperCase()}`}
                 </span>
               </DialogTitle>
-              <DialogDescription>
-                {initialData
-                  ? 'Atualize as informações do lançamento com recálculo automático de saldos e faturas.'
-                  : 'Preencha os dados do lançamento financeiro familiar.'}
-              </DialogDescription>
             </DialogHeader>
 
             {/* Abas para alternar tipo de lançamento se for novo */}
@@ -531,8 +584,11 @@ export function ModalLancamento({
                       value={data}
                       onChange={(e) => setData(e.target.value)}
                       required
-                      className="text-xs"
+                      className="text-xs pr-10 text-slate-900 bg-white border-slate-300 font-medium focus:border-slate-500 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-80"
                     />
+                    <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 bg-slate-100 p-1 rounded border border-slate-200">
+                      <Calendar className="w-4 h-4 text-slate-800 stroke-[2.5]" />
+                    </div>
                   </div>
                 </div>
 
@@ -696,49 +752,78 @@ export function ModalLancamento({
               {/* PAINEL EXPANSÍVEL: REPETIR DESPESA / LANÇAMENTO (OCR OrganiZe Página 2) */}
               {mostrarOpcoesRepeticao && (
                 <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
-                  <div className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                    Repetir{' '}
-                    {tipo === 'despesa'
-                      ? 'despesa'
-                      : tipo === 'receita'
-                        ? 'receita'
-                        : 'transferência'}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                      Repetir{' '}
+                      {tipo === 'despesa'
+                        ? 'despesa'
+                        : tipo === 'receita'
+                          ? 'receita'
+                          : 'transferência'}
+                    </span>
+                    {modoRepeticao !== 'nenhum' && (
+                      <button
+                        type="button"
+                        onClick={() => setModoRepeticao('nenhum')}
+                        className="text-[11px] font-semibold text-slate-500 hover:text-slate-900 transition"
+                      >
+                        Voltar a Lançamento Único
+                      </button>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-3">
-                    <label
-                      className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer text-xs font-semibold transition ${
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Clicar de novo no mesmo botão desmarca e volta a LANÇAMENTO ÚNICO sem efeito residual
+                        setModoRepeticao((prev) => (prev === 'fixo' ? 'nenhum' : 'fixo'))
+                      }}
+                      className={`flex items-center gap-2.5 p-3 rounded-lg border text-xs font-semibold text-left transition select-none ${
                         modoRepeticao === 'fixo'
-                          ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-xs'
+                          ? 'bg-emerald-50 border-emerald-500 text-emerald-900 shadow-xs ring-1 ring-emerald-400'
                           : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
                       }`}
                     >
-                      <input
-                        type="radio"
-                        name="modo_repeticao"
-                        checked={modoRepeticao === 'fixo'}
-                        onChange={() => setModoRepeticao('fixo')}
-                        className="text-emerald-600 focus:ring-emerald-500"
-                      />
+                      <span
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                          modoRepeticao === 'fixo'
+                            ? 'border-emerald-600 bg-emerald-600 text-white'
+                            : 'border-slate-400 bg-white'
+                        }`}
+                      >
+                        {modoRepeticao === 'fixo' && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                        )}
+                      </span>
                       <span>Lançamento fixo</span>
-                    </label>
+                    </button>
 
-                    <label
-                      className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer text-xs font-semibold transition ${
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Clicar de novo no mesmo botão desmarca e volta a LANÇAMENTO ÚNICO sem efeito residual
+                        setModoRepeticao((prev) => (prev === 'parcelado' ? 'nenhum' : 'parcelado'))
+                      }}
+                      className={`flex items-center gap-2.5 p-3 rounded-lg border text-xs font-semibold text-left transition select-none ${
                         modoRepeticao === 'parcelado'
-                          ? 'bg-indigo-50 border-indigo-500 text-indigo-900 shadow-xs'
+                          ? 'bg-indigo-50 border-indigo-500 text-indigo-900 shadow-xs ring-1 ring-indigo-400'
                           : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
                       }`}
                     >
-                      <input
-                        type="radio"
-                        name="modo_repeticao"
-                        checked={modoRepeticao === 'parcelado'}
-                        onChange={() => setModoRepeticao('parcelado')}
-                        className="text-indigo-600 focus:ring-indigo-500"
-                      />
+                      <span
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 ${
+                          modoRepeticao === 'parcelado'
+                            ? 'border-indigo-600 bg-indigo-600 text-white'
+                            : 'border-slate-400 bg-white'
+                        }`}
+                      >
+                        {modoRepeticao === 'parcelado' && (
+                          <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                        )}
+                      </span>
                       <span>Lançamento parcelado</span>
-                    </label>
+                    </button>
                   </div>
 
                   {/* CONFIGURAÇÃO DO FIXO (DOIS PASSOS: DURAÇÃO e PERIODICIDADE) */}
@@ -904,64 +989,77 @@ export function ModalLancamento({
                 </div>
               )}
 
-              {/* Categoria e Subcategoria */}
+              {/* REQUISITO: Somente SUBCATEGORIA no modal (Categoria oculta e vinculada automaticamente) */}
               {tipo !== 'transferencia' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="lan-cat" className="text-xs font-semibold text-slate-700">
-                      Categoria
+                <div>
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="lan-subcat" className="text-xs font-semibold text-slate-700">
+                      Subcategoria *
                     </Label>
-                    <Select value={categoriaId} onValueChange={setCategoriaId}>
-                      <SelectTrigger className="mt-1 text-xs">
-                        <SelectValue placeholder="Selecione a categoria" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {categorias
-                          .filter((c) =>
-                            tipo === 'receita' ? c.tipo === 'receita' : c.tipo === 'despesa',
-                          )
-                          .map((c) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className="w-2.5 h-2.5 rounded-full"
-                                  style={{ backgroundColor: c.cor || '#64748B' }}
-                                />
-                                <span>{c.nome}</span>
-                              </div>
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
+                    {categoriaId && (
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        Categoria vinculada:{' '}
+                        <strong className="text-slate-800">
+                          {categorias.find((c) => c.id === categoriaId)?.nome}
+                        </strong>
+                      </span>
+                    )}
                   </div>
 
-                  <div>
-                    <Label htmlFor="lan-subcat" className="text-xs font-semibold text-slate-700">
-                      Subcategoria (Opcional)
-                    </Label>
-                    <Select
-                      value={subcategoriaId}
-                      onValueChange={setSubcategoriaId}
-                      disabled={subcategoriasDaCategoria.length === 0}
+                  <Select
+                    value={subcategoriaId}
+                    onValueChange={handleSelecionarSubcategoria}
+                    required
+                  >
+                    <SelectTrigger
+                      id="lan-subcat"
+                      className="mt-1 text-xs bg-white text-slate-900 border-slate-300 font-medium"
                     >
-                      <SelectTrigger className="mt-1 text-xs">
-                        <SelectValue
-                          placeholder={
-                            subcategoriasDaCategoria.length === 0
-                              ? 'Sem subcategorias'
-                              : 'Selecione subcategoria'
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {subcategoriasDaCategoria.map((s) => (
-                          <SelectItem key={s.id} value={s.id}>
-                            {s.nome}
+                      <SelectValue placeholder="Selecione a subcategoria obrigatória (*)" />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-72 bg-white text-slate-900 border-slate-200">
+                      {/* Campo de filtro DIGITÁVEL */}
+                      <div className="p-2 border-b border-slate-100 sticky top-0 bg-white z-10">
+                        <div className="relative">
+                          <Input
+                            type="text"
+                            value={buscaSubcategoria}
+                            onChange={(e) => setBuscaSubcategoria(e.target.value)}
+                            placeholder="Filtrar subcategoria..."
+                            className="h-8 text-xs bg-slate-50 text-slate-900 border-slate-200"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                      </div>
+
+                      {subcategoriasFiltradas.length === 0 ? (
+                        <div className="p-3 text-center text-xs text-slate-400">
+                          Nenhuma subcategoria encontrada
+                        </div>
+                      ) : (
+                        subcategoriasFiltradas.map((s) => (
+                          <SelectItem
+                            key={s.id}
+                            value={s.id}
+                            className="text-xs cursor-pointer py-2"
+                          >
+                            <div className="flex items-center justify-between w-full gap-2">
+                              <span className="font-semibold text-slate-900">{s.nome}</span>
+                              <span className="text-[11px] text-slate-400 font-normal">
+                                ({s.categoriaNome})
+                              </span>
+                            </div>
                           </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {!subcategoriaId && (
+                    <p className="text-[11px] text-rose-500 mt-1">
+                      * Campo obrigatório para categorização do fluxo financeiro
+                    </p>
+                  )}
                 </div>
               )}
 

@@ -3500,6 +3500,36 @@ export const lancamentoService = {
     }
 
     // Se for edição de lançamento existente:
+    const anterior = await this.getById(dados.id)
+    const regimeAnterior = anterior?.regime || 'unico'
+    const regimeNovo = dados.regime || 'unico'
+
+    // REQUISITO: Conversão de tipo na edição: permitir mudar ÚNICO ↔ FIXO/PARCELADO
+    if (anterior && regimeAnterior !== regimeNovo) {
+      return await this.converterRegime(
+        wsId,
+        dados.id,
+        regimeNovo,
+        {
+          descricao: dados.descricao,
+          valor: Number(dados.valor),
+          data: dados.data,
+          meio_pagamento_tipo: dados.meio_pagamento_tipo,
+          conta_origem_id: dados.conta_origem_id,
+          conta_destino_id: dados.conta_destino_id,
+          cartao_id: dados.cartao_id,
+          categoria_id: dados.categoria_id,
+          subcategoria_id: dados.subcategoria_id,
+          observacao: dados.observacao,
+          quantidade_parcelas: dados.quantidade_parcelas,
+          prazo: dados.fixo?.prazo,
+          periodicidade: dados.fixo?.periodicidade,
+          quantidade_total: dados.fixo?.quantidade_total,
+        },
+        userId || dados.created_by,
+      )
+    }
+
     // Remover campos não colunares da tabela lancamentos (como 'fixo', 'created_by', etc)
     const {
       fixo: _fixoParam,
@@ -3509,6 +3539,57 @@ export const lancamentoService = {
     } = dados as any
 
     return await this.update(dados.id, wsId, camposParaAtualizar, userId)
+  },
+
+  // Conversão atômica de tipos na edição (Único <-> Fixo <-> Parcelado)
+  async converterRegime(
+    workspaceId: string,
+    lancamentoId: string,
+    novoRegime: 'unico' | 'fixo' | 'parcelado',
+    dados: {
+      descricao: string
+      valor: number
+      data: string
+      meio_pagamento_tipo: 'CONTA' | 'CARTAO' | 'DINHEIRO'
+      conta_origem_id?: string | null
+      conta_destino_id?: string | null
+      cartao_id?: string | null
+      categoria_id?: string | null
+      subcategoria_id?: string | null
+      observacao?: string | null
+      quantidade_parcelas?: number
+      prazo?: 'indeterminado' | 'determinado'
+      periodicidade?: 'mensal' | 'semestral' | 'anual'
+      quantidade_total?: number | null
+    },
+    userId?: string,
+  ): Promise<any> {
+    const { data, error } = await db.rpc('converter_regime_lancamento_rpc', {
+      p_workspace_id: workspaceId,
+      p_lancamento_id: lancamentoId,
+      p_novo_regime: novoRegime,
+      p_nova_descricao: dados.descricao,
+      p_novo_valor: Number(dados.valor),
+      p_nova_data: dados.data,
+      p_novo_meio_pagamento: dados.meio_pagamento_tipo,
+      p_nova_conta_origem: dados.conta_origem_id || null,
+      p_nova_conta_destino: dados.conta_destino_id || null,
+      p_novo_cartao_id: dados.cartao_id || null,
+      p_nova_categoria_id: dados.categoria_id || null,
+      p_nova_subcategoria_id: dados.subcategoria_id || null,
+      p_nova_observacao: dados.observacao || null,
+      p_nova_quantidade_parcelas: dados.quantidade_parcelas || 1,
+      p_novo_prazo: dados.prazo || 'indeterminado',
+      p_nova_periodicidade: dados.periodicidade || 'mensal',
+      p_novo_total_ocorrencias: dados.quantidade_total ? Number(dados.quantidade_total) : 12,
+      p_user_id: userId || null,
+    })
+
+    if (error) {
+      throw new Error(error.message || 'Falha ao converter regime do lançamento.')
+    }
+
+    return data
   },
 
   async update(

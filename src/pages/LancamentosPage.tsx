@@ -219,6 +219,34 @@ export default function LancamentosPage() {
     busca,
   ])
 
+  // Estado para Visualização de Lançamentos Vinculados a uma Conta específica
+  const [contaDetalhesModal, setContaDetalhesModal] = useState<Conta | null>(null)
+  const [filtroStatusContaDetalhes, setFiltroStatusContaDetalhes] = useState<'pagos' | 'todos'>(
+    'pagos',
+  )
+  const [lancamentosDaConta, setLancamentosDaConta] = useState<Lancamento[]>([])
+  const [carregandoLancamentosConta, setCarregandoLancamentosConta] = useState(false)
+
+  const abrirDetalhesConta = async (conta: Conta) => {
+    setContaDetalhesModal(conta)
+    setFiltroStatusContaDetalhes('pagos')
+    if (!wsId) return
+    setCarregandoLancamentosConta(true)
+    try {
+      const lancs = await lancamentoService.list(wsId, {
+        contaId: conta.id,
+        tipo: 'todos',
+        statusPagamento: 'todos',
+      })
+      setLancamentosDaConta(lancs)
+    } catch (e) {
+      console.error('Erro ao buscar lançamentos da conta:', e)
+      toast.error('Erro ao carregar lançamentos da conta')
+    } finally {
+      setCarregandoLancamentosConta(false)
+    }
+  }
+
   // Ações de Lançamento
   const abrirNovoLancamento = (tipo: TipoLancamento = 'despesa') => {
     setLancamentoEmEdicao(null)
@@ -689,26 +717,11 @@ export default function LancamentosPage() {
     return dataStr
   }
 
-  // Montar lista mista de itens do dia: lançamentos normais + Faturas de Cartão que vencem nesta data
-  // 1. Agrupar todas as datas presentes em lançamentos ou faturas
+  // REQUISITO: A lista de Lançamentos Financeiros deve exibir SOMENTE lançamentos (SEM faturas)
+  // 1. Agrupar datas presentes em lançamentos normais
   const todasDatasSet = new Set<string>()
   lancamentos.forEach((l) => {
     if (l.data) todasDatasSet.add(l.data)
-  })
-
-  // Para faturas do mês, associar à sua data de vencimento
-  const faturasPorData: Record<string, any[]> = {}
-  faturasMes.forEach((fat) => {
-    let dataVenc = fat.data_vencimento
-    if (!dataVenc && fat.competencia) {
-      const dv = fat.cartao?.dia_vencimento || 10
-      dataVenc = `${fat.competencia}-${String(dv).padStart(2, '0')}`
-    }
-    if (dataVenc) {
-      todasDatasSet.add(dataVenc)
-      if (!faturasPorData[dataVenc]) faturasPorData[dataVenc] = []
-      faturasPorData[dataVenc].push(fat)
-    }
   })
 
   // Ordenação CRESCENTE por data (Requisito 5)
@@ -785,8 +798,69 @@ export default function LancamentosPage() {
           </Button>
         </div>
 
-        {/* Centro: Filtro de Data no modelo da referência */}
-        <div className="flex items-center gap-2">
+        {/* 1.1 CARDS DE SALDO DAS CONTAS BANCÁRIAS (No mesmo estilo de "Minhas Contas" da página inicial) */}
+        {contas.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
+              <div className="flex items-center gap-2">
+                <Wallet className="w-4 h-4 text-emerald-600" />
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Minhas Contas — Saldos Disponíveis
+                </h2>
+              </div>
+              <span className="text-[11px] text-slate-400">
+                Clique em uma conta para ver o extrato
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {contas.map((c) => {
+                const isNegativo = (c.saldo_atual || 0) < 0
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => abrirDetalhesConta(c)}
+                    className="p-3.5 rounded-xl border border-slate-200/90 bg-slate-50/60 hover:bg-white hover:border-emerald-300 hover:shadow-xs transition text-left flex items-center justify-between gap-3 group"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-2xs"
+                        style={{ backgroundColor: c.cor || '#10B981' }}
+                      >
+                        <Wallet className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-800 truncate group-hover:text-emerald-700 transition">
+                          {c.nome}
+                        </div>
+                        <div className="text-[10px] text-slate-400 uppercase font-medium">
+                          {c.tipo || 'Conta bancária'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <div
+                        className={`text-xs sm:text-sm font-bold ${
+                          isNegativo ? 'text-rose-600' : 'text-blue-600'
+                        }`}
+                      >
+                        {formatMoneyBRL(c.saldo_atual)}
+                      </div>
+                      <span className="text-[9px] text-slate-400 block font-normal">
+                        Saldo atual
+                      </span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 2. BARRA SUPERIOR MODELO REFERÊNCIA VISUAL (Botão + Lançamento, Seletor Mês com Setas, Ações) */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
           <Button
             variant="ghost"
             size="icon"
@@ -1088,7 +1162,6 @@ export default function LancamentosPage() {
         ) : (
           datasOrdenadas.map((dataKey) => {
             const lancsDoDia = lancamentos.filter((l) => l.data === dataKey)
-            const faturasDoDia = faturasPorData[dataKey] || []
 
             return (
               <div key={dataKey} className="space-y-1.5">
@@ -1099,9 +1172,8 @@ export default function LancamentosPage() {
                   </span>
                 </div>
 
-                {/* Itens do grupo */}
+                {/* Itens do grupo (SOMENTE lançamentos normais) */}
                 <div className="space-y-1">
-                  {/* A) Lançamentos normais da data */}
                   {lancsDoDia.map((l) => {
                     const isDespesa = l.tipo === 'despesa'
                     const isReceita = l.tipo === 'receita'
@@ -1259,103 +1331,26 @@ export default function LancamentosPage() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent
                               align="end"
-                              className="w-44 text-xs bg-white border-slate-200"
+                              className="w-44 text-xs bg-white border-slate-200 text-slate-900 shadow-md"
                             >
                               <DropdownMenuItem
                                 onClick={() => abrirEdicaoLancamento(l)}
-                                className="cursor-pointer"
+                                className="cursor-pointer text-slate-900 font-medium hover:bg-slate-100"
                               >
-                                <Edit2 className="w-3.5 h-3.5 mr-2 text-slate-500" />
-                                <span>Editar</span>
-                              </DropdownMenuItem>
-                              <DropdownMenuItem
-                                onClick={() => handleToggleConciliado(l)}
-                                className="cursor-pointer"
-                              >
-                                <FileCheck className="w-3.5 h-3.5 mr-2 text-teal-600" />
-                                <span>{l.conciliado ? 'Desmarcar Conciliação' : 'Conciliar'}</span>
+                                <Edit2 className="w-3.5 h-3.5 mr-2 text-slate-800" />
+                                <span className="text-slate-900">Editar</span>
                               </DropdownMenuItem>
                               <DropdownMenuSeparator />
                               <DropdownMenuItem
                                 disabled={isProcessing}
                                 onClick={() => handleExcluirLancamento(l)}
-                                className="cursor-pointer text-rose-600 focus:text-rose-600"
+                                className="cursor-pointer text-rose-600 font-medium focus:text-rose-600 hover:bg-rose-50"
                               >
-                                <Trash2 className="w-3.5 h-3.5 mr-2" />
+                                <Trash2 className="w-3.5 h-3.5 mr-2 text-rose-600" />
                                 <span>Excluir</span>
                               </DropdownMenuItem>
                             </DropdownMenuContent>
                           </DropdownMenu>
-                        </div>
-                      </div>
-                    )
-                  })}
-
-                  {/* B) ITENS "FATURA DO CARTÃO [NOME]" no vencimento (ITEM 5: fundo amarelo claro com marcador vermelho à esquerda, valor negativo à direita) */}
-                  {faturasDoDia.map((fat) => {
-                    const nomeCartao = fat.cartao?.nome || 'Cartão'
-                    const valorFatura = Number(fat.valor_total || 0)
-                    const ehPaga = fat.status === 'paga'
-                    const mesAnoFatura = formatAnoMesPT(fat.competencia)
-
-                    return (
-                      <div
-                        key={`fatura-${fat.id || fat.cartao_id}`}
-                        className="p-3 px-4 rounded-xl flex items-center justify-between gap-3 bg-[#FFF9E6] border border-amber-200/60 shadow-2xs transition"
-                      >
-                        {/* Esquerda: Marcador circular vermelho + Ícone cinza + Título da fatura */}
-                        <div className="flex items-center gap-3">
-                          <div className="relative">
-                            {/* Marcador / ponto vermelho destacado na lateral esquerda */}
-                            <span className="absolute -top-1 -left-1 w-2.5 h-2.5 bg-rose-500 rounded-full ring-2 ring-white" />
-                            {/* Ícone cinza de fatura */}
-                            <div className="w-9 h-9 rounded-full bg-slate-300 text-slate-600 flex items-center justify-center shrink-0">
-                              <CreditCard className="w-4 h-4" />
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs sm:text-sm font-bold text-slate-800">
-                                Fatura {mesAnoFatura}
-                              </span>
-                              <Badge
-                                variant="outline"
-                                className="bg-amber-100/70 text-amber-800 border-amber-300 text-[10px] py-0 px-1.5 font-bold"
-                              >
-                                Vencimento
-                              </Badge>
-                              {ehPaga ? (
-                                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-300 text-[10px] py-0 px-1.5 font-bold">
-                                  Paga
-                                </Badge>
-                              ) : (
-                                <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] py-0 px-1.5 font-bold">
-                                  Aberta / Fechada
-                                </Badge>
-                              )}
-                            </div>
-                            <span className="text-[11px] font-semibold text-slate-500">
-                              {nomeCartao}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Direita: Valor negativo em destaque e ícone de status */}
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs sm:text-sm font-bold text-slate-900">
-                            -{formatMoneyBRL(valorFatura).replace('R$', '').trim()}
-                          </span>
-
-                          {ehPaga ? (
-                            <span title="Fatura quitada">
-                              <ThumbsUp className="w-4 h-4 text-emerald-600 stroke-[2.5]" />
-                            </span>
-                          ) : (
-                            <span title="Fatura não paga">
-                              <ThumbsDown className="w-4 h-4 text-slate-400 stroke-[2.5]" />
-                            </span>
-                          )}
                         </div>
                       </div>
                     )
@@ -1380,6 +1375,181 @@ export default function LancamentosPage() {
         workspaceId={wsId || ''}
         userId={user?.id}
       />
+
+      {/* MODAL DE DETALHES DE CONTA BANCÁRIA (EXTRATO DE LANÇAMENTOS) */}
+      {contaDetalhesModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl border border-slate-200 animate-in fade-in-50 zoom-in-95">
+            {/* Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
+                  style={{ backgroundColor: contaDetalhesModal.cor || '#10B981' }}
+                >
+                  <Wallet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">{contaDetalhesModal.nome}</h3>
+                  <div className="text-xs text-slate-500 flex items-center gap-2">
+                    <span>Saldo atual:</span>
+                    <strong
+                      className={`font-bold ${
+                        (contaDetalhesModal.saldo_atual || 0) < 0
+                          ? 'text-rose-600'
+                          : 'text-blue-600'
+                      }`}
+                    >
+                      {formatMoneyBRL(contaDetalhesModal.saldo_atual)}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setContaDetalhesModal(null)}
+                className="h-8 w-8 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {/* Aviso Obrigatório e Seletor Pagos / Todos */}
+            <div className="p-4 bg-slate-50 border-b border-slate-100 space-y-3">
+              <div className="p-2.5 bg-amber-50 border border-amber-200/80 rounded-xl text-xs text-amber-900 font-medium">
+                ⚠️ O saldo atual da conta só inclui lançamentos pagos.
+              </div>
+
+              {/* Seletor Pagos / Todos */}
+              <div className="grid grid-cols-2 gap-2 bg-slate-200/70 p-1 rounded-xl text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setFiltroStatusContaDetalhes('pagos')}
+                  className={`py-1.5 rounded-lg transition ${
+                    filtroStatusContaDetalhes === 'pagos'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Lançamentos pagos (padrão)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFiltroStatusContaDetalhes('todos')}
+                  className={`py-1.5 rounded-lg transition ${
+                    filtroStatusContaDetalhes === 'todos'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Todos os Lançamentos
+                </button>
+              </div>
+            </div>
+
+            {/* Lista de lançamentos vinculados */}
+            <div className="p-4 overflow-y-auto flex-1 divide-y divide-slate-100 space-y-1">
+              {carregandoLancamentosConta ? (
+                <div className="py-12 text-center text-xs text-slate-400">
+                  Carregando lançamentos da conta...
+                </div>
+              ) : (
+                (() => {
+                  const filtrados = lancamentosDaConta.filter((l) =>
+                    filtroStatusContaDetalhes === 'pagos' ? l.status_pagamento === 'pago' : true,
+                  )
+
+                  if (filtrados.length === 0) {
+                    return (
+                      <div className="py-10 text-center text-xs text-slate-400">
+                        Nenhum lançamento encontrado para esta seleção.
+                      </div>
+                    )
+                  }
+
+                  return filtrados.map((l) => {
+                    const isDespesa = l.tipo === 'despesa'
+                    const isReceita = l.tipo === 'receita'
+                    const isPago = l.status_pagamento === 'pago'
+
+                    return (
+                      <div
+                        key={l.id}
+                        className="py-2.5 flex items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className={`w-7 h-7 rounded-full flex items-center justify-center text-white shrink-0 ${
+                              isDespesa
+                                ? 'bg-rose-500'
+                                : isReceita
+                                  ? 'bg-emerald-500'
+                                  : 'bg-blue-500'
+                            }`}
+                          >
+                            {isDespesa && <TrendingDown className="w-3.5 h-3.5" />}
+                            {isReceita && <TrendingUp className="w-3.5 h-3.5" />}
+                            {l.tipo === 'transferencia' && (
+                              <ArrowRightLeft className="w-3.5 h-3.5" />
+                            )}
+                          </div>
+
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-800 truncate">
+                              {l.descricao}
+                            </div>
+                            <div className="text-[11px] text-slate-400">
+                              {l.data ? l.data.split('-').reverse().join('/') : ''}{' '}
+                              {l.categoria && `• ${l.categoria.nome}`}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right shrink-0">
+                          <div
+                            className={`font-bold ${
+                              isDespesa
+                                ? 'text-slate-800'
+                                : isReceita
+                                  ? 'text-emerald-600'
+                                  : 'text-slate-700'
+                            }`}
+                          >
+                            {isDespesa ? '-' : isReceita ? '+' : ''}
+                            {formatMoneyBRL(l.valor)}
+                          </div>
+                          <span
+                            className={`text-[10px] font-semibold ${
+                              isPago ? 'text-emerald-600' : 'text-amber-600'
+                            }`}
+                          >
+                            {isPago ? 'Pago' : 'Pendente'}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  })
+                })()
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-3 sm:p-4 border-t border-slate-100 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setContaDetalhesModal(null)}
+                className="text-xs"
+              >
+                Fechar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE CONCILIAÇÃO BANCÁRIA */}
       <ModalConciliacao

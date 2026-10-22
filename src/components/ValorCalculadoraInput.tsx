@@ -178,7 +178,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={handleClear}
-              className="col-span-2 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold border-rose-300"
+              className="col-span-2 bg-rose-700 hover:bg-rose-800 text-white font-bold border-rose-800"
             >
               C
             </Button>
@@ -187,7 +187,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={handleBackspace}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold border-slate-300"
+              className="bg-slate-700 hover:bg-slate-800 text-white font-bold border-slate-800"
             >
               <Delete className="w-3.5 h-3.5" />
             </Button>
@@ -196,7 +196,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('/')}
-              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border-emerald-300 text-sm"
+              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold border-emerald-800 text-base"
             >
               ÷
             </Button>
@@ -206,7 +206,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('7')}
-              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               7
             </Button>
@@ -215,7 +215,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('8')}
-              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               8
             </Button>
@@ -224,7 +224,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('9')}
-              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               9
             </Button>
@@ -233,7 +233,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('*')}
-              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border-emerald-300 text-sm"
+              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold border-emerald-800 text-base"
             >
               ×
             </Button>
@@ -243,7 +243,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('4')}
-              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               4
             </Button>
@@ -252,7 +252,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('5')}
-              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               5
             </Button>
@@ -261,7 +261,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('6')}
-              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               6
             </Button>
@@ -270,7 +270,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('-')}
-              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border-emerald-300 text-sm"
+              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold border-emerald-800 text-base"
             >
               -
             </Button>
@@ -280,7 +280,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('1')}
-              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               1
             </Button>
@@ -289,7 +289,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('2')}
-              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               2
             </Button>
@@ -298,7 +298,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('3')}
-              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               3
             </Button>
@@ -307,7 +307,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('+')}
-              className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold border-emerald-300 text-sm"
+              className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold border-emerald-800 text-base"
             >
               +
             </Button>
@@ -317,7 +317,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('0')}
-              className="col-span-2 bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="col-span-2 bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               0
             </Button>
@@ -326,7 +326,7 @@ export function ValorCalculadoraInput({
               variant="outline"
               size="sm"
               onClick={() => handleAppend('.')}
-              className="bg-slate-50 hover:bg-slate-200 text-slate-900 font-bold border-slate-300 text-sm"
+              className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
               .
             </Button>
