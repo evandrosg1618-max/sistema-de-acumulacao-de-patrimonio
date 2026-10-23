@@ -1155,7 +1155,7 @@ export default function Index() {
                                     const numP = l.numero_parcela || 1
                                     const totP = l.total_parcelas || l.quantidade_parcelas || 1
                                     const ehParcela = totP > 1
-                                    const ehFixo = Boolean(l.serie_id || l.regime === 'fixo')
+                                    const ehFixo = Boolean(l.serie_id && l.regime === 'fixo')
                                     const ehPrevisao =
                                       (l as any).natureza === 'previsao' ||
                                       (l as any).natureza_previsao === true ||

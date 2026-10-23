@@ -431,25 +431,24 @@ export default function LancamentosPage() {
       }
     }
 
-    // REQUISITO 2 & 4: Se for recorrente fixo (serie_id), abrir modal de escopo único "Todos"
-    if (l.serie_id || l.regime === 'fixo') {
-      setLancamentoAlvoEscopo(l)
-      setAcaoEscopo('excluir')
-
-      // Inspecionar status de pagas no backend
+    // REQUISITO 2: Se for recorrente com serie_id válida apontando para série existente, abrir modal de escopo único "Todos"
+    // Lançamentos órfãos (sem serie_id ou série inexistente) excluem diretamente como lançamento único
+    if (l.serie_id) {
       try {
         const infoStatus = await fixoService.obterStatusSerieFixa(l.id, wsId)
-        setStatusSerieFixa({
-          temPagas: Boolean(infoStatus.tem_pagas),
-          competenciasPagas: infoStatus.competencias_pagas || [],
-        })
+        if (infoStatus.encontrado && infoStatus.serie_id) {
+          setLancamentoAlvoEscopo(l)
+          setAcaoEscopo('excluir')
+          setStatusSerieFixa({
+            temPagas: Boolean(infoStatus.tem_pagas),
+            competenciasPagas: infoStatus.competencias_pagas || [],
+          })
+          setModalEscopoOpen(true)
+          return
+        }
       } catch (e) {
         console.warn('Erro ao obter status da série fixa:', e)
-        setStatusSerieFixa({ temPagas: false, competenciasPagas: [] })
       }
-
-      setModalEscopoOpen(true)
-      return
     }
 
     // Frente 4: Se for compra parcelada em cartão, exclusão total do original sem modal de escopo
@@ -517,7 +516,7 @@ export default function LancamentosPage() {
     await runWithLock(async () => {
       try {
         if (acaoEscopo === 'excluir') {
-          if (lancamentoAlvoEscopo?.serie_id || lancamentoAlvoEscopo?.regime === 'fixo') {
+          if (lancamentoAlvoEscopo?.serie_id) {
             const resFixo = await fixoService.excluirFixoComEscopo(
               lancamentoAlvoEscopo.id,
               wsId,
@@ -774,9 +773,9 @@ export default function LancamentosPage() {
         </div>
       </div>
 
-      {/* 2. BARRA SUPERIOR MODELO REFERÊNCIA VISUAL (Botão + Lançamento, Seletor Mês com Setas, Ações) */}
+      {/* 2. BARRA SUPERIOR DE AÇÕES E NAVEGAÇÃO DE PERÍODO */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-        {/* Botão + Lançamento */}
+        {/* Esquerda: Botões + Lançamento e Conciliar */}
         <div className="flex items-center gap-2 w-full sm:w-auto">
           <Button
             onClick={() => abrirNovoLancamento('despesa')}
@@ -798,69 +797,8 @@ export default function LancamentosPage() {
           </Button>
         </div>
 
-        {/* 1.1 CARDS DE SALDO DAS CONTAS BANCÁRIAS (No mesmo estilo de "Minhas Contas" da página inicial) */}
-        {contas.length > 0 && (
-          <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-3">
-              <div className="flex items-center gap-2">
-                <Wallet className="w-4 h-4 text-emerald-600" />
-                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                  Minhas Contas — Saldos Disponíveis
-                </h2>
-              </div>
-              <span className="text-[11px] text-slate-400">
-                Clique em uma conta para ver o extrato
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {contas.map((c) => {
-                const isNegativo = (c.saldo_atual || 0) < 0
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => abrirDetalhesConta(c)}
-                    className="p-3.5 rounded-xl border border-slate-200/90 bg-slate-50/60 hover:bg-white hover:border-emerald-300 hover:shadow-xs transition text-left flex items-center justify-between gap-3 group"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-2xs"
-                        style={{ backgroundColor: c.cor || '#10B981' }}
-                      >
-                        <Wallet className="w-4 h-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-xs font-bold text-slate-800 truncate group-hover:text-emerald-700 transition">
-                          {c.nome}
-                        </div>
-                        <div className="text-[10px] text-slate-400 uppercase font-medium">
-                          {c.tipo || 'Conta bancária'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <div
-                        className={`text-xs sm:text-sm font-bold ${
-                          isNegativo ? 'text-rose-600' : 'text-blue-600'
-                        }`}
-                      >
-                        {formatMoneyBRL(c.saldo_atual)}
-                      </div>
-                      <span className="text-[9px] text-slate-400 block font-normal">
-                        Saldo atual
-                      </span>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* 2. BARRA SUPERIOR MODELO REFERÊNCIA VISUAL (Botão + Lançamento, Seletor Mês com Setas, Ações) */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+        {/* Centro: Navegação por mês e setas */}
+        <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
@@ -930,7 +868,7 @@ export default function LancamentosPage() {
           </Button>
         </div>
 
-        {/* Lado Direito: Ações rápidas */}
+        {/* Direita: Ações rápidas */}
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -945,40 +883,66 @@ export default function LancamentosPage() {
         </div>
       </div>
 
-      {/* Caixa de período customizado quando 'periodo' estiver ativo */}
-      {filtroPeriodoTipo === 'periodo' && (
-        <div className="bg-white rounded-xl p-3 border border-slate-200 flex flex-wrap items-center gap-3 text-xs">
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 font-medium">De:</span>
-            <Input
-              type="date"
-              value={dataInicio}
-              onChange={(e) => setDataInicio(e.target.value)}
-              className="w-36 text-xs h-8"
-            />
+      {/* 2.1 BLOCO PRÓPRIO DE LARGURA TOTAL: MINHAS CONTAS — SALDOS DISPONÍVEIS (Logo abaixo da barra de ações) */}
+      {contas.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs w-full">
+          <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+            <div className="flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-emerald-600" />
+              <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-700">
+                Minhas Contas — Saldos Disponíveis
+              </h2>
+            </div>
+            <span className="text-[11px] text-slate-400">
+              Clique em uma conta para ver o extrato detalhado
+            </span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 font-medium">Até:</span>
-            <Input
-              type="date"
-              value={dataFim}
-              onChange={(e) => setDataFim(e.target.value)}
-              className="w-36 text-xs h-8"
-            />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {contas.map((c) => {
+              const isNegativo = (c.saldo_atual || 0) < 0
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => abrirDetalhesConta(c)}
+                  className="p-3.5 rounded-xl border border-slate-200/90 bg-slate-50/60 hover:bg-white hover:border-emerald-300 hover:shadow-xs transition text-left flex items-center justify-between gap-3 group"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-2xs"
+                      style={{ backgroundColor: c.cor || '#10B981' }}
+                    >
+                      <Wallet className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs sm:text-sm font-bold text-slate-800 truncate group-hover:text-emerald-700 transition">
+                        {c.nome}
+                      </div>
+                      <div className="text-[10px] text-slate-400 uppercase font-medium">
+                        {c.tipo || 'Conta bancária'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <div
+                      className={`text-xs sm:text-sm font-bold ${
+                        isNegativo ? 'text-rose-600' : 'text-blue-600'
+                      }`}
+                    >
+                      {formatMoneyBRL(c.saldo_atual)}
+                    </div>
+                    <span className="text-[9px] text-slate-400 block font-normal">Saldo atual</span>
+                  </div>
+                </button>
+              )
+            })}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setFiltroPeriodoTipo('mes')}
-            className="h-8 text-xs text-slate-500 hover:text-slate-800"
-          >
-            <X className="w-3.5 h-3.5 mr-1" />
-            Voltar para mês
-          </Button>
         </div>
       )}
 
-      {/* 3. BARRA DE FILTROS "Origem / Tipo / Categorias / Status" (Estilo pill da referência visual) */}
+      {/* 2.2 BARRA DE FILTROS COMPACTA HORIZONTAL (Origem, Tipo, Categorias, Status e Lupa) */}
       <div className="bg-neutral-100/80 rounded-2xl p-2 px-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 text-xs">
           {/* Filtro: Origem (Contas e Cartões) */}
@@ -1133,6 +1097,39 @@ export default function LancamentosPage() {
         </div>
       </div>
 
+      {/* Caixa de período customizado quando 'periodo' estiver ativo */}
+      {filtroPeriodoTipo === 'periodo' && (
+        <div className="bg-white rounded-xl p-3 border border-slate-200 flex flex-wrap items-center gap-3 text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500 font-medium">De:</span>
+            <Input
+              type="date"
+              value={dataInicio}
+              onChange={(e) => setDataInicio(e.target.value)}
+              className="w-36 text-xs h-8"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500 font-medium">Até:</span>
+            <Input
+              type="date"
+              value={dataFim}
+              onChange={(e) => setDataFim(e.target.value)}
+              className="w-36 text-xs h-8"
+            />
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setFiltroPeriodoTipo('mes')}
+            className="h-8 text-xs text-slate-500 hover:text-slate-800"
+          >
+            <X className="w-3.5 h-3.5 mr-1" />
+            Voltar para mês
+          </Button>
+        </div>
+      )}
+
       {/* 4. LISTAGEM AGRUPADA POR DATA EM ORDEM CRESCENTE (Visual fiel à referência) */}
       <div className="space-y-6">
         {loading ? (
@@ -1179,7 +1176,7 @@ export default function LancamentosPage() {
                     const isReceita = l.tipo === 'receita'
                     const isTransf = l.tipo === 'transferencia'
                     const isPago = l.status_pagamento === 'pago'
-                    const ehFixo = Boolean(l.serie_id || l.regime === 'fixo')
+                    const ehFixo = Boolean(l.serie_id && l.regime === 'fixo')
                     const ehPrevisao =
                       (l as any).natureza === 'previsao' ||
                       (l as any).natureza_previsao === true ||
@@ -1570,11 +1567,7 @@ export default function LancamentosPage() {
           }
         }}
         tipoAcao={acaoEscopo}
-        regime={
-          lancamentoAlvoEscopo?.serie_id || lancamentoAlvoEscopo?.regime === 'fixo'
-            ? 'fixo'
-            : 'parcelado'
-        }
+        regime={lancamentoAlvoEscopo?.serie_id ? 'fixo' : 'parcelado'}
         descricaoLancamento={dadosEdicaoPendentes?.descricao || lancamentoAlvoEscopo?.descricao}
         numeroParcela={lancamentoAlvoEscopo?.numero_parcela}
         totalParcelas={lancamentoAlvoEscopo?.total_parcelas}

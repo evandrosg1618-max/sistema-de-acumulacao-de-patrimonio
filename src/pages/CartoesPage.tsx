@@ -541,24 +541,24 @@ export default function CartoesPage() {
       }
     }
 
-    // REQUISITO 2 & 4: Se for recorrente fixo (serie_id ou regime fixo), abrir modal de escopo único "Todos"
-    if (alvoParaExclusao.serie_id || alvoParaExclusao.regime === 'fixo') {
-      setLancamentoAlvoEscopo(alvoParaExclusao)
-      setAcaoEscopo('excluir')
-
+    // REQUISITO 2: Se for recorrente com serie_id válida apontando para série existente, abrir modal de escopo único "Todos"
+    // Lançamentos órfãos (sem serie_id ou série inexistente) excluem como lançamento único
+    if (alvoParaExclusao.serie_id) {
       try {
         const infoStatus = await fixoService.obterStatusSerieFixa(alvoParaExclusao.id, wsId)
-        setStatusSerieFixa({
-          temPagas: Boolean(infoStatus.tem_pagas),
-          competenciasPagas: infoStatus.competencias_pagas || [],
-        })
+        if (infoStatus.encontrado && infoStatus.serie_id) {
+          setLancamentoAlvoEscopo(alvoParaExclusao)
+          setAcaoEscopo('excluir')
+          setStatusSerieFixa({
+            temPagas: Boolean(infoStatus.tem_pagas),
+            competenciasPagas: infoStatus.competencias_pagas || [],
+          })
+          setModalEscopoOpen(true)
+          return
+        }
       } catch (e) {
         console.warn('Erro ao obter status da série fixa na fatura:', e)
-        setStatusSerieFixa({ temPagas: false, competenciasPagas: [] })
       }
-
-      setModalEscopoOpen(true)
-      return
     }
 
     const ehParcelado =
@@ -612,7 +612,7 @@ export default function CartoesPage() {
     setProcessandoEscopo(true)
     try {
       if (acaoEscopo === 'excluir') {
-        if (lancamentoAlvoEscopo?.serie_id || lancamentoAlvoEscopo?.regime === 'fixo') {
+        if (lancamentoAlvoEscopo?.serie_id) {
           const resFixo = await fixoService.excluirFixoComEscopo(
             lancamentoAlvoEscopo.id,
             wsId,
@@ -1257,7 +1257,7 @@ export default function CartoesPage() {
                                   const numP = l.numero_parcela || 1
                                   const totP = l.total_parcelas || l.quantidade_parcelas || 1
                                   const ehParcela = totP > 1
-                                  const ehFixo = Boolean(l.serie_id || l.regime === 'fixo')
+                                  const ehFixo = Boolean(l.serie_id && l.regime === 'fixo')
                                   const ehPrevisao =
                                     l.natureza === 'previsao' ||
                                     l.natureza_previsao === true ||
@@ -1525,11 +1525,7 @@ export default function CartoesPage() {
           }
         }}
         tipoAcao={acaoEscopo}
-        regime={
-          lancamentoAlvoEscopo?.serie_id || lancamentoAlvoEscopo?.regime === 'fixo'
-            ? 'fixo'
-            : 'parcelado'
-        }
+        regime={lancamentoAlvoEscopo?.serie_id ? 'fixo' : 'parcelado'}
         descricaoLancamento={dadosEdicaoPendentes?.descricao || lancamentoAlvoEscopo?.descricao}
         numeroParcela={lancamentoAlvoEscopo?.numero_parcela}
         totalParcelas={lancamentoAlvoEscopo?.total_parcelas}

@@ -1492,40 +1492,28 @@ export type Database = {
         Args: { token_input: string }
         Returns: Json
       }
-      alterar_fixo_escopo_rpc:
-        | {
-            Args: {
-              p_escopo: string
-              p_lancamento_id: string
-              p_nova_categoria_id?: string
-              p_nova_data: string
-              p_nova_descricao: string
-              p_nova_observacao?: string
-              p_nova_periodicidade?: string
-              p_nova_quantidade_total?: number
-              p_nova_subcategoria_id?: string
-              p_novo_prazo?: string
-              p_novo_valor: number
-              p_user_id?: string
-              p_workspace_id: string
-            }
-            Returns: Json
-          }
-        | {
-            Args: {
-              p_escopo: string
-              p_lancamento_id: string
-              p_nova_categoria_id?: string
-              p_nova_data: string
-              p_nova_descricao: string
-              p_nova_observacao?: string
-              p_nova_subcategoria_id?: string
-              p_novo_valor: number
-              p_user_id?: string
-              p_workspace_id: string
-            }
-            Returns: Json
-          }
+      alterar_fixo_escopo_rpc: {
+        Args: {
+          p_escopo: string
+          p_lancamento_id: string
+          p_nova_categoria_id?: string
+          p_nova_conta_destino_id?: string
+          p_nova_conta_origem_id?: string
+          p_nova_data: string
+          p_nova_descricao: string
+          p_nova_observacao?: string
+          p_nova_periodicidade?: string
+          p_nova_quantidade_total?: number
+          p_nova_subcategoria_id?: string
+          p_novo_cartao_id?: string
+          p_novo_meio_pagamento_tipo?: string
+          p_novo_prazo?: string
+          p_novo_valor: number
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       aplicar_saldo_transferencia_rpc: {
         Args: {
           p_lancamento_id: string
@@ -1597,7 +1585,7 @@ export type Database = {
       }
       excluir_fixo_escopo_rpc: {
         Args: {
-          p_escopo: string
+          p_escopo?: string
           p_lancamento_id: string
           p_user_id?: string
           p_workspace_id: string
@@ -1642,6 +1630,10 @@ export type Database = {
           total_comprometido: number
           workspace_id: string
         }[]
+      }
+      obter_status_serie_fixa_rpc: {
+        Args: { p_lancamento_id: string; p_workspace_id: string }
+        Returns: Json
       }
       pagar_fatura_rpc: {
         Args: {
