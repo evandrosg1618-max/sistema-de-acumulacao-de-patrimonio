@@ -286,9 +286,6 @@ export default function CartoesPage() {
         })
         toast.success('Fatura quitada com sucesso! Saldo bancário baixado.')
         await carregarCartoes()
-        if (cartaoExpandidoId) {
-          await carregarFaturasDoCartao(cartaoExpandidoId)
-        }
       } catch (err: any) {
         toast.error(
           'Não foi possível concluir o pagamento — ' +
@@ -311,9 +308,6 @@ export default function CartoesPage() {
         await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
         toast.success('Pagamento estornado com sucesso! A fatura pode ser alterada novamente.')
         await carregarCartoes()
-        if (cartaoExpandidoId) {
-          await carregarFaturasDoCartao(cartaoExpandidoId)
-        }
       } catch (err: any) {
         toast.error(
           'Não foi possível estornar o pagamento da fatura — ' +

@@ -39,6 +39,8 @@ import {
   Edit2,
   Trash2,
   Calendar,
+  RotateCcw,
+  AlertCircle,
   PieChart as PieIcon,
 } from 'lucide-react'
 import { ModalPagamentoFatura } from '@/components/ModalPagamentoFatura'
@@ -242,9 +244,6 @@ export default function Index() {
         })
         toast.success('Fatura quitada com sucesso! Saldo bancário baixado.')
         await carregarDashboard()
-        if (cartaoExpandidoId) {
-          await carregarFaturasDoCartao(cartaoExpandidoId)
-        }
       } catch (err: any) {
         toast.error(
           'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
@@ -266,9 +265,6 @@ export default function Index() {
         await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
         toast.success('Pagamento estornado com sucesso! Saldo recomposto.')
         await carregarDashboard()
-        if (cartaoExpandidoId) {
-          await carregarFaturasDoCartao(cartaoExpandidoId)
-        }
       } catch (err: any) {
         toast.error(
           'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',

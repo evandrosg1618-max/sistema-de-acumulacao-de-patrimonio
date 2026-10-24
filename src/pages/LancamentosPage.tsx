@@ -59,6 +59,7 @@ import { ModalConciliacao } from '@/components/ModalConciliacao'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { faturaService } from '@/services/sap'
+import { supabase } from '@/lib/supabase/client'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
 import { toast } from 'sonner'
 
