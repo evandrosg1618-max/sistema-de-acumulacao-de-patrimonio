@@ -242,6 +242,9 @@ export default function Index() {
         })
         toast.success('Fatura quitada com sucesso! Saldo bancário baixado.')
         await carregarDashboard()
+        if (cartaoExpandidoId) {
+          await carregarFaturasDoCartao(cartaoExpandidoId)
+        }
       } catch (err: any) {
         toast.error(
           'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
@@ -254,21 +257,24 @@ export default function Index() {
   const handleEstornarFatura = async (faturaId: string) => {
     if (!wsId) return
     const confirma = window.confirm(
-      'Deseja reabrir esta fatura? O pagamento será estornado e o saldo bancário recomposto.',
+      'Deseja estornar o pagamento desta fatura? O pagamento será desfeito e o saldo bancário recomposto.',
     )
     if (!confirma) return
 
     await runWithLock(async () => {
       try {
         await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
-        toast.success('Pagamento estornado e fatura reaberta.')
+        toast.success('Pagamento estornado com sucesso! Saldo recomposto.')
         await carregarDashboard()
+        if (cartaoExpandidoId) {
+          await carregarFaturasDoCartao(cartaoExpandidoId)
+        }
       } catch (err: any) {
         toast.error(
           'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
         )
       }
-    }, 'Recompondo saldo bancário e reabrindo fatura...')
+    }, 'Recompondo saldo bancário e estornando pagamento...')
   }
 
   const abrirNovoLancamentoNaFatura = (cartao: Cartao) => {
@@ -882,14 +888,24 @@ export default function Index() {
           {cartoes.length > 0 &&
             (() => {
               const limiteConsolidado = cartoes.reduce((acc, c) => acc + (c.limite || 0), 0)
+              // Total das Faturas: contempla APENAS faturas abertas (teste 33)
               const faturaAtualConsolidada = cartoes.reduce((acc, c) => {
                 const res = resumosFatura[c.id]
+                if (res?.status === 'paga' || res?.statusExibicao === 'Paga') return acc
                 return acc + (res?.saldoDevedor ?? res?.totalCompras ?? c.fatura_atual ?? 0)
               }, 0)
               const comprometidoConsolidado = cartoes.reduce((acc, c) => {
                 const res = resumosFatura[c.id]
-                const base = res?.saldoDevedor ?? res?.totalCompras ?? c.fatura_atual ?? 0
-                return acc + (c.total_comprometido || base)
+                const faturaEstaPaga = res?.status === 'paga' || res?.statusExibicao === 'Paga'
+                const compBase = Number(c.total_comprometido || 0)
+                if (faturaEstaPaga) {
+                  const valorFaturaPaga = Number(res?.totalPago || res?.totalCompras || 0)
+                  return (
+                    acc +
+                    Math.max(0, compBase > valorFaturaPaga ? compBase - valorFaturaPaga : compBase)
+                  )
+                }
+                return acc + (compBase || res?.saldoDevedor || c.fatura_atual || 0)
               }, 0)
               const limiteDisponivelConsolidado = Math.max(
                 0,
@@ -900,7 +916,7 @@ export default function Index() {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs">
                   <div className="p-3 bg-rose-50/70 rounded-xl border border-rose-100">
                     <div className="text-[11px] font-semibold text-rose-800 uppercase tracking-wider">
-                      Próxima fatura a vencer
+                      Total das Faturas
                     </div>
                     <div className="text-lg font-bold text-rose-600 mt-0.5">
                       {ocultarSaldos ? '••••••' : formatMoneyBRL(faturaAtualConsolidada)}
@@ -918,19 +934,19 @@ export default function Index() {
                       {ocultarSaldos ? '••••••' : formatMoneyBRL(comprometidoConsolidado)}
                     </div>
                     <div className="text-[10px] text-amber-700/80 mt-0.5">
-                      Fatura + parcelas futuras
+                      Fatura aberta + parcelas futuras
                     </div>
                   </div>
 
                   <div className="p-3 bg-emerald-50/70 rounded-xl border border-emerald-100">
                     <div className="text-[11px] font-semibold text-emerald-800 uppercase tracking-wider">
-                      Limite disponível
+                      Limite Total Disponível
                     </div>
                     <div className="text-lg font-bold text-emerald-600 mt-0.5">
                       {ocultarSaldos ? '••••••' : formatMoneyBRL(limiteDisponivelConsolidado)}
                     </div>
                     <div className="text-[10px] text-emerald-700/80 mt-0.5">
-                      De {ocultarSaldos ? '•••' : formatMoneyBRL(limiteConsolidado)} total
+                      Descontado o Total comprometido
                     </div>
                   </div>
                 </div>
@@ -1048,8 +1064,10 @@ export default function Index() {
                                 : formatMoneyBRL(resumo?.saldoDevedor ?? fatura)}
                             </div>
                             <div className="text-[10px] text-slate-400">
-                              Fatura {competenciaFiltro}{' '}
-                              {resumo?.status === 'paga' ? '(Paga)' : '(Aberta)'}
+                              Fatura {competenciaFiltro} (
+                              {resumo?.statusExibicao ||
+                                (resumo?.status === 'paga' ? 'Paga' : 'Aberta')}
+                              )
                             </div>
                           </div>
 
@@ -1084,12 +1102,15 @@ export default function Index() {
                                 </span>
                                 <Badge
                                   className={`text-[9px] py-0 px-1.5 ${
-                                    resumo?.status === 'paga'
+                                    resumo?.statusExibicao === 'Paga' || resumo?.status === 'paga'
                                       ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                      : 'bg-amber-100 text-amber-800 border-amber-200'
+                                      : resumo?.statusExibicao === 'Fechada'
+                                        ? 'bg-slate-200 text-slate-800 border-slate-300'
+                                        : 'bg-amber-100 text-amber-800 border-amber-200'
                                   }`}
                                 >
-                                  {resumo?.status === 'paga' ? 'Quitada' : 'Aberta'}
+                                  {resumo?.statusExibicao ||
+                                    (resumo?.status === 'paga' ? 'Paga' : 'Aberta')}
                                 </Badge>
                               </div>
 
@@ -1100,6 +1121,15 @@ export default function Index() {
                                     {formatMoneyBRL(resumo?.totalCompras ?? 0)}
                                   </span>
                                 </div>
+
+                                {resumo?.totalPago > 0 && (
+                                  <div className="text-right border-l border-slate-200 pl-3">
+                                    <span className="text-[10px] text-emerald-600 block">Pago</span>
+                                    <span className="text-xs sm:text-sm font-bold text-emerald-700">
+                                      {formatMoneyBRL(resumo.totalPago)}
+                                    </span>
+                                  </div>
+                                )}
 
                                 <div className="text-right border-l border-slate-200 pl-3">
                                   <span className="text-[10px] text-rose-500 block">A Pagar</span>
@@ -1121,8 +1151,47 @@ export default function Index() {
                                       Pagar Fatura
                                     </Button>
                                   )}
+
+                                {resumo?.fatura &&
+                                  (resumo?.status === 'paga' ||
+                                    resumo?.statusExibicao === 'Paga') && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={isProcessing}
+                                      onClick={() => handleEstornarFatura(resumo.fatura.id)}
+                                      className="h-7 text-xs text-rose-700 border-rose-200 hover:bg-rose-50 font-semibold ml-2"
+                                    >
+                                      <RotateCcw className="w-3 h-3 mr-1" />
+                                      Estornar Pagamento
+                                    </Button>
+                                  )}
                               </div>
                             </div>
+
+                            {/* Tarja vermelha de fatura atrasada */}
+                            {resumo?.isAtrasada && (
+                              <div className="bg-rose-600 text-white px-3 py-1.5 rounded-lg flex items-center justify-between text-xs font-semibold shadow-xs">
+                                <span className="flex items-center gap-1.5">
+                                  <AlertCircle className="w-4 h-4 shrink-0 text-white" />
+                                  Fatura atrasada — vencimento expirou em{' '}
+                                  {resumo?.fatura?.data_vencimento
+                                    ? resumo.fatura.data_vencimento.split('-').reverse().join('/')
+                                    : 'data anterior'}
+                                </span>
+                                {resumo?.fatura && resumo?.status !== 'paga' && (
+                                  <Button
+                                    size="sm"
+                                    disabled={isProcessing}
+                                    variant="secondary"
+                                    className="h-6 text-[11px] bg-white text-rose-700 hover:bg-rose-50 font-bold px-2 py-0"
+                                    onClick={() => abrirModalPagarFatura(resumo.fatura, cartao)}
+                                  >
+                                    Pagar agora
+                                  </Button>
+                                )}
+                              </div>
+                            )}
 
                             {/* Lista de compras e parcelas da competência */}
                             <div className="space-y-2">
@@ -1288,6 +1357,23 @@ export default function Index() {
                                   return listaFinal.map((fat) => {
                                     const isPaga = fat.status === 'paga'
                                     const isAtiva = fat.competencia === competenciaFiltro
+                                    const hojeStr = new Date().toISOString().slice(0, 10)
+                                    const dataFech = fat.data_fechamento || `${fat.competencia}-01`
+                                    const dataVenc = fat.data_vencimento || `${fat.competencia}-28`
+
+                                    let statusExib = 'Aberta'
+                                    let isAtrasadaCard = false
+                                    if (isPaga) {
+                                      statusExib = 'Paga'
+                                    } else if (hojeStr >= dataFech) {
+                                      statusExib = 'Fechada'
+                                      if (hojeStr > dataVenc) {
+                                        isAtrasadaCard = true
+                                      }
+                                    } else {
+                                      statusExib = 'Aberta'
+                                    }
+
                                     return (
                                       <div
                                         key={fat.id}
@@ -1295,7 +1381,9 @@ export default function Index() {
                                         className={`rounded-xl border p-2.5 flex items-center justify-between text-xs transition cursor-pointer shadow-2xs hover:shadow-sm ${
                                           isAtiva
                                             ? 'bg-indigo-50/70 border-indigo-300 ring-2 ring-indigo-400'
-                                            : 'bg-white border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
+                                            : isAtrasadaCard
+                                              ? 'bg-rose-50/40 border-rose-200 hover:border-rose-300 hover:bg-rose-50/70'
+                                              : 'bg-white border-slate-200 hover:border-indigo-200 hover:bg-slate-50'
                                         }`}
                                         title={`Clique para abrir a fatura de ${fat.competencia}`}
                                       >
@@ -1306,11 +1394,18 @@ export default function Index() {
                                               className={`text-[9px] py-0 px-1 font-semibold ${
                                                 isPaga
                                                   ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                                  : 'bg-amber-100 text-amber-900 border-amber-300'
+                                                  : statusExib === 'Fechada'
+                                                    ? 'bg-slate-200 text-slate-800 border-slate-300'
+                                                    : 'bg-amber-100 text-amber-900 border-amber-300'
                                               }`}
                                             >
-                                              {isPaga ? 'Paga' : 'Aberta'}
+                                              {statusExib}
                                             </Badge>
+                                            {isAtrasadaCard && (
+                                              <Badge className="text-[9px] py-0 px-1 font-semibold bg-rose-600 text-white border-rose-700">
+                                                Atrasada
+                                              </Badge>
+                                            )}
                                           </div>
                                           <span className="text-xs font-semibold text-slate-600 block">
                                             {formatMoneyBRL(fat.valor_total)}
@@ -1335,7 +1430,7 @@ export default function Index() {
                                               onClick={() => handleEstornarFatura(fat.id)}
                                               className="h-6 text-[10px] text-rose-700 border-rose-200 hover:bg-rose-50 px-2 rounded-lg"
                                             >
-                                              Reabrir
+                                              Estornar Pagamento
                                             </Button>
                                           )}
                                         </div>

@@ -1575,6 +1575,26 @@ export type Database = {
         }
         Returns: Json
       }
+      editar_lancamento_atomico_rpc: {
+        Args: {
+          p_cartao_id?: string
+          p_categoria_id?: string
+          p_conta_destino_id?: string
+          p_conta_origem_id?: string
+          p_data: string
+          p_descricao: string
+          p_lancamento_id: string
+          p_meio_pagamento_tipo: string
+          p_observacao?: string
+          p_quantidade_parcelas?: number
+          p_status_pagamento?: string
+          p_subcategoria_id?: string
+          p_user_id?: string
+          p_valor: number
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       estornar_fatura_rpc: {
         Args: {
           p_fatura_id: string

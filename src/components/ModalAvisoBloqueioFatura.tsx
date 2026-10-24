@@ -86,7 +86,7 @@ export function ModalAvisoBloqueioFatura({ open, onClose, info }: ModalAvisoBloq
               Não é permitido {acaoTexto} fatura. Para liberar qualquer inclusão, alteração ou
               exclusão, é necessário{' '}
               <strong>desfazer o pagamento da fatura de {info.competencia}</strong> na tela de{' '}
-              <strong>Meus Cartões</strong> clicando em <em>"Reabrir"</em>.
+              <strong>Meus Cartões</strong> clicando em <em>"Estornar Pagamento"</em>.
             </p>
 
             {info.detalhes && (
@@ -99,8 +99,8 @@ export function ModalAvisoBloqueioFatura({ open, onClose, info }: ModalAvisoBloq
           <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-slate-600 text-[11px] leading-relaxed">
             <strong>Instrução:</strong> Acesse o menu <em>Cartões</em>, localize a fatura da
             competência <strong>{info.competencia}</strong> e clique no botão{' '}
-            <span className="font-semibold text-rose-600">"Reabrir"</span> para estornar o pagamento
-            e restaurar a permissão de lançamento.
+            <span className="font-semibold text-rose-600">"Estornar Pagamento"</span> para estornar
+            o pagamento e restaurar a permissão de lançamento.
           </div>
         </div>
 

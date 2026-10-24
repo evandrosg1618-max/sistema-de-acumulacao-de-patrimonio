@@ -2074,16 +2074,29 @@ export const faturaService = {
   async listFaturasCartao(workspaceId: string, cartaoId: string): Promise<any[]> {
     const { data, error } = await db
       .from('faturas')
-      .select('*')
+      .select(`
+        *,
+        pagamentos_fatura (valor, status)
+      `)
       .eq('workspace_id', workspaceId)
       .eq('cartao_id', cartaoId)
       .order('competencia', { ascending: false })
 
     if (error) throw error
-    return (data || []).map((f: any) => ({
-      ...f,
-      valor_total: Number(f.valor_total || 0),
-    }))
+    return (data || []).map((f: any) => {
+      const pags = (f.pagamentos_fatura || []).filter((p: any) => p.status === 'efetivado')
+      const totalPagoEfetivado = pags.reduce((acc: number, p: any) => acc + Number(p.valor || 0), 0)
+      const valorExibicao =
+        f.status === 'paga' && totalPagoEfetivado > 0
+          ? totalPagoEfetivado
+          : Number(f.valor_total || 0)
+
+      return {
+        ...f,
+        valor_total: valorExibicao,
+        valor_pago_real: totalPagoEfetivado,
+      }
+    })
   },
 
   async getFaturasDoMes(workspaceId: string, competencia: string): Promise<any[]> {
@@ -2351,7 +2364,7 @@ export const lancamentoService = {
         )
         if (faturaExistente && faturaExistente.status === 'paga') {
           throw new Error(
-            `A fatura de ${competenciaInicial} já está com pagamento realizado. Não é permitido incluir novos lançamentos nesta fatura. Para liberar a inclusão, desfaça o pagamento da fatura de ${competenciaInicial} na tela de Cartões clicando em "Reabrir".`,
+            `A fatura de ${competenciaInicial} já está com pagamento realizado. Não é permitido incluir novos lançamentos nesta fatura. Para liberar a inclusão, desfaça o pagamento da fatura de ${competenciaInicial} na tela de Cartões clicando em "Estornar Pagamento".`,
           )
         }
       }

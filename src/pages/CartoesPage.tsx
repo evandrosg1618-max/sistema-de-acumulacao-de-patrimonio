@@ -286,6 +286,9 @@ export default function CartoesPage() {
         })
         toast.success('Fatura quitada com sucesso! Saldo bancário baixado.')
         await carregarCartoes()
+        if (cartaoExpandidoId) {
+          await carregarFaturasDoCartao(cartaoExpandidoId)
+        }
       } catch (err: any) {
         toast.error(
           'Não foi possível concluir o pagamento — ' +
@@ -308,6 +311,9 @@ export default function CartoesPage() {
         await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
         toast.success('Pagamento estornado com sucesso! A fatura pode ser alterada novamente.')
         await carregarCartoes()
+        if (cartaoExpandidoId) {
+          await carregarFaturasDoCartao(cartaoExpandidoId)
+        }
       } catch (err: any) {
         toast.error(
           'Não foi possível estornar o pagamento da fatura — ' +
@@ -825,10 +831,17 @@ export default function CartoesPage() {
 
   const limiteTotal = cartoes.reduce((acc, c) => acc + (c.limite || 0), 0)
   const faturaTotal = cartoes.reduce((acc, c) => acc + (c.fatura_atual || 0), 0)
-  const totalComprometidoGeral = cartoes.reduce(
-    (acc, c) => acc + (c.total_comprometido || c.fatura_atual || 0),
-    0,
-  )
+  const totalComprometidoGeral = cartoes.reduce((acc, c) => {
+    const res = resumosFatura[c.id]
+    const faturaEstaPaga = res?.status === 'paga' || res?.statusExibicao === 'Paga'
+    const compBase = Number(c.total_comprometido || 0)
+    if (faturaEstaPaga) {
+      // Se a fatura selecionada está paga, desconta o saldo dela caso ainda componha o total comprometido
+      const valorFaturaPaga = Number(res?.totalPago || res?.totalCompras || 0)
+      return acc + Math.max(0, compBase > valorFaturaPaga ? compBase - valorFaturaPaga : compBase)
+    }
+    return acc + (compBase || res?.saldoDevedor || c.fatura_atual || 0)
+  }, 0)
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6">
@@ -839,17 +852,7 @@ export default function CartoesPage() {
             <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
               Gestão de Cartões de Crédito
             </h1>
-            <Badge
-              variant="outline"
-              className="text-indigo-700 bg-indigo-50 border-indigo-200 text-xs font-semibold"
-            >
-              Build 3 • Faturas & Parcelas
-            </Badge>
           </div>
-          <p className="text-xs md:text-sm text-slate-500 mt-1">
-            Competências dinâmicas por dia de fechamento, parcelas futuras e recálculo em tempo real
-            sem valores congelados.
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -923,19 +926,19 @@ export default function CartoesPage() {
         <Card className="border-slate-200 shadow-sm bg-white">
           <CardHeader className="pb-2">
             <CardDescription className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-              Fatura de {competenciaFiltro}
+              TOTAL DAS FATURAS DE {competenciaFiltro}
             </CardDescription>
             <CardTitle className="text-2xl font-bold text-rose-600">
               {formatMoneyBRL(
-                Object.values(resumosFatura).reduce(
-                  (acc: number, r: any) => acc + (r?.saldoDevedor ?? r?.totalCompras ?? 0),
-                  0,
-                ),
+                Object.values(resumosFatura).reduce((acc: number, r: any) => {
+                  if (r?.status === 'paga' || r?.statusExibicao === 'Paga') return acc
+                  return acc + (r?.saldoDevedor ?? r?.totalCompras ?? 0)
+                }, 0),
               )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-slate-500">Compras + parcelas na competência</p>
+            <p className="text-xs text-slate-500">Compras + parcelas em faturas abertas</p>
           </CardContent>
         </Card>
 
@@ -949,7 +952,7 @@ export default function CartoesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-1">
-            <p className="text-xs text-slate-500">Fatura atual + parcelas futuras</p>
+            <p className="text-xs text-slate-500">Fatura aberta + parcelas futuras</p>
             <p className="text-[11px] text-amber-700 bg-amber-50 rounded px-2 py-1 border border-amber-200/60 leading-tight">
               Lançamentos &quot;Fixos&quot; de faturas abertas não somam no comprometimento do
               cartão.
@@ -960,14 +963,14 @@ export default function CartoesPage() {
         <Card className="border-slate-200 shadow-sm bg-white">
           <CardHeader className="pb-2">
             <CardDescription className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-              Limite Disponível Real
+              Limite Total Disponível
             </CardDescription>
             <CardTitle className="text-2xl font-bold text-emerald-600">
               {formatMoneyBRL(Math.max(0, limiteTotal - totalComprometidoGeral))}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-slate-500">Descontando parcelas ativas</p>
+            <p className="text-xs text-slate-500">Descontado o Total comprometido</p>
           </CardContent>
         </Card>
       </div>

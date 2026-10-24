@@ -226,12 +226,13 @@ export default function LancamentosPage() {
     busca,
   ])
 
-  // Estado para Visualização de Lançamentos Vinculados a uma Conta específica
+  // Estado para Visualização de Lançamentos Vinculados a uma Conta específica (Extrato da Conta)
   const [contaDetalhesModal, setContaDetalhesModal] = useState<Conta | null>(null)
   const [filtroStatusContaDetalhes, setFiltroStatusContaDetalhes] = useState<'pagos' | 'todos'>(
     'pagos',
   )
   const [lancamentosDaConta, setLancamentosDaConta] = useState<Lancamento[]>([])
+  const [movimentacoesFaturaConta, setMovimentacoesFaturaConta] = useState<any[]>([])
   const [carregandoLancamentosConta, setCarregandoLancamentosConta] = useState(false)
 
   const abrirDetalhesConta = async (conta: Conta) => {
@@ -240,15 +241,26 @@ export default function LancamentosPage() {
     if (!wsId) return
     setCarregandoLancamentosConta(true)
     try {
-      const lancs = await lancamentoService.list(wsId, {
-        contaId: conta.id,
-        tipo: 'todos',
-        statusPagamento: 'todos',
-      })
+      const [lancs, movsRes] = await Promise.all([
+        lancamentoService.list(wsId, {
+          contaId: conta.id,
+          tipo: 'todos',
+          statusPagamento: 'todos',
+        }),
+        supabase
+          .from('movimentacoes_conta')
+          .select('*')
+          .eq('workspace_id', wsId)
+          .eq('conta_id', conta.id)
+          .not('pagamento_fatura_id', 'is', null)
+          .order('data', { ascending: false }),
+      ])
+
       setLancamentosDaConta(lancs)
+      setMovimentacoesFaturaConta(movsRes.data || [])
     } catch (e) {
-      console.error('Erro ao buscar lançamentos da conta:', e)
-      toast.error('Erro ao carregar lançamentos da conta')
+      console.error('Erro ao buscar extrato da conta:', e)
+      toast.error('Erro ao carregar extrato da conta')
     } finally {
       setCarregandoLancamentosConta(false)
     }
@@ -1462,52 +1474,110 @@ export default function LancamentosPage() {
                 </div>
               ) : (
                 (() => {
-                  const filtrados = lancamentosDaConta.filter((l) =>
-                    filtroStatusContaDetalhes === 'pagos' ? l.status_pagamento === 'pago' : true,
+                  // Unifica lançamentos da conta + movimentações de pagamento/estorno de faturas (Passo 5 / Teste 37)
+                  type ItemExtrato = {
+                    id: string
+                    tipoItem: 'lancamento' | 'movimentacao_fatura'
+                    tipoMov: 'entrada' | 'saida' | 'transferencia' | 'estorno'
+                    descricao: string
+                    data: string
+                    categoriaNome?: string
+                    valor: number
+                    pago: boolean
+                  }
+
+                  const itensLancamentos: ItemExtrato[] = lancamentosDaConta
+                    .filter((l) =>
+                      filtroStatusContaDetalhes === 'pagos' ? l.status_pagamento === 'pago' : true,
+                    )
+                    .map((l) => ({
+                      id: `lanc-${l.id}`,
+                      tipoItem: 'lancamento',
+                      tipoMov:
+                        l.tipo === 'despesa'
+                          ? 'saida'
+                          : l.tipo === 'receita'
+                            ? 'entrada'
+                            : 'transferencia',
+                      descricao: l.descricao,
+                      data: l.data,
+                      categoriaNome: l.categoria?.nome,
+                      valor: Number(l.valor || 0),
+                      pago: l.status_pagamento === 'pago',
+                    }))
+
+                  const itensMovsFatura: ItemExtrato[] = movimentacoesFaturaConta.map((m) => {
+                    const ehEstorno = m.tipo === 'estorno'
+                    return {
+                      id: `mov-${m.id}`,
+                      tipoItem: 'movimentacao_fatura',
+                      tipoMov: ehEstorno ? 'estorno' : 'saida',
+                      descricao:
+                        m.descricao ||
+                        (ehEstorno
+                          ? 'Estorno de fatura de cartão'
+                          : 'Pagamento de fatura de cartão'),
+                      data: m.data,
+                      categoriaNome: 'Fatura de Cartão',
+                      valor: Number(m.valor || 0),
+                      pago: true,
+                    }
+                  })
+
+                  const todosItensExtrato = [...itensLancamentos, ...itensMovsFatura].sort((a, b) =>
+                    (b.data || '').localeCompare(a.data || ''),
                   )
 
-                  if (filtrados.length === 0) {
+                  if (todosItensExtrato.length === 0) {
                     return (
                       <div className="py-10 text-center text-xs text-slate-400">
-                        Nenhum lançamento encontrado para esta seleção.
+                        Nenhum lançamento ou movimentação encontrada para esta seleção.
                       </div>
                     )
                   }
 
-                  return filtrados.map((l) => {
-                    const isDespesa = l.tipo === 'despesa'
-                    const isReceita = l.tipo === 'receita'
-                    const isPago = l.status_pagamento === 'pago'
+                  return todosItensExtrato.map((item) => {
+                    const isSaida = item.tipoMov === 'saida'
+                    const isEntrada = item.tipoMov === 'entrada' || item.tipoMov === 'estorno'
+                    const isTransf = item.tipoMov === 'transferencia'
 
                     return (
                       <div
-                        key={l.id}
+                        key={item.id}
                         className="py-2.5 flex items-center justify-between gap-3 text-xs"
                       >
                         <div className="flex items-center gap-2.5 min-w-0">
                           <div
                             className={`w-7 h-7 rounded-full flex items-center justify-center text-white shrink-0 ${
-                              isDespesa
-                                ? 'bg-rose-500'
-                                : isReceita
-                                  ? 'bg-emerald-500'
-                                  : 'bg-blue-500'
+                              isSaida ? 'bg-rose-500' : isEntrada ? 'bg-emerald-500' : 'bg-blue-500'
                             }`}
                           >
-                            {isDespesa && <TrendingDown className="w-3.5 h-3.5" />}
-                            {isReceita && <TrendingUp className="w-3.5 h-3.5" />}
-                            {l.tipo === 'transferencia' && (
-                              <ArrowRightLeft className="w-3.5 h-3.5" />
-                            )}
+                            {isSaida && <TrendingDown className="w-3.5 h-3.5" />}
+                            {isEntrada && <TrendingUp className="w-3.5 h-3.5" />}
+                            {isTransf && <ArrowRightLeft className="w-3.5 h-3.5" />}
                           </div>
 
                           <div className="min-w-0">
-                            <div className="font-semibold text-slate-800 truncate">
-                              {l.descricao}
+                            <div className="font-semibold text-slate-800 truncate flex items-center gap-1.5">
+                              <span>{item.descricao}</span>
+                              {item.tipoItem === 'movimentacao_fatura' && (
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[9px] py-0 px-1 font-normal ${
+                                    item.tipoMov === 'estorno'
+                                      ? 'text-amber-800 bg-amber-50 border-amber-200'
+                                      : 'text-indigo-800 bg-indigo-50 border-indigo-200'
+                                  }`}
+                                >
+                                  {item.tipoMov === 'estorno'
+                                    ? 'Estorno Fatura'
+                                    : 'Pagamento Fatura'}
+                                </Badge>
+                              )}
                             </div>
                             <div className="text-[11px] text-slate-400">
-                              {l.data ? l.data.split('-').reverse().join('/') : ''}{' '}
-                              {l.categoria && `• ${l.categoria.nome}`}
+                              {item.data ? item.data.split('-').reverse().join('/') : ''}{' '}
+                              {item.categoriaNome && `• ${item.categoriaNome}`}
                             </div>
                           </div>
                         </div>
@@ -1515,22 +1585,22 @@ export default function LancamentosPage() {
                         <div className="text-right shrink-0">
                           <div
                             className={`font-bold ${
-                              isDespesa
+                              isSaida
                                 ? 'text-slate-800'
-                                : isReceita
+                                : isEntrada
                                   ? 'text-emerald-600'
                                   : 'text-slate-700'
                             }`}
                           >
-                            {isDespesa ? '-' : isReceita ? '+' : ''}
-                            {formatMoneyBRL(l.valor)}
+                            {isSaida ? '-' : isEntrada ? '+' : ''}
+                            {formatMoneyBRL(item.valor)}
                           </div>
                           <span
                             className={`text-[10px] font-semibold ${
-                              isPago ? 'text-emerald-600' : 'text-amber-600'
+                              item.pago ? 'text-emerald-600' : 'text-amber-600'
                             }`}
                           >
-                            {isPago ? 'Pago' : 'Pendente'}
+                            {item.pago ? 'Efetivado' : 'Pendente'}
                           </span>
                         </div>
                       </div>
