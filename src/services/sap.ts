@@ -3629,126 +3629,52 @@ export const lancamentoService = {
       }
     }
 
-    // Tratar toggle de status de pagamento usando a RPC atômica toggle_pago_lancamento_rpc
+    // Execução atômica no PostgreSQL com SELECT FOR UPDATE para estorno/movimentação de saldos
     const meioFinal = updates.meio_pagamento_tipo || anterior.meio_pagamento_tipo
     const statusDesejado =
-      meioFinal === 'CARTAO' ? 'pendente' : (updates.status_pagamento ?? anterior.status_pagamento)
+      meioFinal === 'CARTAO'
+        ? 'pendente'
+        : (updates.status_pagamento ?? anterior.status_pagamento ?? 'pendente')
 
-    // Se o status de pagamento foi alterado explicitamente em contas bancárias/dinheiro
-    if (
-      meioFinal !== 'CARTAO' &&
-      updates.status_pagamento !== undefined &&
-      updates.status_pagamento !== anterior.status_pagamento
-    ) {
-      const { data: toggleRes, error: toggleErr } = await db.rpc('toggle_pago_lancamento_rpc', {
-        p_workspace_id: workspaceId,
-        p_lancamento_id: id,
-        p_pago: updates.status_pagamento === 'pago',
-        p_user_id: userId || null,
-      })
-      if (toggleErr) {
-        console.warn('Aviso ao executar toggle_pago_lancamento_rpc no update:', toggleErr)
-      }
-    }
-
-    // Calcular nova competência caso a data ou cartão tenham mudado
     const dataFinal = updates.data || anterior.data
-    const cartaoFinal = updates.cartao_id !== undefined ? updates.cartao_id : anterior.cartao_id
-
-    let novaCompetencia = dataFinal.substring(0, 7)
-    if (meioFinal === 'CARTAO' && cartaoFinal) {
-      const cartao = await cartaoService.getById(cartaoFinal)
-      if (cartao) {
-        novaCompetencia = faturaService.calcularCompetenciaCartao(
-          dataFinal,
-          cartao.dia_fechamento,
-          cartao.dia_vencimento,
-        )
-      }
-    }
-
     const valorFinal = updates.valor !== undefined ? Number(updates.valor) : Number(anterior.valor)
+    const descricaoFinal = (
+      updates.descricao !== undefined ? updates.descricao : anterior.descricao
+    ).trim()
 
-    // Se o valor mudou em lançamento já pago, ajusta a movimentação e saldo da conta
-    if (
-      anterior.status_pagamento === 'pago' &&
-      statusDesejado === 'pago' &&
-      valorFinal !== Number(anterior.valor) &&
-      meioFinal !== 'CARTAO'
-    ) {
-      const delta = valorFinal - Number(anterior.valor)
-      const cId =
-        updates.conta_origem_id !== undefined ? updates.conta_origem_id : anterior.conta_origem_id
-      if (cId) {
-        const c = await contaService.getById(cId)
-        if (c) {
-          const ajusteConta = anterior.tipo === 'despesa' ? -delta : delta
-          await db
-            .from('contas')
-            .update({
-              saldo_atual: Number(c.saldo_atual) + ajusteConta,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', cId)
-          await db
-            .from('movimentacoes_conta')
-            .update({ valor: valorFinal, descricao: updates.descricao || anterior.descricao })
-            .eq('lancamento_id', id)
-        }
-      }
-    }
-
-    // Higienizar explicitamente payload do update para garantir que apenas colunas válidas da tabela lancamentos sejam enviadas
-    const {
-      fixo: _discardFixo,
-      created_by: _discardCreatedBy,
-      total_parcelas: _discardTotal,
-      lancamento_pai_id: _discardPai,
-      numero_parcela: _discardNum,
-      id: _discardId,
-      workspace_id: _discardWs,
-      ...safeUpdates
-    } = updates as any
-
-    const { data: updated, error } = await db
-      .from('lancamentos')
-      .update({
-        ...safeUpdates,
-        valor: valorFinal,
-        competencia: novaCompetencia,
-        status_pagamento: statusDesejado,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .eq('workspace_id', workspaceId)
-      .select()
-      .single()
-
-    if (error) throw error
-
-    // Se afetou faturas de cartão, recalcular faturas antiga e nova
-    if (anterior.cartao_id && anterior.competencia) {
-      await faturaService.recalcularValorFatura(
-        workspaceId,
-        anterior.cartao_id,
-        anterior.competencia,
-      )
-    }
-    if (cartaoFinal && novaCompetencia) {
-      await faturaService.getOrCreateFatura(workspaceId, cartaoFinal, novaCompetencia)
-      await faturaService.recalcularValorFatura(workspaceId, cartaoFinal, novaCompetencia)
-    }
-
-    await auditoriaService.registrar({
-      workspace_id: workspaceId,
-      entidade: 'lancamentos',
-      entidade_id: id,
-      acao: 'update',
-      estado_anterior: anterior,
-      estado_posterior: updated,
-      created_by: userId,
+    const { data: resAtomico, error: errAtomico } = await db.rpc('editar_lancamento_atomico_rpc', {
+      p_workspace_id: workspaceId,
+      p_lancamento_id: id,
+      p_descricao: descricaoFinal,
+      p_valor: valorFinal,
+      p_data: dataFinal,
+      p_meio_pagamento_tipo: meioFinal,
+      p_conta_origem_id:
+        updates.conta_origem_id !== undefined ? updates.conta_origem_id : anterior.conta_origem_id,
+      p_conta_destino_id:
+        updates.conta_destino_id !== undefined
+          ? updates.conta_destino_id
+          : anterior.conta_destino_id,
+      p_cartao_id: updates.cartao_id !== undefined ? updates.cartao_id : anterior.cartao_id,
+      p_categoria_id:
+        updates.categoria_id !== undefined ? updates.categoria_id : anterior.categoria_id,
+      p_subcategoria_id:
+        updates.subcategoria_id !== undefined ? updates.subcategoria_id : anterior.subcategoria_id,
+      p_status_pagamento: statusDesejado,
+      p_observacao: updates.observacao !== undefined ? updates.observacao : anterior.observacao,
+      p_quantidade_parcelas: updates.quantidade_parcelas || anterior.quantidade_parcelas || 1,
+      p_user_id: userId || null,
     })
 
+    if (errAtomico) {
+      throw new Error(errAtomico.message || 'Falha ao salvar edição do lançamento.')
+    }
+
+    if (resAtomico && !resAtomico.sucesso) {
+      throw new Error(resAtomico.mensagem || 'Não foi possível alterar o lançamento.')
+    }
+
+    const updated = await this.getById(id)
     return updated
   },
 

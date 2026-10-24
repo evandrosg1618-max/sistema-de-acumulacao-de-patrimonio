@@ -171,8 +171,15 @@ export default function LancamentosPage() {
         busca: busca,
       }
 
+      // Passo 3 (testes 30–31): filtros de período devem filtrar SEMPRE pela DATA DO LANÇAMENTO
+      // Quando for 'mes', calcula início (YYYY-MM-01) e fim (último dia do mês) pela data real do lançamento
       if (filtroPeriodoTipo === 'mes') {
-        filtrosConsulta.competencia = anoMes
+        const [anoStr, mesStr] = anoMes.split('-')
+        const anoNum = parseInt(anoStr, 10)
+        const mesNum = parseInt(mesStr, 10)
+        const ultimoDia = new Date(anoNum, mesNum, 0).getDate()
+        filtrosConsulta.dataInicio = `${anoMes}-01`
+        filtrosConsulta.dataFim = `${anoMes}-${String(ultimoDia).padStart(2, '0')}`
       } else if (
         filtroPeriodoTipo === 'hoje' ||
         filtroPeriodoTipo === 'esta_semana' ||
@@ -694,13 +701,14 @@ export default function LancamentosPage() {
     await carregarDados()
   }
 
-  // Totais do Período
+  // Totais do Período: derivam estritamente dos lançamentos PAGOS do período (Passo 1.1 e testes 9, 11, 12, 15, 18, 20)
+  // Transferências têm impacto zero no resultado mês (liquidez neutra)
   const totalReceitas = lancamentos
-    .filter((l) => l.tipo === 'receita')
+    .filter((l) => l.tipo === 'receita' && l.status_pagamento === 'pago')
     .reduce((acc, l) => acc + l.valor, 0)
 
   const totalDespesas = lancamentos
-    .filter((l) => l.tipo === 'despesa')
+    .filter((l) => l.tipo === 'despesa' && l.status_pagamento === 'pago')
     .reduce((acc, l) => acc + l.valor, 0)
 
   const saldoLiquidoPeriodo = totalReceitas - totalDespesas

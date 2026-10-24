@@ -1099,19 +1099,22 @@ export function ModalLancamento({
                 </div>
               )}
 
-              {/* Regra do toggle "Lançamento pago" (referência OrganiZe OCR Página 1):
-                  - O botão de ligar/desligar "Lançamento pago" aparece APENAS para meios de pagamento de Contas Bancárias (e dinheiro).
+              {/* Regra do toggle "Lançamento pago" (Passo 2 e referência OrganiZe):
+                  - O botão de ligar/desligar "Lançamento pago" aparece para Contas Bancárias (incluindo Transferências) e Dinheiro.
+                  - NÃO aparece quando o meio for cartão de crédito (quitado via fatura).
                   - Para lançamentos fixos, se ligado, marca "pago" apenas a PRIMEIRA ocorrência; as futuras permanecem não pagas aguardando a ação do usuário no mês seguinte.
-                  - Para lançamentos únicos, se ligado, marca "pago" direto.
+                  - Para lançamentos únicos ou transferências, se ligado, movimenta saldos imediatamente. Se desligado, fica pendente sem movimentar.
               */}
-              {tipo !== 'transferencia' && !pagoComDestino.startsWith('cartao:') && (
+              {(tipo === 'transferencia' || !pagoComDestino.startsWith('cartao:')) && (
                 <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
                   <div className="space-y-0.5">
                     <Label className="text-xs font-semibold text-slate-800">Lançamento pago</Label>
                     <p className="text-[11px] text-slate-500">
                       {modoRepeticao === 'fixo'
                         ? 'Para fixos: marca como paga apenas a primeira ocorrência. As futuras permanecem não pagas.'
-                        : 'Se ligado, marca "pago" direto e atualiza o saldo bancário.'}
+                        : tipo === 'transferencia'
+                          ? 'Se ligado, efetiva a transferência debitando a origem e creditando o destino.'
+                          : 'Se ligado, marca "pago" direto e atualiza o saldo bancário.'}
                     </p>
                   </div>
                   <Switch checked={pago} onCheckedChange={setPago} />
