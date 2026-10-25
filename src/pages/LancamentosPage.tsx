@@ -301,8 +301,14 @@ export default function LancamentosPage() {
   const handleSalvarLancamento = async (dados: any, criarOutro = false) => {
     if (!wsId) return
 
-    // REQUISITO 4: Ao salvar alteração de um lançamento com serie_id preenchido, interceptar e abrir ModalEscolhaEscopoSerie
-    if (dados.id && (lancamentoEmEdicao?.serie_id || dados.serie_id)) {
+    // Se houve conversão de regime na edição (ex: de fixo para único, único para fixo/parcelado, etc.),
+    // executar diretamente a conversão via salvarUnificado / converterRegime sem abrir o modal de escopo de repetição da série antiga!
+    const regimeAnterior = lancamentoEmEdicao?.regime || 'unico'
+    const regimeNovo = dados.regime || 'unico'
+    const houveMudancaRegime = dados.id && regimeAnterior !== regimeNovo
+
+    // REQUISITO 4: Ao salvar alteração de um lançamento com serie_id preenchido (sem mudar regime), interceptar e abrir ModalEscolhaEscopoSerie
+    if (dados.id && !houveMudancaRegime && (lancamentoEmEdicao?.serie_id || dados.serie_id)) {
       setDadosEdicaoPendentes(dados)
       setLancamentoAlvoEscopo(lancamentoEmEdicao)
       setAcaoEscopo('editar')
@@ -370,6 +376,7 @@ export default function LancamentosPage() {
                 quantidade_parcelas: Number(dados.quantidade_parcelas || 1),
                 descricao: dados.descricao,
                 categoria_id: dados.categoria_id,
+                cartao_id: dados.cartao_id,
                 subcategoria_id: dados.subcategoria_id,
                 observacao: dados.observacao,
               },

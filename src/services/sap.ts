@@ -729,6 +729,7 @@ export const fixoService = {
       conta_origem_id?: string | null
       conta_destino_id?: string | null
       cartao_id?: string | null
+      pago_primeira?: boolean
     },
     userId?: string,
   ) {
@@ -2969,6 +2970,7 @@ export const lancamentoService = {
       categoria_id?: string | null
       subcategoria_id?: string | null
       observacao?: string | null
+      cartao_id?: string | null
     },
     userId?: string,
   ): Promise<any> {
@@ -2982,6 +2984,7 @@ export const lancamentoService = {
       p_categoria_id: dados.categoria_id || null,
       p_subcategoria_id: dados.subcategoria_id || null,
       p_observacao: dados.observacao || null,
+      p_novo_cartao_id: dados.cartao_id || null,
       p_user_id: userId || null,
     })
 
@@ -3071,6 +3074,7 @@ export const lancamentoService = {
       conta_origem_id?: string | null
       conta_destino_id?: string | null
       cartao_id?: string | null
+      pago_primeira?: boolean
     },
     userId?: string,
   ): Promise<{
@@ -3103,6 +3107,7 @@ export const lancamentoService = {
       p_nova_conta_origem_id: novosDados.conta_origem_id || null,
       p_nova_conta_destino_id: novosDados.conta_destino_id || null,
       p_novo_cartao_id: novosDados.cartao_id || null,
+      p_pago_primeira: Boolean(novosDados.pago_primeira),
       p_user_id: userId || null,
     })
 
@@ -3185,6 +3190,10 @@ export const lancamentoService = {
               : paiObj?.subcategoria_id,
           observacao:
             novosDados.observacao !== undefined ? novosDados.observacao : paiObj?.observacao,
+          cartao_id:
+            (novosDados as any).cartao_id !== undefined
+              ? (novosDados as any).cartao_id
+              : paiObj?.cartao_id,
         },
         userId,
       )
@@ -3574,6 +3583,7 @@ export const lancamentoService = {
       prazo?: 'indeterminado' | 'determinado'
       periodicidade?: 'mensal' | 'semestral' | 'anual'
       quantidade_total?: number | null
+      pago_primeira?: boolean
     },
     userId?: string,
   ): Promise<any> {
@@ -3595,6 +3605,7 @@ export const lancamentoService = {
       p_novo_prazo: dados.prazo || 'indeterminado',
       p_nova_periodicidade: dados.periodicidade || 'mensal',
       p_novo_total_ocorrencias: dados.quantidade_total ? Number(dados.quantidade_total) : 12,
+      p_pago_primeira: Boolean(dados.pago_primeira),
       p_user_id: userId || null,
     })
 

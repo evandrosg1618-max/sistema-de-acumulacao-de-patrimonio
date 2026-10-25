@@ -389,8 +389,12 @@ export default function CartoesPage() {
   const handleSalvarLancamentoFatura = async (dados: any, criarOutro = false) => {
     if (!wsId) return
 
-    // REQUISITO 4: Interceptar série fixa para escolha de escopo único "Todos"
-    if (dados.id && (lancamentoFaturaEmEdicao?.serie_id || dados.serie_id)) {
+    const regimeAnterior = lancamentoFaturaEmEdicao?.regime || 'unico'
+    const regimeNovo = dados.regime || 'unico'
+    const houveMudancaRegime = dados.id && regimeAnterior !== regimeNovo
+
+    // REQUISITO 4: Interceptar série fixa para escolha de escopo único "Todos" (sem mudança de regime)
+    if (dados.id && !houveMudancaRegime && (lancamentoFaturaEmEdicao?.serie_id || dados.serie_id)) {
       setDadosEdicaoPendentes(dados)
       setLancamentoAlvoEscopo(lancamentoFaturaEmEdicao)
       setAcaoEscopo('editar')
@@ -454,6 +458,7 @@ export default function CartoesPage() {
                 quantidade_parcelas: Number(dados.quantidade_parcelas || 1),
                 descricao: dados.descricao,
                 categoria_id: dados.categoria_id,
+                cartao_id: dados.cartao_id,
                 subcategoria_id: dados.subcategoria_id,
                 observacao: dados.observacao,
               },
