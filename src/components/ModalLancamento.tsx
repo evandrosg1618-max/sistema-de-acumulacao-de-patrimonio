@@ -971,6 +971,16 @@ export function ModalLancamento({
                           ))}
                         </SelectContent>
                       </Select>
+
+                      {/* BLOCO 5 (Teste 9): Alerta vermelho quando regime === 'parcelado' E meio de pagamento !== cartão */}
+                      {pagoComDestino && !pagoComDestino.startsWith('cartao:') && (
+                        <div className="p-3 bg-red-50 border border-red-300 rounded-lg text-red-700 text-xs font-medium leading-relaxed">
+                          A função de parcelamento em conta movimento não está ativa por implicações
+                          em "Orçamento" - Mude para Lançamento Fixo Determinado, no campo valor*
+                          informe o valor da parcela (valor total divido pela quantidade) e em
+                          quantidade de ocorrencias* informe a quantidade de parcelas
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

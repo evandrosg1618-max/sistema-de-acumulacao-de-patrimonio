@@ -41,6 +41,7 @@ import { ModalLancamento } from '@/components/ModalLancamento'
 import { ModalPagamentoFatura } from '@/components/ModalPagamentoFatura'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
+import { ModalConfirmacaoExclusao } from '@/components/ModalConfirmacaoExclusao'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -109,6 +110,24 @@ export default function CartoesPage() {
   // Modal de aviso de bloqueio por fatura paga (fecha apenas com botão 'X')
   const [bloqueioFaturaInfo, setBloqueioFaturaInfo] = useState<InfoBloqueioFatura | null>(null)
   const [modalBloqueioOpen, setModalBloqueioOpen] = useState(false)
+
+  // BLOCO 3: Modal unificado AlertDialog para confirmações
+  const [modalConfirmacaoExclusaoOpen, setModalConfirmacaoExclusaoOpen] = useState(false)
+  const [modalConfirmacaoConfig, setModalConfirmacaoConfig] = useState<{
+    title: string
+    description: string
+    isAlertOnly?: boolean
+    confirmText?: string
+    cancelText?: string
+    onConfirm: () => Promise<void> | void
+  }>({
+    title: 'Exclusão',
+    description: '',
+    isAlertOnly: false,
+    confirmText: 'OK',
+    cancelText: 'Cancelar',
+    onConfirm: () => {},
+  })
 
   // Modal de escolha de escopo único "Todos"
   const [modalEscopoOpen, setModalEscopoOpen] = useState(false)
@@ -308,23 +327,30 @@ export default function CartoesPage() {
 
   const handleEstornarFatura = async (faturaId: string) => {
     if (!wsId) return
-    const confirma = window.confirm(
-      'Deseja estornar o pagamento desta fatura? O pagamento será desfeito e o saldo bancário recomposto, permitindo alterações na fatura.',
-    )
-    if (!confirma) return
-
-    await runWithLock(async () => {
-      try {
-        await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
-        toast.success('Pagamento estornado com sucesso! A fatura pode ser alterada novamente.')
-        await carregarCartoes()
-      } catch (err: any) {
-        toast.error(
-          'Não foi possível estornar o pagamento da fatura — ' +
-            (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
-        )
-      }
-    }, 'Estornando pagamento e recompondo saldos das contas...')
+    setModalConfirmacaoConfig({
+      title: 'Estornar Pagamento',
+      description:
+        'Deseja estornar o pagamento desta fatura? O pagamento será desfeito e o saldo bancário recomposto, permitindo alterações na fatura.',
+      isAlertOnly: false,
+      confirmText: 'OK',
+      cancelText: 'Cancelar',
+      onConfirm: async () => {
+        setModalConfirmacaoExclusaoOpen(false)
+        await runWithLock(async () => {
+          try {
+            await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
+            toast.success('Pagamento estornado com sucesso! A fatura pode ser alterada novamente.')
+            await carregarCartoes()
+          } catch (err: any) {
+            toast.error(
+              'Não foi possível estornar o pagamento da fatura — ' +
+                (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
+            )
+          }
+        }, 'Estornando pagamento e recompondo saldos das contas...')
+      },
+    })
+    setModalConfirmacaoExclusaoOpen(true)
   }
 
   // REQUISITOS 2, 3 e 4: Ações de Lançamentos dentro da Fatura
@@ -582,44 +608,57 @@ export default function CartoesPage() {
       Boolean(alvoParaExclusao.lancamento_pai_id)
 
     if (ehParcelado) {
-      // Frente 4: Sem modal de escopo para parcelados. Excluir o original e regenerar faturas.
-      const confirma = window.confirm(
-        `Excluir a compra parcelada "${alvoParaExclusao.descricao}"? Todas as parcelas vinculadas serão removidas e as faturas recalculadas.`,
-      )
-      if (!confirma) return
-
-      await runWithLock(async () => {
-        try {
-          await lancamentoService.excluirCompraParcelada(wsId, alvoParaExclusao.id, user?.id)
-          toast.success('Compra parcelada excluída e faturas recalculadas!')
-          await carregarCartoes()
-        } catch (err: any) {
-          toast.error(
-            'Não foi possível excluir a compra parcelada — ' +
-              (err.message || 'verifique e tente novamente.'),
-          )
-        }
-      }, 'Excluindo compra parcelada e recalculando faturas...')
+      // BLOCO 3.3 Compra parcelada: AlertDialog contendo APENAS:
+      // Excluir a compra parcelada "{descrição}"? Todas as parcelas serão removidas e as faturas do cartão recalculadas.
+      setModalConfirmacaoConfig({
+        title: 'Excluir compra parcelada',
+        description: `Excluir a compra parcelada "${alvoParaExclusao.descricao}"? Todas as parcelas serão removidas e as faturas do cartão recalculadas.`,
+        isAlertOnly: false,
+        confirmText: 'OK',
+        cancelText: 'Cancelar',
+        onConfirm: async () => {
+          setModalConfirmacaoExclusaoOpen(false)
+          await runWithLock(async () => {
+            try {
+              await lancamentoService.excluirCompraParcelada(wsId, alvoParaExclusao.id, user?.id)
+              toast.success('Compra parcelada excluída e faturas recalculadas!')
+              await carregarCartoes()
+            } catch (err: any) {
+              toast.error(
+                'Não foi possível excluir a compra parcelada — ' +
+                  (err.message || 'verifique e tente novamente.'),
+              )
+            }
+          }, 'Excluindo compra parcelada e recalculando faturas...')
+        },
+      })
+      setModalConfirmacaoExclusaoOpen(true)
       return
     }
 
-    const confirma = window.confirm(
-      `Deseja realmente excluir "${alvoParaExclusao.descricao}" desta fatura?`,
-    )
-    if (!confirma) return
-
-    await runWithLock(async () => {
-      try {
-        await lancamentoService.deleteComEscopo(alvoParaExclusao.id, wsId, 'este', user?.id)
-        toast.success('Lançamento excluído e faturas recalculadas!')
-        await carregarCartoes()
-      } catch (err: any) {
-        toast.error(
-          'Não foi possível excluir o lançamento — ' +
-            (err.message || 'verifique e tente novamente.'),
-        )
-      }
-    }, 'Excluindo lançamento da fatura...')
+    setModalConfirmacaoConfig({
+      title: 'Excluir lançamento da fatura',
+      description: `Deseja realmente excluir "${alvoParaExclusao.descricao}" desta fatura?`,
+      isAlertOnly: false,
+      confirmText: 'OK',
+      cancelText: 'Cancelar',
+      onConfirm: async () => {
+        setModalConfirmacaoExclusaoOpen(false)
+        await runWithLock(async () => {
+          try {
+            await lancamentoService.deleteComEscopo(alvoParaExclusao.id, wsId, 'este', user?.id)
+            toast.success('Lançamento excluído e faturas recalculadas!')
+            await carregarCartoes()
+          } catch (err: any) {
+            toast.error(
+              'Não foi possível excluir o lançamento — ' +
+                (err.message || 'verifique e tente novamente.'),
+            )
+          }
+        }, 'Excluindo lançamento da fatura...')
+      },
+    })
+    setModalConfirmacaoExclusaoOpen(true)
   }
 
   const handleConfirmarEscopoFatura = async (escopo: EscopoSerie) => {
@@ -841,18 +880,24 @@ export default function CartoesPage() {
 
   const handleExcluir = async (c: Cartao) => {
     if (!wsId) return
-    const confirma = window.confirm(
-      `Deseja realmente desativar o cartão "${c.nome}"? Ele deixará de aparecer na lista ativa.`,
-    )
-    if (!confirma) return
-
-    try {
-      await cartaoService.softDelete(c.id, wsId, user?.id)
-      toast.success(`Cartão "${c.nome}" desativado.`)
-      await carregarCartoes()
-    } catch (err: any) {
-      toast.error('Erro ao excluir cartão: ' + (err.message || 'tente novamente'))
-    }
+    setModalConfirmacaoConfig({
+      title: 'Desativar Cartão',
+      description: `Deseja realmente desativar o cartão "${c.nome}"? Ele deixará de aparecer na lista ativa.`,
+      isAlertOnly: false,
+      confirmText: 'OK',
+      cancelText: 'Cancelar',
+      onConfirm: async () => {
+        setModalConfirmacaoExclusaoOpen(false)
+        try {
+          await cartaoService.softDelete(c.id, wsId, user?.id)
+          toast.success(`Cartão "${c.nome}" desativado.`)
+          await carregarCartoes()
+        } catch (err: any) {
+          toast.error('Erro ao excluir cartão: ' + (err.message || 'tente novamente'))
+        }
+      },
+    })
+    setModalConfirmacaoExclusaoOpen(true)
   }
 
   const limiteTotal = cartoes.reduce((acc, c) => acc + (c.limite || 0), 0)
@@ -1287,6 +1332,11 @@ export default function CartoesPage() {
                                   const totP = l.total_parcelas || l.quantidade_parcelas || 1
                                   const ehParcela = totP > 1
                                   const ehFixo = Boolean(l.serie_id && l.regime === 'fixo')
+                                  // BLOCO 2 (Teste 4): para fixo indeterminado (total_parcelas IS NULL), renderizar a legenda "Fixo Indeterminado"
+                                  const ehFixoIndeterminado =
+                                    ehFixo &&
+                                    (l.total_parcelas === null || l.total_parcelas === undefined)
+                                  const ehFixoDeterminado = ehFixo && !ehFixoIndeterminado
                                   const ehPrevisao =
                                     l.natureza === 'previsao' ||
                                     l.natureza_previsao === true ||
@@ -1315,9 +1365,14 @@ export default function CartoesPage() {
                                                 {numP}/{totP}
                                               </Badge>
                                             )}
-                                            {ehFixo && (
+                                            {ehFixoDeterminado && (
                                               <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
-                                                Fixo
+                                                {numP}/{totP} - Fixo
+                                              </Badge>
+                                            )}
+                                            {ehFixoIndeterminado && (
+                                              <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
+                                                Fixo Indeterminado
                                               </Badge>
                                             )}
                                             {ehPrevisao && (
@@ -1563,6 +1618,19 @@ export default function CartoesPage() {
         dataEscolhida={dadosEdicaoPendentes?.data || lancamentoAlvoEscopo?.data}
         loading={processandoEscopo}
         onConfirmar={handleConfirmarEscopoFatura}
+      />
+
+      {/* Modal de Confirmação Unificado (AlertDialog) */}
+      <ModalConfirmacaoExclusao
+        open={modalConfirmacaoExclusaoOpen}
+        onOpenChange={setModalConfirmacaoExclusaoOpen}
+        title={modalConfirmacaoConfig.title}
+        description={modalConfirmacaoConfig.description}
+        isAlertOnly={modalConfirmacaoConfig.isAlertOnly}
+        confirmText={modalConfirmacaoConfig.confirmText}
+        cancelText={modalConfirmacaoConfig.cancelText}
+        loading={isProcessing}
+        onConfirm={modalConfirmacaoConfig.onConfirm}
       />
 
       {/* Modal Aviso Bloqueio Fatura Paga (Requisito 3: só fecha com botão X) */}

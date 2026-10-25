@@ -60,6 +60,7 @@ import { ModalLancamento } from '@/components/ModalLancamento'
 import { ModalConciliacao } from '@/components/ModalConciliacao'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
+import { ModalConfirmacaoExclusao } from '@/components/ModalConfirmacaoExclusao'
 import { faturaService } from '@/services/sap'
 import { supabase } from '@/lib/supabase/client'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
@@ -102,6 +103,24 @@ export default function LancamentosPage() {
   // Modal de aviso persistente de fatura paga
   const [bloqueioFaturaInfo, setBloqueioFaturaInfo] = useState<InfoBloqueioFatura | null>(null)
   const [modalBloqueioOpen, setModalBloqueioOpen] = useState(false)
+
+  // BLOCO 3 (Testes 5–7): Modal unificado AlertDialog para confirmação de exclusões
+  const [modalConfirmacaoExclusaoOpen, setModalConfirmacaoExclusaoOpen] = useState(false)
+  const [modalConfirmacaoConfig, setModalConfirmacaoConfig] = useState<{
+    title: string
+    description: string
+    isAlertOnly?: boolean
+    confirmText?: string
+    cancelText?: string
+    onConfirm: () => Promise<void> | void
+  }>({
+    title: 'Exclusão',
+    description: '',
+    isAlertOnly: false,
+    confirmText: 'OK',
+    cancelText: 'Cancelar',
+    onConfirm: () => {},
+  })
 
   // Modal de escolha de escopo único "Todos" (alterar/excluir série recorrente ou parcelada)
   const [modalEscopoOpen, setModalEscopoOpen] = useState(false)
@@ -443,12 +462,21 @@ export default function LancamentosPage() {
   const handleExcluirLancamento = async (l: Lancamento) => {
     if (!wsId) return
 
-    // REGRA BLOCO B (Teste 13): Bloqueio de exclusão de lançamento ÚNICO pago
+    // REGRA BLOCO B / BLOCO 3 (Testes 5–7):
     const ehUnico = (l.regime === 'unico' || !l.regime) && !l.serie_id
+    // 3.2 Único em conta PAGO: mesmo padrão visual AlertDialog, mensagem exata (botão único OK)
     if (l.status_pagamento === 'pago' && l.meio_pagamento_tipo !== 'CARTAO' && ehUnico) {
-      toast.error(
-        'Este lançamento está pago. É necessário desfazer o pagamento para excluir. Desfaça o pagamento no botão da lista antes de excluir.',
-      )
+      setModalConfirmacaoConfig({
+        title: 'Exclusão de Lançamento único em Conta Movimento',
+        description:
+          'Este lançamento está pago. É necessário desfazer o pagamento para excluir. Desfaça o pagamento no botão da lista antes de excluir.',
+        isAlertOnly: true,
+        confirmText: 'OK',
+        onConfirm: () => {
+          setModalConfirmacaoExclusaoOpen(false)
+        },
+      })
+      setModalConfirmacaoExclusaoOpen(true)
       return
     }
 
@@ -498,24 +526,32 @@ export default function LancamentosPage() {
         Boolean(l.lancamento_pai_id))
 
     if (ehParceladoCartao) {
-      const confirma = window.confirm(
-        `Excluir a compra parcelada "${l.descricao}"? Todas as parcelas serão removidas e as faturas do cartão recalculadas.`,
-      )
-      if (!confirma) return
-
-      await runWithLock(async () => {
-        try {
-          const paiId = l.lancamento_pai_id || l.id
-          await lancamentoService.excluirCompraParcelada(wsId, paiId, user?.id)
-          toast.success('Compra parcelada excluída e faturas recalculadas!')
-          await carregarDados()
-        } catch (err: any) {
-          toast.error(
-            'Não foi possível excluir a compra — ' +
-              (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
-          )
-        }
-      }, 'Excluindo compra parcelada com segurança...')
+      // 3.3 Compra parcelada: AlertDialog contendo APENAS:
+      // Excluir a compra parcelada "{descrição}"? Todas as parcelas serão removidas e as faturas do cartão recalculadas.
+      setModalConfirmacaoConfig({
+        title: 'Excluir compra parcelada',
+        description: `Excluir a compra parcelada "${l.descricao}"? Todas as parcelas serão removidas e as faturas do cartão recalculadas.`,
+        isAlertOnly: false,
+        confirmText: 'OK',
+        cancelText: 'Cancelar',
+        onConfirm: async () => {
+          setModalConfirmacaoExclusaoOpen(false)
+          await runWithLock(async () => {
+            try {
+              const paiId = l.lancamento_pai_id || l.id
+              await lancamentoService.excluirCompraParcelada(wsId, paiId, user?.id)
+              toast.success('Compra parcelada excluída e faturas recalculadas!')
+              await carregarDados()
+            } catch (err: any) {
+              toast.error(
+                'Não foi possível excluir a compra — ' +
+                  (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
+              )
+            }
+          }, 'Excluindo compra parcelada com segurança...')
+        },
+      })
+      setModalConfirmacaoExclusaoOpen(true)
       return
     }
 
@@ -532,21 +568,39 @@ export default function LancamentosPage() {
       return
     }
 
-    const confirmou = window.confirm(`Deseja realmente cancelar/estornar "${l.descricao}"?`)
-    if (!confirmou) return
+    // 3.1 Único em conta NÃO pago: título "Exclusão de Lançamento único em Conta Movimento",
+    // mensagem "Deseja excluir este lançamento ?", botões "OK" e "Cancelar" (textos exatos).
+    const ehContaMovimento = l.meio_pagamento_tipo !== 'CARTAO'
+    const tituloExclusao = ehContaMovimento
+      ? 'Exclusão de Lançamento único em Conta Movimento'
+      : 'Excluir Lançamento'
+    const msgExclusao = ehContaMovimento
+      ? 'Deseja excluir este lançamento ?'
+      : `Deseja realmente cancelar/estornar "${l.descricao}"?`
 
-    await runWithLock(async () => {
-      try {
-        await lancamentoService.deleteComEscopo(l.id, wsId, 'este', user?.id)
-        toast.success('Lançamento excluído/estornado com sucesso!')
-        await carregarDados()
-      } catch (err: any) {
-        toast.error(
-          'Não foi possível excluir o lançamento — ' +
-            (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
-        )
-      }
-    }, 'Excluindo lançamento e garantindo integridade dos saldos...')
+    setModalConfirmacaoConfig({
+      title: tituloExclusao,
+      description: msgExclusao,
+      isAlertOnly: false,
+      confirmText: 'OK',
+      cancelText: 'Cancelar',
+      onConfirm: async () => {
+        setModalConfirmacaoExclusaoOpen(false)
+        await runWithLock(async () => {
+          try {
+            await lancamentoService.deleteComEscopo(l.id, wsId, 'este', user?.id)
+            toast.success('Lançamento excluído/estornado com sucesso!')
+            await carregarDados()
+          } catch (err: any) {
+            toast.error(
+              'Não foi possível excluir o lançamento — ' +
+                (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
+            )
+          }
+        }, 'Excluindo lançamento e garantindo integridade dos saldos...')
+      },
+    })
+    setModalConfirmacaoExclusaoOpen(true)
   }
 
   const handleConfirmarEscopo = async (escopo: EscopoSerie) => {
@@ -1318,15 +1372,21 @@ export default function LancamentosPage() {
 
                             {/* Badges de Fixo / Parcelado (C.3) */}
                             <div className="flex items-center gap-1.5 pt-0.5">
-                              {ehParcelado && (
-                                <Badge
-                                  variant="outline"
-                                  className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] py-0 px-1.5 font-medium shrink-0"
-                                >
-                                  {l.numero_parcela ? `${l.numero_parcela}/` : '1/'}
-                                  {l.total_parcelas || l.quantidade_parcelas || serieQtdTotal || 1}
-                                </Badge>
-                              )}
+                              {ehParcelado &&
+                                (() => {
+                                  const totalP =
+                                    l.total_parcelas || l.quantidade_parcelas || serieQtdTotal || 1
+                                  const valorParcela = totalP > 0 ? l.valor / totalP : l.valor
+                                  return (
+                                    <Badge
+                                      variant="outline"
+                                      className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] py-0 px-1.5 font-medium shrink-0"
+                                    >
+                                      {totalP} vezes de{' '}
+                                      {formatMoneyBRL(valorParcela).replace('R$', '').trim()}
+                                    </Badge>
+                                  )
+                                })()}
 
                               {ehFixoDeterminado && (
                                 <Badge
@@ -1718,6 +1778,19 @@ export default function LancamentosPage() {
         onOpenChange={setModalConciliacaoOpen}
         contas={contas}
         onSalvar={handleSalvarConciliacao}
+      />
+
+      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO UNIFICADO (AlertDialog) */}
+      <ModalConfirmacaoExclusao
+        open={modalConfirmacaoExclusaoOpen}
+        onOpenChange={setModalConfirmacaoExclusaoOpen}
+        title={modalConfirmacaoConfig.title}
+        description={modalConfirmacaoConfig.description}
+        isAlertOnly={modalConfirmacaoConfig.isAlertOnly}
+        confirmText={modalConfirmacaoConfig.confirmText}
+        cancelText={modalConfirmacaoConfig.cancelText}
+        loading={isProcessing}
+        onConfirm={modalConfirmacaoConfig.onConfirm}
       />
 
       {/* MODAL DE ESCOLHA DE ESCOPO ÚNICO "TODOS" */}

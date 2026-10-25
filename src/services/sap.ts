@@ -1938,7 +1938,9 @@ export const faturaService = {
       })
     }
 
-    // 2. Buscar compras no cartão avulsas (regime = 'unico') E lançamentos recorrentes/fixos deste cartão
+    // 2. Buscar compras no cartão avulsas (estritamente regime = 'unico' e SEM filhos em parcelas)
+    // E lançamentos recorrentes/fixos deste cartão
+    // NENHUM registro de lancamentos com regime 'parcelado' ou que seja pai de parcelas pode entrar na listagem ou na soma da fatura.
     const { data: lancsCartaoComp } = await db
       .from('lancamentos')
       .select(`
@@ -1963,11 +1965,13 @@ export const faturaService = {
         status_pagamento,
         observacao,
         categorias (id, nome, cor, icone),
-        subcategorias (id, nome)
+        subcategorias (id, nome),
+        parcelas:parcelas(id)
       `)
       .eq('workspace_id', workspaceId)
       .eq('cartao_id', cartaoId)
       .eq('competencia', competencia)
+      .neq('regime', 'parcelado')
       .is('deleted_at', null)
       .order('data', { ascending: false })
 
@@ -1998,6 +2002,12 @@ export const faturaService = {
     const ehProximaCompAVencer = competencia === proximaComp
 
     for (const a of lancsCartaoComp || []) {
+      // Se tiver parcelas filhas ou for regime parcelado, descarta estritamente (pois as cotas já estão em parcelasComp)
+      const temParcelas = Array.isArray(a.parcelas) && a.parcelas.length > 0
+      if (temParcelas || a.regime === 'parcelado') {
+        continue
+      }
+
       const v = Number(a.valor || 0)
       const ehRecorrenteFixo = a.regime === 'fixo' || !!a.serie_id
 
@@ -2009,12 +2019,14 @@ export const faturaService = {
           else if (a.tipo === 'receita') totalCompras -= v
         }
       } else {
-        // Compra à vista normal
+        // Compra à vista normal (estritamente sem parcelas filhas)
         if (a.tipo === 'despesa') totalCompras += v
         else if (a.tipo === 'receita') totalCompras -= v
       }
 
-      itensFatura.push(a)
+      // Remover a chave temporária de verificação antes de colocar em itensFatura
+      const { parcelas: _p, ...itemLimpo } = a
+      itensFatura.push(itemLimpo)
     }
 
     totalCompras = Math.max(0, totalCompras)
