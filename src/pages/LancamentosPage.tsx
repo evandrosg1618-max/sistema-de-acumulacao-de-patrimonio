@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import {
   lancamentoService,
@@ -34,6 +35,7 @@ import {
   ChevronRight,
   ChevronDown,
   X,
+  Receipt,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -64,6 +66,7 @@ import { useGlobalLoading } from '@/contexts/LoadingContext'
 import { toast } from 'sonner'
 
 export default function LancamentosPage() {
+  const navigate = useNavigate()
   const { currentWorkspace, user } = useAuth()
   const { isProcessing, runWithLock } = useGlobalLoading()
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
@@ -1213,31 +1216,67 @@ export default function LancamentosPage() {
                     const isReceita = l.tipo === 'receita'
                     const isTransf = l.tipo === 'transferencia'
                     const isPago = l.status_pagamento === 'pago'
-                    const ehFixo = Boolean(l.serie_id && l.regime === 'fixo')
+                    const ehCartao = l.meio_pagamento_tipo === 'CARTAO'
+                    const regimeStr = String(l.regime || '')
+                    const ehParcelado =
+                      regimeStr === 'parcelado' ||
+                      Boolean(
+                        (l.total_parcelas && l.total_parcelas > 1) ||
+                        (l.quantidade_parcelas && l.quantidade_parcelas > 1),
+                      )
+                    const ehFixo =
+                      regimeStr === 'fixo' || Boolean(l.serie_id && regimeStr === 'fixo')
+                    // Detecção de fixo determinado vs indeterminado
+                    const seriePrazo = (l as any).series_lancamentos?.prazo
+                    const serieQtdTotal = (l as any).series_lancamentos?.quantidade_total
+                    const totalParcelasFixo =
+                      l.total_parcelas || l.quantidade_parcelas || serieQtdTotal || 0
+
+                    const ehFixoDeterminado =
+                      ehFixo &&
+                      (seriePrazo === 'determinado' ||
+                        (totalParcelasFixo > 1 && seriePrazo !== 'indeterminado'))
+                    const ehFixoIndeterminado = ehFixo && !ehFixoDeterminado
+
                     const ehPrevisao =
                       (l as any).natureza === 'previsao' ||
                       (l as any).natureza_previsao === true ||
                       (l.status_pagamento as string) === 'previsao'
 
-                    const contaNome =
-                      l.meio_pagamento_tipo === 'CARTAO'
-                        ? l.cartao?.nome || 'Cartão de Crédito'
-                        : isTransf
-                          ? `${l.conta_origem?.nome || 'Origem'} ➔ ${l.conta_destino?.nome || 'Destino'}`
-                          : l.conta_origem?.nome || 'Conta Corrente'
+                    // Coluna 2: Meio de pagamento — nome da conta, cartão ou "Dinheiro"
+                    let meioPagamentoLabel = 'Conta Corrente'
+                    if (ehCartao) {
+                      meioPagamentoLabel = l.cartao?.nome || 'Cartão de Crédito'
+                    } else if (l.meio_pagamento_tipo === 'DINHEIRO') {
+                      meioPagamentoLabel = 'Dinheiro'
+                    } else if (isTransf) {
+                      meioPagamentoLabel = `${l.conta_origem?.nome || 'Origem'} ➔ ${l.conta_destino?.nome || 'Destino'}`
+                    } else if (l.conta_origem?.nome) {
+                      meioPagamentoLabel = l.conta_origem.nome
+                    }
+
+                    // Redirecionamento para fatura do cartão (C.2)
+                    const handleIrParaFatura = () => {
+                      if (!l.cartao_id) {
+                        toast.error('Lançamento sem cartão vinculado.')
+                        return
+                      }
+                      const comp = l.competencia || getCurrentAnoMes()
+                      navigate(`/cartoes?cartaoId=${l.cartao_id}&competencia=${comp}`)
+                    }
 
                     return (
                       <div
                         key={l.id}
-                        className={`p-2.5 px-3 rounded-xl flex items-center justify-between gap-3 transition group hover:bg-slate-50 ${
+                        className={`p-3 px-3.5 rounded-xl grid grid-cols-[1fr_auto_auto_auto_auto] sm:grid-cols-[1fr_180px_130px_36px_32px] items-center gap-3 transition group hover:bg-slate-50 border border-slate-100/70 shadow-2xs ${
                           ehPrevisao ? 'bg-amber-50/20' : 'bg-white'
                         }`}
                       >
-                        {/* Esquerda: Ícone circular colorido + Descrição + Tag / Conta */}
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                        {/* 1ª COLUNA: Descrição (quebra de linha se longa) + Categoria/Subcategoria + Badge Fixo/Parcelado */}
+                        <div className="flex items-start gap-3 min-w-0 pr-2">
                           {/* Ícone circular */}
                           <div
-                            className={`w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 shadow-2xs ${
+                            className={`w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 mt-0.5 shadow-2xs ${
                               isDespesa
                                 ? 'bg-rose-500'
                                 : isReceita
@@ -1253,90 +1292,105 @@ export default function LancamentosPage() {
                             {isTransf && <ArrowRightLeft className="w-4 h-4 stroke-[2.5]" />}
                           </div>
 
-                          {/* Descrição & Metadados */}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs sm:text-sm font-semibold text-slate-800 truncate">
-                                {l.descricao}
-                              </span>
-
-                              {ehFixo && (
-                                <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1 font-semibold shrink-0">
-                                  Fixo
-                                </Badge>
-                              )}
-
-                              {l.meio_pagamento_tipo === 'CARTAO' &&
-                                (l.total_parcelas > 1 || l.quantidade_parcelas > 1) && (
-                                  <Badge
-                                    variant="outline"
-                                    className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] py-0 px-1 font-medium shrink-0"
-                                  >
-                                    {l.numero_parcela ? `${l.numero_parcela}/` : ''}
-                                    {l.total_parcelas || l.quantidade_parcelas}
-                                  </Badge>
-                                )}
+                          <div className="min-w-0 flex-1 space-y-1">
+                            {/* Descrição com quebra de linha normal */}
+                            <div className="text-xs sm:text-sm font-semibold text-slate-800 break-words leading-snug">
+                              {l.descricao}
                             </div>
 
-                            {/* Linha de conta e tags */}
-                            <div className="flex items-center gap-2 text-[11px] text-slate-400 truncate mt-0.5">
-                              {ehFixo && (
-                                <span className="text-slate-400" title="Recorrente fixo">
-                                  🔁
-                                </span>
-                              )}
-                              <span className="text-slate-500 font-medium uppercase text-[10px] tracking-wider">
-                                {contaNome}
-                              </span>
+                            {/* Categoria / Subcategoria + Observação */}
+                            <div className="flex items-center flex-wrap gap-1.5 text-[11px] text-slate-500">
                               {l.categoria && (
-                                <>
-                                  <span>•</span>
-                                  <span className="text-slate-500">
-                                    {l.categoria.nome}
-                                    {l.subcategoria && ` / ${l.subcategoria.nome}`}
-                                  </span>
-                                </>
+                                <span className="font-medium text-slate-600">
+                                  {l.categoria.nome}
+                                  {l.subcategoria && ` / ${l.subcategoria.nome}`}
+                                </span>
                               )}
                               {l.observacao && (
                                 <>
-                                  <span>•</span>
-                                  <span className="italic truncate">{l.observacao}</span>
+                                  <span className="text-slate-300">•</span>
+                                  <span className="italic text-slate-400 break-words line-clamp-1">
+                                    {l.observacao}
+                                  </span>
                                 </>
+                              )}
+                            </div>
+
+                            {/* Badges de Fixo / Parcelado (C.3) */}
+                            <div className="flex items-center gap-1.5 pt-0.5">
+                              {ehParcelado && (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-indigo-50 text-indigo-700 border-indigo-200 text-[10px] py-0 px-1.5 font-medium shrink-0"
+                                >
+                                  {l.numero_parcela ? `${l.numero_parcela}/` : '1/'}
+                                  {l.total_parcelas || l.quantidade_parcelas || serieQtdTotal || 1}
+                                </Badge>
+                              )}
+
+                              {ehFixoDeterminado && (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-purple-50 text-purple-700 border-purple-200 text-[10px] py-0 px-1.5 font-medium shrink-0"
+                                >
+                                  Fixo {l.numero_parcela ? `${l.numero_parcela}/` : '1/'}
+                                  {totalParcelasFixo}
+                                </Badge>
+                              )}
+
+                              {ehFixoIndeterminado && (
+                                <Badge
+                                  variant="outline"
+                                  className="bg-purple-50 text-purple-700 border-purple-200 text-[10px] py-0 px-1.5 font-medium shrink-0"
+                                >
+                                  Indeterminado
+                                </Badge>
                               )}
                             </div>
                           </div>
                         </div>
 
-                        {/* Direita: Valor + Ícone Pago / Não Pago (Thumbs up / down verde e cinza conforme referência) */}
-                        <div className="flex items-center gap-3 shrink-0">
+                        {/* 2ª COLUNA: Meio de pagamento — nome da conta, cartão ou "Dinheiro" */}
+                        <div className="text-left sm:text-left min-w-0 pr-1">
                           <span
-                            className={`text-xs sm:text-sm font-bold ${
-                              isDespesa
-                                ? 'text-slate-800'
-                                : isReceita
-                                  ? 'text-emerald-600'
-                                  : 'text-slate-700'
+                            className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-medium text-slate-600 bg-slate-100/80 hover:bg-slate-100 px-2.5 py-1 rounded-md max-w-full truncate"
+                            title={meioPagamentoLabel}
+                          >
+                            {ehCartao ? (
+                              <CreditCard className="w-3 h-3 text-slate-500 shrink-0" />
+                            ) : l.meio_pagamento_tipo === 'DINHEIRO' ? (
+                              <Banknote className="w-3 h-3 text-slate-500 shrink-0" />
+                            ) : (
+                              <Wallet className="w-3 h-3 text-slate-500 shrink-0" />
+                            )}
+                            <span className="truncate">{meioPagamentoLabel}</span>
+                          </span>
+                        </div>
+
+                        {/* 3ª COLUNA: Valor — AZUL com "+" para receita, VERMELHO com "−" para despesa, VERDE sem sinal para transferência */}
+                        <div className="text-right whitespace-nowrap pl-1">
+                          <span
+                            className={`text-xs sm:text-sm font-bold tracking-tight ${
+                              isReceita
+                                ? 'text-blue-600'
+                                : isDespesa
+                                  ? 'text-rose-600'
+                                  : 'text-emerald-600'
                             }`}
                           >
-                            {isDespesa ? '-' : isReceita ? '+' : ''}
-                            {formatMoneyBRL(l.valor).replace('R$', '').trim()}
+                            {isReceita ? '+' : isDespesa ? '−' : ''} {formatMoneyBRL(l.valor)}
                           </span>
+                        </div>
 
-                          {/* Botão de Toggle de Pagamento com ícone Thumbs up / down da referência */}
-                          {l.meio_pagamento_tipo === 'CARTAO' ? (
-                            <span
-                              className="text-slate-400 cursor-not-allowed"
-                              title="Pago na fatura do cartão"
-                            >
-                              <ThumbsDown className="w-4 h-4 text-slate-300" />
-                            </span>
-                          ) : isPago ? (
+                        {/* 4ª COLUNA: Botão de pagamento (OCULTO COMPLETAMENTE para cartões conforme C.2) */}
+                        <div className="flex items-center justify-center w-9 h-9 shrink-0">
+                          {ehCartao ? null : isPago ? (
                             <button
                               type="button"
                               disabled={isProcessing}
                               onClick={() => handleTogglePago(l)}
                               title="Pago — clique para desfazer"
-                              className="p-1 text-emerald-600 hover:text-emerald-700 transition"
+                              className="p-1.5 rounded-lg text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 transition"
                             >
                               <ThumbsUp className="w-4 h-4 stroke-[2.5]" />
                             </button>
@@ -1346,27 +1400,42 @@ export default function LancamentosPage() {
                               disabled={isProcessing}
                               onClick={() => handleTogglePago(l)}
                               title="Não pago — clique para confirmar pagamento"
-                              className="p-1 text-slate-400 hover:text-emerald-600 transition"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50/50 transition"
                             >
                               <ThumbsDown className="w-4 h-4 stroke-[2.5]" />
                             </button>
                           )}
+                        </div>
 
-                          {/* Menu de Ações rápidas */}
+                        {/* 5ª COLUNA: 3 pontinhos com opção "Fatura" para cartão (C.2) */}
+                        <div className="flex items-center justify-center w-8 shrink-0">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700"
+                                className="h-7 w-7 p-0 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
                               >
                                 <MoreVertical className="w-3.5 h-3.5" />
                               </Button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent
                               align="end"
-                              className="w-44 text-xs bg-white border-slate-200 text-slate-900 shadow-md"
+                              className="w-48 text-xs bg-white border-slate-200 text-slate-900 shadow-md"
                             >
+                              {ehCartao && (
+                                <>
+                                  <DropdownMenuItem
+                                    onClick={handleIrParaFatura}
+                                    className="cursor-pointer text-slate-900 font-medium hover:bg-indigo-50 hover:text-indigo-900"
+                                  >
+                                    <Receipt className="w-3.5 h-3.5 mr-2 text-indigo-600" />
+                                    <span>Fatura</span>
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                </>
+                              )}
+
                               <DropdownMenuItem
                                 onClick={() => abrirEdicaoLancamento(l)}
                                 className="cursor-pointer text-slate-900 font-medium hover:bg-slate-100"

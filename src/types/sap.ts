@@ -236,6 +236,12 @@ export interface Lancamento {
   conta_origem?: Conta | null
   conta_destino?: Conta | null
   cartao?: Cartao | null
+  series_lancamentos?: {
+    id: string
+    prazo?: PrazoFixo | null
+    quantidade_total?: number | null
+    descricao?: string | null
+  } | null
 }
 
 export interface Fatura {

@@ -2238,7 +2238,8 @@ export const lancamentoService = {
         subcategorias (id, nome),
         conta_origem:contas!lancamentos_conta_origem_id_fkey (id, nome, tipo, cor, icone),
         conta_destino:contas!lancamentos_conta_destino_id_fkey (id, nome, tipo, cor, icone),
-        cartoes (id, nome, bandeira, limite, cor, dia_fechamento, dia_vencimento)
+        cartoes (id, nome, bandeira, limite, cor, dia_fechamento, dia_vencimento),
+        series_lancamentos (id, prazo, quantidade_total, descricao)
       `)
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
@@ -2300,6 +2301,7 @@ export const lancamentoService = {
       conta_origem: l.conta_origem,
       conta_destino: l.conta_destino,
       cartao: l.cartoes,
+      series_lancamentos: l.series_lancamentos,
     }))
   },
 

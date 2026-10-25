@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
 import {
@@ -77,6 +78,7 @@ const PALETA_CORES = [
 ]
 
 export default function CartoesPage() {
+  const [searchParams] = useSearchParams()
   const { currentWorkspace, user } = useAuth()
   const { isProcessing, runWithLock } = useGlobalLoading()
   const [cartoes, setCartoes] = useState<Cartao[]>([])
@@ -120,7 +122,10 @@ export default function CartoesPage() {
   }>({ temPagas: false, competenciasPagas: [] })
 
   // Competência selecionada para visualização detalhada em cada cartão
-  const [competenciaFiltro, setCompetenciaFiltro] = useState<string>(getCurrentAnoMes())
+  const [competenciaFiltro, setCompetenciaFiltro] = useState<string>(() => {
+    const urlComp = searchParams.get('competencia')
+    return urlComp && /^\d{4}-\d{2}$/.test(urlComp) ? urlComp : getCurrentAnoMes()
+  })
   const [resumosFatura, setResumosFatura] = useState<Record<string, any>>({})
   const [recalculando, setRecalculando] = useState(false)
 
@@ -717,8 +722,25 @@ export default function CartoesPage() {
   }
 
   useEffect(() => {
+    const urlCartaoId = searchParams.get('cartaoId')
+    const urlComp = searchParams.get('competencia')
+    if (urlCartaoId) {
+      setCartaoExpandido(urlCartaoId)
+      setTimeout(() => {
+        const el = document.getElementById(`cartao-${urlCartaoId}`)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+      }, 300)
+    }
+    if (urlComp && /^\d{4}-\d{2}$/.test(urlComp)) {
+      setCompetenciaFiltro(urlComp)
+    }
+  }, [searchParams])
+
+  useEffect(() => {
     carregarCartoes()
-  }, [wsId])
+  }, [wsId, competenciaFiltro])
 
   const abrirNovo = () => {
     setEditingCartao(null)
@@ -1023,7 +1045,7 @@ export default function CartoesPage() {
                 const totalComp = cartao.total_comprometido || fatura
 
                 return (
-                  <div key={cartao.id} className="transition">
+                  <div key={cartao.id} id={`cartao-${cartao.id}`} className="transition">
                     <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80">
                       <div className="flex items-center gap-3">
                         <div
