@@ -15,11 +15,33 @@ export function formatPercentBR(val: number | string | null | undefined): string
   return `${num.toFixed(2).replace('.', ',')}%`
 }
 
-export function getCurrentAnoMes(): string {
-  const d = new Date()
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  return `${year}-${month}`
+/**
+ * Retorna a data no formato YYYY-MM-DD considerando o fuso horário especificado.
+ * Padrão SAP: America/Porto_Velho (UTC-4).
+ * Corrige o problema onde após às 20h a data UTC avança para o dia seguinte.
+ */
+export function getTodayDateString(timezone: string = 'America/Porto_Velho'): string {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    return formatter.format(new Date())
+  } catch {
+    // Fallback seguro caso o timezone seja inválido
+    const d = new Date()
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+  }
+}
+
+export function getCurrentAnoMes(timezone: string = 'America/Porto_Velho'): string {
+  const today = getTodayDateString(timezone)
+  return today.substring(0, 7)
 }
 
 export function formatAnoMesPT(anoMes: string): string {

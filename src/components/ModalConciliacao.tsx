@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ValorCalculadoraInput } from '@/components/ValorCalculadoraInput'
-import { formatMoneyBRL } from '@/lib/formatters'
+import { formatMoneyBRL, getTodayDateString } from '@/lib/formatters'
 import { Conta } from '@/types/sap'
 import { Scale, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -40,7 +40,7 @@ interface ModalConciliacaoProps {
 export function ModalConciliacao({ open, onOpenChange, contas, onSalvar }: ModalConciliacaoProps) {
   const [contaId, setContaId] = useState(contas.length > 0 ? contas[0].id : '')
   const [saldoExtrato, setSaldoExtrato] = useState('')
-  const [dataExtrato, setDataExtrato] = useState(() => new Date().toISOString().split('T')[0])
+  const [dataExtrato, setDataExtrato] = useState(() => getTodayDateString())
   const [ajustarSaldo, setAjustarSaldo] = useState(true)
   const [observacao, setObservacao] = useState('')
   const [salvando, setSalvando] = useState(false)

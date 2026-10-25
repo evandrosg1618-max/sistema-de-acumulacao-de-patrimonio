@@ -33,7 +33,7 @@ import {
   AlertCircle,
   Layers,
 } from 'lucide-react'
-import { formatMoneyBRL, formatAnoMesPT } from '@/lib/formatters'
+import { formatMoneyBRL, formatAnoMesPT, getTodayDateString } from '@/lib/formatters'
 import {
   Conta,
   Cartao,
@@ -81,7 +81,7 @@ export function ModalLancamento({
   const [tipo, setTipo] = useState<TipoLancamento>(tipoPadrao)
   const [descricao, setDescricao] = useState('')
   const [valor, setValor] = useState('')
-  const [data, setData] = useState(() => new Date().toISOString().split('T')[0])
+  const [data, setData] = useState(() => getTodayDateString())
 
   // Seletor unificado "Pago com" (despesa) / "Recebido em" (receita)
   // Formato: "conta:<id>" | "cartao:<id>" | "dinheiro:principal"
@@ -110,6 +110,7 @@ export function ModalLancamento({
   const [salvando, setSalvando] = useState(false)
   const [bloqueioFaturaInfo, setBloqueioFaturaInfo] = useState<InfoBloqueioFatura | null>(null)
   const [modalBloqueioOpen, setModalBloqueioOpen] = useState(false)
+  const [avisoBloqueioPago, setAvisoBloqueioPago] = useState<string | null>(null)
 
   // Orçamento da categoria no mês da compra (PRD Seção 8)
   const [orcamentoInfo, setOrcamentoInfo] = useState<{
@@ -177,7 +178,7 @@ export function ModalLancamento({
       setTipo(initialData.tipo)
       setDescricao(initialData.descricao || '')
       setValor(initialData.valor ? initialData.valor.toFixed(2).replace('.', ',') : '')
-      setData(initialData.data || new Date().toISOString().split('T')[0])
+      setData(initialData.data || getTodayDateString())
 
       if (initialData.cartao_id || initialData.meio_pagamento_tipo === 'CARTAO') {
         const cId =
@@ -241,7 +242,7 @@ export function ModalLancamento({
       setTipo(tipoPadrao)
       setDescricao('')
       setValor('')
-      setData(dataPadrao || new Date().toISOString().split('T')[0])
+      setData(dataPadrao || getTodayDateString())
       if (cartaoPadraoId) {
         setPagoComDestino(`cartao:${cartaoPadraoId}`)
       } else {
@@ -261,6 +262,7 @@ export function ModalLancamento({
       setFixoOcorrencias(12)
       setFixoPeriodicidade('mensal')
     }
+    setAvisoBloqueioPago(null)
   }, [open, initialData, tipoPadrao, cartaoPadraoId, dataPadrao])
 
   // Ajustar categoria/subcategoria ao mudar tipo
@@ -335,6 +337,21 @@ export function ModalLancamento({
     }
 
     if (tipo !== 'transferencia' && !subcategoriaId) {
+      return
+    }
+
+    // REGRA BLOCO B (Teste 13): Bloqueio de alteração em lançamento ÚNICO pago
+    const ehUnico =
+      modoRepeticao === 'nenhum' &&
+      (!initialData?.regime || initialData?.regime === 'unico') &&
+      !initialData?.serie_id
+    const estaPago = initialData?.status_pagamento === 'pago'
+    const ehCartao =
+      initialData?.meio_pagamento_tipo === 'CARTAO' || pagoComDestino.startsWith('cartao:')
+    if (initialData?.id && estaPago && !ehCartao && ehUnico) {
+      setAvisoBloqueioPago(
+        'Este lançamento está pago. É necessário desfazer o pagamento para alterar ou excluir.',
+      )
       return
     }
 
@@ -494,8 +511,22 @@ export function ModalLancamento({
                 </span>
               </DialogTitle>
             </DialogHeader>
-
-            {/* Abas para alternar tipo de lançamento se for novo */}
+            {/* BLOCO B: Aviso de bloqueio de lançamento pago (formato idêntico aos recorrentes) */}
+            {avisoBloqueioPago && (
+              <div className="mt-3 p-3.5 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+                <div className="flex items-start gap-2 text-amber-900 font-semibold text-xs sm:text-sm">
+                  <AlertCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <span>Lançamento pago — alteração e exclusão bloqueadas</span>
+                </div>
+                <p className="text-xs text-amber-800 leading-relaxed pl-6">{avisoBloqueioPago}</p>
+                <div className="text-[11px] text-slate-600 bg-white/70 p-2 rounded-lg border border-amber-200/60 pl-3">
+                  💡 <strong>Como proceder:</strong> Retorne à lista de lançamentos e clique no
+                  ícone de positivo (joia) para desfazer o pagamento deste lançamento antes de
+                  alterar ou excluir.
+                </div>
+              </div>
+            )}
+            {/* Abas para alternar tipo de lançamento se for novo */}{' '}
             {!initialData && (
               <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 rounded-lg mt-3">
                 <button
@@ -536,7 +567,6 @@ export function ModalLancamento({
                 </button>
               </div>
             )}
-
             <div className="py-4 space-y-4">
               {/* Descrição & Valor com Calculadora */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1135,7 +1165,6 @@ export function ModalLancamento({
                 />
               </div>
             </div>
-
             <DialogFooter className="gap-2 sm:gap-0">
               <Button
                 type="button"

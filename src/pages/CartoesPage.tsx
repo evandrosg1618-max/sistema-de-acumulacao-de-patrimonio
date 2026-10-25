@@ -10,7 +10,12 @@ import {
   fixoService,
 } from '@/services/sap'
 import { Cartao, Fatura, Conta, Lancamento, TipoLancamento } from '@/types/sap'
-import { formatMoneyBRL, getCurrentAnoMes, formatAnoMesPT } from '@/lib/formatters'
+import {
+  formatMoneyBRL,
+  getCurrentAnoMes,
+  formatAnoMesPT,
+  getTodayDateString,
+} from '@/lib/formatters'
 import {
   CreditCard,
   Plus,
@@ -833,13 +838,13 @@ export default function CartoesPage() {
   const totalComprometidoGeral = cartoes.reduce((acc, c) => {
     const res = resumosFatura[c.id]
     const faturaEstaPaga = res?.status === 'paga' || res?.statusExibicao === 'Paga'
-    const compBase = Number(c.total_comprometido || 0)
+    let comp = Number(c.total_comprometido || 0)
     if (faturaEstaPaga) {
-      // Se a fatura selecionada está paga, desconta o saldo dela caso ainda componha o total comprometido
+      // Se a fatura selecionada está paga, garante que seu valor não componha o total comprometido
       const valorFaturaPaga = Number(res?.totalPago || res?.totalCompras || 0)
-      return acc + Math.max(0, compBase > valorFaturaPaga ? compBase - valorFaturaPaga : compBase)
+      comp = Math.max(0, comp - valorFaturaPaga)
     }
-    return acc + (compBase || res?.saldoDevedor || c.fatura_atual || 0)
+    return acc + comp
   }, 0)
 
   return (
@@ -1396,7 +1401,7 @@ export default function CartoesPage() {
                                 return listaFinal.map((fat) => {
                                   const isPaga = fat.status === 'paga'
                                   const isAtiva = fat.competencia === competenciaFiltro
-                                  const hojeStr = new Date().toISOString().slice(0, 10)
+                                  const hojeStr = getTodayDateString()
                                   const dataFech = fat.data_fechamento || `${fat.competencia}-01`
                                   const dataVenc = fat.data_vencimento || `${fat.competencia}-28`
 

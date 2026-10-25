@@ -13,7 +13,12 @@ import {
   fixoService,
 } from '@/services/sap'
 import { Conta, Cartao, Orcamento, Categoria, MeioPagamento, Fatura } from '@/types/sap'
-import { formatMoneyBRL, getCurrentAnoMes, formatAnoMesPT } from '@/lib/formatters'
+import {
+  formatMoneyBRL,
+  getCurrentAnoMes,
+  formatAnoMesPT,
+  getTodayDateString,
+} from '@/lib/formatters'
 import {
   Eye,
   EyeOff,
@@ -893,15 +898,12 @@ export default function Index() {
               const comprometidoConsolidado = cartoes.reduce((acc, c) => {
                 const res = resumosFatura[c.id]
                 const faturaEstaPaga = res?.status === 'paga' || res?.statusExibicao === 'Paga'
-                const compBase = Number(c.total_comprometido || 0)
+                let comp = Number(c.total_comprometido || 0)
                 if (faturaEstaPaga) {
                   const valorFaturaPaga = Number(res?.totalPago || res?.totalCompras || 0)
-                  return (
-                    acc +
-                    Math.max(0, compBase > valorFaturaPaga ? compBase - valorFaturaPaga : compBase)
-                  )
+                  comp = Math.max(0, comp - valorFaturaPaga)
                 }
-                return acc + (compBase || res?.saldoDevedor || c.fatura_atual || 0)
+                return acc + comp
               }, 0)
               const limiteDisponivelConsolidado = Math.max(
                 0,
@@ -1353,7 +1355,7 @@ export default function Index() {
                                   return listaFinal.map((fat) => {
                                     const isPaga = fat.status === 'paga'
                                     const isAtiva = fat.competencia === competenciaFiltro
-                                    const hojeStr = new Date().toISOString().slice(0, 10)
+                                    const hojeStr = getTodayDateString()
                                     const dataFech = fat.data_fechamento || `${fat.competencia}-01`
                                     const dataVenc = fat.data_vencimento || `${fat.competencia}-28`
 

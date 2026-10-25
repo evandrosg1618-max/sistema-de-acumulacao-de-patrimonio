@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ValorCalculadoraInput } from '@/components/ValorCalculadoraInput'
-import { formatMoneyBRL } from '@/lib/formatters'
+import { formatMoneyBRL, getTodayDateString } from '@/lib/formatters'
 import { Conta, Fatura } from '@/types/sap'
 import { CreditCard, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -51,7 +51,7 @@ export function ModalPagamentoFatura({
   const [valor, setValor] = useState(
     fatura?.valor_total ? fatura.valor_total.toFixed(2).replace('.', ',') : '',
   )
-  const [dataPagamento, setDataPagamento] = useState(() => new Date().toISOString().split('T')[0])
+  const [dataPagamento, setDataPagamento] = useState(() => getTodayDateString())
   const [processando, setProcessando] = useState(false)
 
   // Atualizar valor quando a fatura mudar

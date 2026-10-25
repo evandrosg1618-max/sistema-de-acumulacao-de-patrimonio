@@ -440,6 +440,15 @@ export default function LancamentosPage() {
   const handleExcluirLancamento = async (l: Lancamento) => {
     if (!wsId) return
 
+    // REGRA BLOCO B (Teste 13): Bloqueio de exclusão de lançamento ÚNICO pago
+    const ehUnico = (l.regime === 'unico' || !l.regime) && !l.serie_id
+    if (l.status_pagamento === 'pago' && l.meio_pagamento_tipo !== 'CARTAO' && ehUnico) {
+      toast.error(
+        'Este lançamento está pago. É necessário desfazer o pagamento para excluir. Desfaça o pagamento no botão da lista antes de excluir.',
+      )
+      return
+    }
+
     // Se o lançamento estiver em cartão e a fatura estiver paga, bloqueia exclusão
     if (l.cartao_id && l.competencia) {
       try {

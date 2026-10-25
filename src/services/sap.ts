@@ -2040,7 +2040,13 @@ export const faturaService = {
     // • "Aberta" = fatura cuja data atual AINDA NÃO chegou na data de fechamento;
     // • Após a data de fechamento, exibir "Fechada" — e o botão Pagar continua, pois fechada ≠ paga;
     // • Se fechada, não paga e data de vencimento já passou: tarja vermelha "Fatura atrasada"
-    const hojeStr = new Date().toISOString().slice(0, 10)
+    // Respeita fuso horário do PRD (UTC-4) para fechamento e vencimento
+    const hojeStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Porto_Velho',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date())
     let statusExibicao: 'Aberta' | 'Fechada' | 'Paga' = 'Aberta'
     let isAtrasada = false
 
@@ -3711,6 +3717,15 @@ export const lancamentoService = {
       return
     }
 
+    // BLOCO B (Teste 13): Bloqueio de exclusão em lançamento ÚNICO pago
+    if (
+      anterior.status_pagamento === 'pago' &&
+      anterior.meio_pagamento_tipo !== 'CARTAO' &&
+      (anterior.regime === 'unico' || !anterior.serie_id)
+    ) {
+      throw new Error('Este lançamento está pago. É necessário desfazer o pagamento para excluir.')
+    }
+
     // Se estiver em fatura paga, bloquear conforme PRD
     if (anterior.cartao_id && anterior.competencia) {
       const fatura = await faturaService.getFatura(
@@ -3737,6 +3752,9 @@ export const lancamentoService = {
           errTransf.message ||
             'Não foi possível excluir a transferência — verifique e tente novamente; se persistir, atualize a página.',
         )
+      }
+      if (resTransf && !resTransf.sucesso) {
+        throw new Error(resTransf.mensagem || 'Não foi possível excluir a transferência.')
       }
       return
     }

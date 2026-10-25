@@ -1492,28 +1492,52 @@ export type Database = {
         Args: { token_input: string }
         Returns: Json
       }
-      alterar_fixo_escopo_rpc: {
-        Args: {
-          p_escopo: string
-          p_lancamento_id: string
-          p_nova_categoria_id?: string
-          p_nova_conta_destino_id?: string
-          p_nova_conta_origem_id?: string
-          p_nova_data: string
-          p_nova_descricao: string
-          p_nova_observacao?: string
-          p_nova_periodicidade?: string
-          p_nova_quantidade_total?: number
-          p_nova_subcategoria_id?: string
-          p_novo_cartao_id?: string
-          p_novo_meio_pagamento_tipo?: string
-          p_novo_prazo?: string
-          p_novo_valor: number
-          p_user_id?: string
-          p_workspace_id: string
-        }
-        Returns: Json
-      }
+      alterar_fixo_escopo_rpc:
+        | {
+            Args: {
+              p_escopo?: string
+              p_lancamento_id: string
+              p_nova_categoria_id?: string
+              p_nova_conta_destino_id?: string
+              p_nova_conta_origem_id?: string
+              p_nova_data?: string
+              p_nova_descricao?: string
+              p_nova_observacao?: string
+              p_nova_periodicidade?: string
+              p_nova_quantidade_total?: number
+              p_nova_subcategoria_id?: string
+              p_novo_cartao_id?: string
+              p_novo_meio_pagamento_tipo?: string
+              p_novo_prazo?: string
+              p_novo_valor?: number
+              p_pago_primeira?: boolean
+              p_user_id?: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_escopo: string
+              p_lancamento_id: string
+              p_nova_categoria_id?: string
+              p_nova_conta_destino_id?: string
+              p_nova_conta_origem_id?: string
+              p_nova_data: string
+              p_nova_descricao: string
+              p_nova_observacao?: string
+              p_nova_periodicidade?: string
+              p_nova_quantidade_total?: number
+              p_nova_subcategoria_id?: string
+              p_novo_cartao_id?: string
+              p_novo_meio_pagamento_tipo?: string
+              p_novo_prazo?: string
+              p_novo_valor: number
+              p_user_id?: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
       aplicar_saldo_transferencia_rpc: {
         Args: {
           p_lancamento_id: string
@@ -1552,6 +1576,30 @@ export type Database = {
       calcular_limite_projecao_fixo: {
         Args: { p_data_inicio: string }
         Returns: string
+      }
+      converter_regime_lancamento_rpc: {
+        Args: {
+          p_lancamento_id: string
+          p_nova_categoria_id?: string
+          p_nova_conta_destino?: string
+          p_nova_conta_origem?: string
+          p_nova_data: string
+          p_nova_descricao: string
+          p_nova_observacao?: string
+          p_nova_periodicidade?: string
+          p_nova_quantidade_parcelas?: number
+          p_nova_subcategoria_id?: string
+          p_novo_cartao_id?: string
+          p_novo_meio_pagamento: string
+          p_novo_prazo?: string
+          p_novo_regime: string
+          p_novo_total_ocorrencias?: number
+          p_novo_valor: number
+          p_pago_primeira?: boolean
+          p_user_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
       }
       criar_serie_fixa_rpc: {
         Args: {
@@ -1678,21 +1726,38 @@ export type Database = {
         Args: { p_workspace_id: string }
         Returns: Json
       }
-      regenerar_parcelas_lancamento: {
-        Args: {
-          p_categoria_id?: string
-          p_lancamento_id: string
-          p_nova_data: string
-          p_nova_descricao: string
-          p_nova_quantidade_parcelas: number
-          p_novo_valor: number
-          p_observacao?: string
-          p_subcategoria_id?: string
-          p_user_id?: string
-          p_workspace_id: string
-        }
-        Returns: Json
-      }
+      regenerar_parcelas_lancamento:
+        | {
+            Args: {
+              p_categoria_id?: string
+              p_lancamento_id: string
+              p_nova_data: string
+              p_nova_descricao: string
+              p_nova_quantidade_parcelas: number
+              p_novo_valor: number
+              p_observacao?: string
+              p_subcategoria_id?: string
+              p_user_id?: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_categoria_id?: string
+              p_lancamento_id: string
+              p_nova_data: string
+              p_nova_descricao: string
+              p_nova_quantidade_parcelas: number
+              p_novo_cartao_id?: string
+              p_novo_valor: number
+              p_observacao?: string
+              p_subcategoria_id?: string
+              p_user_id?: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
       renovar_projecao_fixo_rpc: {
         Args: {
           p_nova_categoria_id?: string
