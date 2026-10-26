@@ -1975,31 +1975,18 @@ export const faturaService = {
       .is('deleted_at', null)
       .order('data', { ascending: false })
 
-    // Determinar a próxima competência a vencer deste cartão para compor o total da fatura
-    const { data: faturasVencer } = await db
-      .from('faturas')
-      .select('competencia, data_vencimento')
-      .eq('workspace_id', workspaceId)
-      .eq('cartao_id', cartaoId)
-      .neq('status', 'paga')
-      .gte('data_vencimento', new Date().toISOString().slice(0, 10))
-      .order('data_vencimento', { ascending: true })
-      .limit(1)
+    // Regra SAP-4 BLOCO 2:
+    // (a) Fatura FECHADA (data atual >= data_fechamento): lançamentos recorrentes entram no VALOR TOTAL da fatura
+    // (b) Fatura ABERTA (data atual < data_fechamento): recorrente aparece como "previsão", mas NÃO soma no valor da fatura
+    const hojeStrFmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Porto_Velho',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date())
 
-    let proximaComp = faturasVencer?.[0]?.competencia
-    if (!proximaComp) {
-      const { data: faturasTodas } = await db
-        .from('faturas')
-        .select('competencia, data_vencimento')
-        .eq('workspace_id', workspaceId)
-        .eq('cartao_id', cartaoId)
-        .neq('status', 'paga')
-        .order('data_vencimento', { ascending: true })
-        .limit(1)
-      proximaComp = faturasTodas?.[0]?.competencia
-    }
-
-    const ehProximaCompAVencer = competencia === proximaComp
+    const dataFechFatura = fatura.data_fechamento || `${competencia}-01`
+    const faturaEstaFechada = hojeStrFmt >= dataFechFatura
 
     for (const a of lancsCartaoComp || []) {
       // Se tiver parcelas filhas ou for regime parcelado, descarta estritamente (pois as cotas já estão em parcelasComp)
@@ -2012,9 +1999,7 @@ export const faturaService = {
       const ehRecorrenteFixo = a.regime === 'fixo' || !!a.serie_id
 
       if (ehRecorrenteFixo) {
-        // Regra do Usuário (Build 5): O recorrente aparece na fatura, mas na soma que compõe a fatura
-        // considerar APENAS o lançamento recorrente que cai na próxima competência a vencer.
-        if (ehProximaCompAVencer) {
+        if (faturaEstaFechada) {
           if (a.tipo === 'despesa') totalCompras += v
           else if (a.tipo === 'receita') totalCompras -= v
         }
@@ -2026,6 +2011,11 @@ export const faturaService = {
 
       // Remover a chave temporária de verificação antes de colocar em itensFatura
       const { parcelas: _p, ...itemLimpo } = a
+      // Se for recorrente em fatura aberta, sinalizar como previsão
+      if (ehRecorrenteFixo && !faturaEstaFechada) {
+        itemLimpo.natureza_previsao = true
+        itemLimpo.natureza = 'previsao'
+      }
       itensFatura.push(itemLimpo)
     }
 

@@ -902,16 +902,11 @@ export default function CartoesPage() {
 
   const limiteTotal = cartoes.reduce((acc, c) => acc + (c.limite || 0), 0)
   const faturaTotal = cartoes.reduce((acc, c) => acc + (c.fatura_atual || 0), 0)
+  // Regra SAP-4 BLOCO 1: O Total Comprometido engloba todos os cartões e é um valor GLOBAL único
+  // vindo diretamente do cálculo definitivo do banco de dados (obter_cartoes_consolidado_rpc),
+  // idêntico independente da competência selecionada. Nunca deduzir no cliente pela competência atual.
   const totalComprometidoGeral = cartoes.reduce((acc, c) => {
-    const res = resumosFatura[c.id]
-    const faturaEstaPaga = res?.status === 'paga' || res?.statusExibicao === 'Paga'
-    let comp = Number(c.total_comprometido || 0)
-    if (faturaEstaPaga) {
-      // Se a fatura selecionada está paga, garante que seu valor não componha o total comprometido
-      const valorFaturaPaga = Number(res?.totalPago || res?.totalCompras || 0)
-      comp = Math.max(0, comp - valorFaturaPaga)
-    }
-    return acc + comp
+    return acc + Number(c.total_comprometido || 0)
   }, 0)
 
   return (
