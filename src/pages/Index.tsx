@@ -51,6 +51,7 @@ import {
 import { ModalPagamentoFatura } from '@/components/ModalPagamentoFatura'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
+import { ModalConfirmacaoExclusao } from '@/components/ModalConfirmacaoExclusao'
 import { faturaService } from '@/services/sap'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -132,6 +133,24 @@ export default function Index() {
   // Modal Aviso Bloqueio Fatura Paga (persistente, fecha somente no botão X)
   const [bloqueioFaturaInfo, setBloqueioFaturaInfo] = useState<InfoBloqueioFatura | null>(null)
   const [modalBloqueioOpen, setModalBloqueioOpen] = useState(false)
+
+  // Modal unificado AlertDialog para confirmações (padrão homologado de CartoesPage)
+  const [modalConfirmacaoExclusaoOpen, setModalConfirmacaoExclusaoOpen] = useState(false)
+  const [modalConfirmacaoConfig, setModalConfirmacaoConfig] = useState<{
+    title: string
+    description: string
+    isAlertOnly?: boolean
+    confirmText?: string
+    cancelText?: string
+    onConfirm: () => Promise<void> | void
+  }>({
+    title: 'Exclusão',
+    description: '',
+    isAlertOnly: false,
+    confirmText: 'OK',
+    cancelText: 'Cancelar',
+    onConfirm: () => {},
+  })
 
   const anoMes = getCurrentAnoMes()
   const wsId =
@@ -260,22 +279,29 @@ export default function Index() {
 
   const handleEstornarFatura = async (faturaId: string) => {
     if (!wsId) return
-    const confirma = window.confirm(
-      'Deseja estornar o pagamento desta fatura? O pagamento será desfeito e o saldo bancário recomposto.',
-    )
-    if (!confirma) return
-
-    await runWithLock(async () => {
-      try {
-        await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
-        toast.success('Pagamento estornado com sucesso! Saldo recomposto.')
-        await carregarDashboard()
-      } catch (err: any) {
-        toast.error(
-          'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
-        )
-      }
-    }, 'Recompondo saldo bancário e estornando pagamento...')
+    setModalConfirmacaoConfig({
+      title: 'Estornar Pagamento da Fatura',
+      description:
+        'Deseja estornar o pagamento desta fatura? O pagamento será desfeito e o saldo bancário recomposto, permitindo alterações na fatura.',
+      isAlertOnly: false,
+      confirmText: 'OK',
+      cancelText: 'Cancelar',
+      onConfirm: async () => {
+        setModalConfirmacaoExclusaoOpen(false)
+        await runWithLock(async () => {
+          try {
+            await faturaService.estornarPagamentoFatura(faturaId, wsId, user?.id)
+            toast.success('Pagamento estornado com sucesso! Saldo recomposto.')
+            await carregarDashboard()
+          } catch (err: any) {
+            toast.error(
+              'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+            )
+          }
+        }, 'Recompondo saldo bancário e estornando pagamento...')
+      },
+    })
+    setModalConfirmacaoExclusaoOpen(true)
   }
 
   const abrirNovoLancamentoNaFatura = (cartao: Cartao) => {
@@ -456,41 +482,70 @@ export default function Index() {
       Boolean(alvoParaExclusao.lancamento_pai_id)
 
     if (ehParcelado) {
-      const confirma = window.confirm(
-        `Excluir a compra parcelada "${alvoParaExclusao.descricao}"? Todas as parcelas vinculadas serão removidas e as faturas recalculadas.`,
-      )
-      if (!confirma) return
-
-      await runWithLock(async () => {
-        try {
-          await lancamentoService.excluirCompraParcelada(wsId, alvoParaExclusao.id, user?.id)
-          toast.success('Compra parcelada excluída e faturas recalculadas!')
-          await carregarDashboard()
-        } catch (err: any) {
-          toast.error(
-            'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
-          )
-        }
-      }, 'Excluindo compra parcelada...')
+      setModalConfirmacaoConfig({
+        title: 'Excluir compra parcelada',
+        description: `Excluir a compra parcelada "${alvoParaExclusao.descricao}"? Todas as parcelas serão removidas e as faturas do cartão recalculadas.`,
+        isAlertOnly: false,
+        confirmText: 'OK',
+        cancelText: 'Cancelar',
+        onConfirm: async () => {
+          setModalConfirmacaoExclusaoOpen(false)
+          await runWithLock(async () => {
+            try {
+              await lancamentoService.excluirCompraParcelada(wsId, alvoParaExclusao.id, user?.id)
+              toast.success('Compra parcelada excluída e faturas recalculadas!')
+              await carregarDashboard()
+            } catch (err: any) {
+              toast.error(
+                'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+              )
+            }
+          }, 'Excluindo compra parcelada...')
+        },
+      })
+      setModalConfirmacaoExclusaoOpen(true)
       return
     }
 
-    const confirma = window.confirm(
-      `Deseja realmente excluir "${alvoParaExclusao.descricao}" desta fatura?`,
-    )
-    if (!confirma) return
+    const estaPago = alvoParaExclusao.status_pagamento === 'pago'
+    if (estaPago) {
+      setModalConfirmacaoConfig({
+        title: 'Exclusão de Lançamento único em Conta Movimento',
+        description:
+          'Este lançamento está pago. É necessário desfazer o pagamento para excluir. Desfaça o pagamento no botão da lista antes de excluir.',
+        isAlertOnly: true,
+        confirmText: 'OK',
+        cancelText: 'Cancelar',
+        onConfirm: () => {
+          setModalConfirmacaoExclusaoOpen(false)
+        },
+      })
+      setModalConfirmacaoExclusaoOpen(true)
+      return
+    }
 
-    await runWithLock(async () => {
-      try {
-        await lancamentoService.deleteComEscopo(alvoParaExclusao.id, wsId, 'este', user?.id)
-        toast.success('Lançamento excluído e faturas recalculadas!')
-        await carregarDashboard()
-      } catch (err: any) {
-        toast.error(
-          'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
-        )
-      }
-    }, 'Excluindo lançamento da fatura...')
+    setModalConfirmacaoConfig({
+      title: 'Exclusão de Lançamento único em Conta Movimento',
+      description: 'Deseja excluir este lançamento ?',
+      isAlertOnly: false,
+      confirmText: 'OK',
+      cancelText: 'Cancelar',
+      onConfirm: async () => {
+        setModalConfirmacaoExclusaoOpen(false)
+        await runWithLock(async () => {
+          try {
+            await lancamentoService.deleteComEscopo(alvoParaExclusao.id, wsId, 'este', user?.id)
+            toast.success('Lançamento excluído e faturas recalculadas!')
+            await carregarDashboard()
+          } catch (err: any) {
+            toast.error(
+              'Não foi possível concluir — verifique e clique novamente; se persistir, atualize a página.',
+            )
+          }
+        }, 'Excluindo lançamento da fatura...')
+      },
+    })
+    setModalConfirmacaoExclusaoOpen(true)
   }
 
   // Saudação de acordo com o horário
@@ -889,22 +944,12 @@ export default function Index() {
           {cartoes.length > 0 &&
             (() => {
               const limiteConsolidado = cartoes.reduce((acc, c) => acc + (c.limite || 0), 0)
-              // Total das Faturas: contempla APENAS faturas abertas (teste 33)
-              const faturaAtualConsolidada = cartoes.reduce((acc, c) => {
-                const res = resumosFatura[c.id]
-                if (res?.status === 'paga' || res?.statusExibicao === 'Paga') return acc
-                return acc + (res?.saldoDevedor ?? res?.totalCompras ?? c.fatura_atual ?? 0)
+              // Regra SAP Build 5: O quadro "Total das Faturas" na página inicial reflete
+              // a soma do consolidado global do banco (mesma fonte e valor de "Total Comprometido" em Meus Cartões)
+              const totalComprometidoGeral = cartoes.reduce((acc, c) => {
+                return acc + Number(c.total_comprometido || 0)
               }, 0)
-              const comprometidoConsolidado = cartoes.reduce((acc, c) => {
-                const res = resumosFatura[c.id]
-                const faturaEstaPaga = res?.status === 'paga' || res?.statusExibicao === 'Paga'
-                let comp = Number(c.total_comprometido || 0)
-                if (faturaEstaPaga) {
-                  const valorFaturaPaga = Number(res?.totalPago || res?.totalCompras || 0)
-                  comp = Math.max(0, comp - valorFaturaPaga)
-                }
-                return acc + comp
-              }, 0)
+              const comprometidoConsolidado = totalComprometidoGeral
               const limiteDisponivelConsolidado = Math.max(
                 0,
                 limiteConsolidado - comprometidoConsolidado,
@@ -917,7 +962,7 @@ export default function Index() {
                       Total das Faturas
                     </div>
                     <div className="text-lg font-bold text-rose-600 mt-0.5">
-                      {ocultarSaldos ? '••••••' : formatMoneyBRL(faturaAtualConsolidada)}
+                      {ocultarSaldos ? '••••••' : formatMoneyBRL(totalComprometidoGeral)}
                     </div>
                     <div className="text-[10px] text-rose-700/80 mt-0.5">
                       Competência {competenciaFiltro}
@@ -1718,6 +1763,18 @@ export default function Index() {
           setBloqueioFaturaInfo(null)
         }}
         info={bloqueioFaturaInfo}
+      />
+
+      {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO / ESTORNO (ALERTDIALOG) */}
+      <ModalConfirmacaoExclusao
+        open={modalConfirmacaoExclusaoOpen}
+        onOpenChange={setModalConfirmacaoExclusaoOpen}
+        title={modalConfirmacaoConfig.title}
+        description={modalConfirmacaoConfig.description}
+        isAlertOnly={modalConfirmacaoConfig.isAlertOnly}
+        confirmText={modalConfirmacaoConfig.confirmText}
+        cancelText={modalConfirmacaoConfig.cancelText}
+        onConfirm={modalConfirmacaoConfig.onConfirm}
       />
     </div>
   )

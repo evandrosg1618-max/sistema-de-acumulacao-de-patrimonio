@@ -659,6 +659,9 @@ export default function LancamentosPage() {
                 conta_origem_id: dadosEdicaoPendentes?.conta_origem_id,
                 conta_destino_id: dadosEdicaoPendentes?.conta_destino_id,
                 cartao_id: dadosEdicaoPendentes?.cartao_id,
+                pago_primeira: Boolean(
+                  dadosEdicaoPendentes?.pago ?? dadosEdicaoPendentes?.status_pagamento === 'pago',
+                ),
               },
               user?.id,
             )

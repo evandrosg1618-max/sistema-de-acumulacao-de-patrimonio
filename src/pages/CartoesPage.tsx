@@ -636,9 +636,26 @@ export default function CartoesPage() {
       return
     }
 
+    const estaPago = alvoParaExclusao.status_pagamento === 'pago'
+    if (estaPago) {
+      setModalConfirmacaoConfig({
+        title: 'Exclusão de Lançamento único em Conta Movimento',
+        description:
+          'Este lançamento está pago. É necessário desfazer o pagamento para excluir. Desfaça o pagamento no botão da lista antes de excluir.',
+        isAlertOnly: true,
+        confirmText: 'OK',
+        cancelText: 'Cancelar',
+        onConfirm: () => {
+          setModalConfirmacaoExclusaoOpen(false)
+        },
+      })
+      setModalConfirmacaoExclusaoOpen(true)
+      return
+    }
+
     setModalConfirmacaoConfig({
-      title: 'Excluir lançamento da fatura',
-      description: `Deseja realmente excluir "${alvoParaExclusao.descricao}" desta fatura?`,
+      title: 'Exclusão de Lançamento único em Conta Movimento',
+      description: 'Deseja excluir este lançamento ?',
       isAlertOnly: false,
       confirmText: 'OK',
       cancelText: 'Cancelar',
@@ -715,6 +732,9 @@ export default function CartoesPage() {
               conta_origem_id: dadosEdicaoPendentes?.conta_origem_id,
               conta_destino_id: dadosEdicaoPendentes?.conta_destino_id,
               cartao_id: dadosEdicaoPendentes?.cartao_id,
+              pago_primeira: Boolean(
+                dadosEdicaoPendentes?.pago ?? dadosEdicaoPendentes?.status_pagamento === 'pago',
+              ),
             },
             user?.id,
           )
