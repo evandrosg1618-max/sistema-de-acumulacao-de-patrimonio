@@ -1488,10 +1488,106 @@ export const categoriaService = {
 }
 
 // ----------------------------------------------------
-// BUILD 1: SERVIÇO DE ORÇAMENTOS
+// BUILD 1 & BUILD 6: SERVIÇO DE ORÇAMENTOS
 // ----------------------------------------------------
 export const orcamentoService = {
+  // Retorna o consolidado completo de orçamento da competência via RPC atômica
+  async obterConsolidado(workspaceId: string, competencia: string): Promise<any> {
+    const { data, error } = await db.rpc('obter_orcamento_consolidado_rpc', {
+      p_workspace_id: workspaceId,
+      p_competencia: competencia,
+    })
+
+    if (error) throw error
+    return data
+  },
+
+  // Grava atomicamente o limite de uma subcategoria (fonte da verdade)
+  async gravarLimiteSubcategoria(dados: {
+    workspace_id: string
+    subcategoria_id: string
+    competencia: string
+    limite: number
+    user_id?: string
+  }): Promise<any> {
+    const { data, error } = await db.rpc('gravar_limite_subcategoria_rpc', {
+      p_workspace_id: dados.workspace_id,
+      p_subcategoria_id: dados.subcategoria_id,
+      p_competencia: dados.competencia,
+      p_limite: Number(dados.limite || 0),
+      p_user_id: dados.user_id || null,
+    })
+
+    if (error) throw error
+    return data
+  },
+
+  // Copia os limites definidos do período anterior em lote atômico
+  async copiarLimitesPeriodoAnterior(dados: {
+    workspace_id: string
+    competencia_origem: string
+    competencia_destino: string
+    user_id?: string
+  }): Promise<any> {
+    const { data, error } = await db.rpc('copiar_limites_periodo_anterior_rpc', {
+      p_workspace_id: dados.workspace_id,
+      p_competencia_origem: dados.competencia_origem,
+      p_competencia_destino: dados.competencia_destino,
+      p_user_id: dados.user_id || null,
+    })
+
+    if (error) throw error
+    return data
+  },
+
+  // Lista lançamentos detalhados do período anterior para a modal de 3 pontinhos
+  async listarLancamentosPeriodoAnterior(dados: {
+    workspace_id: string
+    competencia: string
+    categoria_id?: string | null
+    subcategoria_id?: string | null
+  }): Promise<{
+    competencia_anterior: string
+    data_inicio: string
+    data_fim: string
+    total: number
+    lancamentos: any[]
+  }> {
+    const { data, error } = await db.rpc('listar_lancamentos_periodo_anterior_rpc', {
+      p_workspace_id: dados.workspace_id,
+      p_competencia: dados.competencia,
+      p_categoria_id: dados.categoria_id || null,
+      p_subcategoria_id: dados.subcategoria_id || null,
+    })
+
+    if (error) throw error
+    return data as any
+  },
+
+  // Compatibilidade legada (usada em ModalLancamento e Dashboard):
   async listByMes(workspaceId: string, anoMes: string): Promise<any[]> {
+    try {
+      const consolidado = await this.obterConsolidado(workspaceId, anoMes)
+      if (consolidado?.categorias) {
+        return consolidado.categorias.map((c: any) => ({
+          id: c.id,
+          workspace_id: workspaceId,
+          categoria_id: c.id,
+          ano_mes: anoMes,
+          limite: Number(c.limite_definido || 0),
+          consumo_atual: Number(c.valor_efetivado || 0),
+          categoria: {
+            id: c.id,
+            nome: c.nome,
+            cor: c.cor,
+            icone: c.icone,
+          },
+        }))
+      }
+    } catch (e) {
+      console.warn('Erro ao obter consolidado no listByMes, usando fallback:', e)
+    }
+
     const { data: orcs, error: errOrc } = await db
       .from('orcamentos')
       .select(`

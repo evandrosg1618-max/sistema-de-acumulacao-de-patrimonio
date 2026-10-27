@@ -319,3 +319,47 @@ export interface ConciliacaoConta {
   created_at: string
   conta?: Conta | null
 }
+
+// BUILD 6: Interfaces para Orçamento Familiar Mensal
+export interface OrcamentoSubcategoriaItem {
+  id: string // subcategoria_id
+  nome: string
+  limite_definido: number
+  valor_efetivado: number
+  gasto_periodo_anterior: number
+}
+
+export interface OrcamentoCategoriaItem {
+  id: string // categoria_id
+  nome: string
+  cor?: string | null
+  icone?: string | null
+  limite_definido: number
+  valor_efetivado: number
+  gasto_periodo_anterior: number
+  subcategorias: OrcamentoSubcategoriaItem[]
+}
+
+export interface OrcamentoConsolidado {
+  competencia: string
+  competencia_anterior: string
+  tem_limites: boolean
+  tem_limites_anterior: boolean
+  despesas_efetivado: number
+  despesas_limite: number
+  categorias: OrcamentoCategoriaItem[]
+}
+
+export interface LancamentoPeriodoAnteriorItem {
+  id: string
+  data: string
+  descricao: string
+  valor: number
+  tipo: string
+  status_pagamento: string
+  meio_pagamento_tipo: string
+  categoria_nome?: string | null
+  subcategoria_nome?: string | null
+  conta_nome?: string | null
+  cartao_nome?: string | null
+}

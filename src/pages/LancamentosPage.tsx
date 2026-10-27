@@ -882,14 +882,11 @@ export default function LancamentosPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-4">
-      {/* 1.1 TÍTULO: Lançamentos Financeiros */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+      {/* 1.1 TÍTULO: Lançamentos Financeiros (Item 0 Build 6: sem subtítulo e altura reduzida) */}
+      <div className="py-0.5">
+        <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900 leading-tight">
           Lançamentos Financeiros
         </h1>
-        <p className="text-xs text-slate-500 mt-0.5">
-          Controle de fluxo de caixa familiar e acompanhamento de faturas
-        </p>
       </div>
 
       {/* 1.2 SUMMARY CARD: PERÍODO + REGIME NA MESMA LINHA */}
