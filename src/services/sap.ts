@@ -2216,6 +2216,48 @@ export const faturaService = {
 // BUILD 2: SERVIÇO PRINCIPAL DE LANÇAMENTOS
 // ----------------------------------------------------
 export const lancamentoService = {
+  // BUILD 5 (SAP-5 BLOCO 2): Cálculo do Regime de Competência Integral via RPC no banco
+  async calcularCompetenciaIntegral(
+    workspaceId: string,
+    dataInicio: string,
+    dataFim: string,
+  ): Promise<{
+    entradas_previstas: number
+    saidas_previstas: number
+    entradas_efetivadas: number
+    saidas_efetivadas: number
+    resultado_previsto: number
+    resultado_efetivado: number
+  }> {
+    const { data, error } = await db.rpc('calcular_regime_competencia_integral_rpc', {
+      p_workspace_id: workspaceId,
+      p_data_inicio: dataInicio,
+      p_data_fim: dataFim,
+    })
+
+    if (error) {
+      console.warn('Erro ao calcular regime de competência integral via RPC:', error)
+      return {
+        entradas_previstas: 0,
+        saidas_previstas: 0,
+        entradas_efetivadas: 0,
+        saidas_efetivadas: 0,
+        resultado_previsto: 0,
+        resultado_efetivado: 0,
+      }
+    }
+
+    const res = data as any
+    return {
+      entradas_previstas: Number(res?.entradas_previstas || 0),
+      saidas_previstas: Number(res?.saidas_previstas || 0),
+      entradas_efetivadas: Number(res?.entradas_efetivadas || 0),
+      saidas_efetivadas: Number(res?.saidas_efetivadas || 0),
+      resultado_previsto: Number(res?.resultado_previsto || 0),
+      resultado_efetivado: Number(res?.resultado_efetivado || 0),
+    }
+  },
+
   async list(
     workspaceId: string,
     filtros: {

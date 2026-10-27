@@ -61,6 +61,8 @@ import { ModalConciliacao } from '@/components/ModalConciliacao'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { ModalConfirmacaoExclusao } from '@/components/ModalConfirmacaoExclusao'
+import { ModalModoVisualizacao, ModoVisualizacao } from '@/components/ModalModoVisualizacao'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { faturaService } from '@/services/sap'
 import { supabase } from '@/lib/supabase/client'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
@@ -93,6 +95,25 @@ export default function LancamentosPage() {
   const [filtroStatus, setFiltroStatus] = useState<string>('todos')
   const [busca, setBusca] = useState('')
   const [mostrarBusca, setMostrarBusca] = useState(false)
+
+  // BUILD 5 (SAP-5 BLOCO 2): Seletor de Modo de Visualização (padrão: Competência Integral)
+  const [modoVisualizacao, setModoVisualizacao] = useState<ModoVisualizacao>('competencia_integral')
+  const [modalModoVisualizacaoOpen, setModalModoVisualizacaoOpen] = useState(false)
+  const [resultadoPeriodoIntegral, setResultadoPeriodoIntegral] = useState<{
+    entradas_previstas: number
+    saidas_previstas: number
+    entradas_efetivadas: number
+    saidas_efetivadas: number
+    resultado_previsto: number
+    resultado_efetivado: number
+  }>({
+    entradas_previstas: 0,
+    saidas_previstas: 0,
+    entradas_efetivadas: 0,
+    saidas_efetivadas: 0,
+    resultado_previsto: 0,
+    resultado_efetivado: 0,
+  })
 
   // Modais
   const [modalLancamentoOpen, setModalLancamentoOpen] = useState(false)
@@ -212,19 +233,35 @@ export default function LancamentosPage() {
         if (dataFim) filtrosConsulta.dataFim = dataFim
       }
 
-      const [lancsData, contasList, cartoesList, catsList, faturasList] = await Promise.all([
-        lancamentoService.list(wsId, filtrosConsulta),
-        contaService.list(wsId, false),
-        cartaoService.list(wsId, false),
-        categoriaService.listComSubcategorias(wsId),
-        faturaService.getFaturasDoMes(wsId, anoMes),
-      ])
+      // Determinar período exato para o cálculo RPC de Competência Integral
+      let rpcDataInicio = filtrosConsulta.dataInicio
+      let rpcDataFim = filtrosConsulta.dataFim
+      if (!rpcDataInicio || !rpcDataFim) {
+        const [anoStr, mesStr] = anoMes.split('-')
+        const anoNum = parseInt(anoStr, 10)
+        const mesNum = parseInt(mesStr, 10)
+        const ultimoDia = new Date(anoNum, mesNum, 0).getDate()
+        rpcDataInicio = `${anoMes}-01`
+        rpcDataFim = `${anoMes}-${String(ultimoDia).padStart(2, '0')}`
+      }
+
+      const [lancsData, contasList, cartoesList, catsList, faturasList, rpcRes] = await Promise.all(
+        [
+          lancamentoService.list(wsId, filtrosConsulta),
+          contaService.list(wsId, false),
+          cartaoService.list(wsId, false),
+          categoriaService.listComSubcategorias(wsId),
+          faturaService.getFaturasDoMes(wsId, anoMes),
+          lancamentoService.calcularCompetenciaIntegral(wsId, rpcDataInicio, rpcDataFim),
+        ],
+      )
 
       setLancamentos(lancsData)
       setContas(contasList)
       setCartoes(cartoesList)
       setCategorias(catsList)
       setFaturasMes(faturasList)
+      setResultadoPeriodoIntegral(rpcRes)
     } catch (err: any) {
       console.error('Erro ao listar lançamentos:', err)
       toast.error('Erro ao carregar lançamentos: ' + (err.message || ''))
@@ -825,47 +862,87 @@ export default function LancamentosPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6">
-      {/* 1. BALÃO COM VALORES TOTAIS (Preservado conforme solicitado) */}
-      <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* 1. BALÃO COM VALORES TOTAIS — SUMMARY CARD: RESULTADO PERÍODO (REGIME DE COMPETÊNCIA INTEGRAL) */}
+      <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">
-            Lançamentos Financeiros
-          </h1>
-          <p className="text-xs text-slate-500">
+          <div className="flex items-center gap-2">
+            <h1 className="text-xl font-bold tracking-tight text-slate-900">
+              Lançamentos Financeiros
+            </h1>
+            <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2 py-0.5 rounded-full">
+              Competência Integral
+            </span>
+          </div>
+          <p className="text-xs text-slate-500 mt-0.5">
             Controle de fluxo de caixa familiar e acompanhamento de faturas
           </p>
         </div>
 
-        <div className="flex items-center gap-4 sm:gap-6 bg-slate-50 px-5 py-2.5 rounded-xl border border-slate-200">
-          <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-              Entradas
-            </span>
-            <span className="text-sm sm:text-base font-bold text-emerald-600">
-              {formatMoneyBRL(totalReceitas)}
-            </span>
-          </div>
-          <div className="h-6 w-px bg-slate-200" />
-          <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-              Saídas
-            </span>
-            <span className="text-sm sm:text-base font-bold text-rose-600">
-              {formatMoneyBRL(totalDespesas)}
+        {/* Quadro Resultado Período — Entradas | Saídas | Resultado do Período com linhas Previsto e Efetivado */}
+        <div className="bg-slate-50/80 p-3.5 px-4 rounded-xl border border-slate-200 shadow-2xs">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 pb-1.5 border-b border-slate-200/70 mb-2 flex items-center justify-between">
+            <span>Resultado Período</span>
+            <span className="font-normal text-[9px] text-slate-400 lowercase">
+              previsto vs efetivado
             </span>
           </div>
-          <div className="h-6 w-px bg-slate-200" />
-          <div>
-            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">
-              Resultado Mês
-            </span>
-            <span
-              className={`text-sm sm:text-base font-bold ${
-                saldoLiquidoPeriodo >= 0 ? 'text-blue-600' : 'text-rose-600'
-              }`}
-            >
-              {formatMoneyBRL(saldoLiquidoPeriodo)}
-            </span>
+
+          <div className="overflow-x-auto">
+            <table className="text-xs w-full text-right border-collapse">
+              <thead>
+                <tr className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                  <th className="text-left pr-4 font-normal">Indicador</th>
+                  <th className="px-3 text-[#16A34A]">Entradas</th>
+                  <th className="px-3 text-[#DC2626]">Saídas</th>
+                  <th className="pl-3">Resultado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200/50">
+                {/* Linha 1: Previsto (intensidade suavizada 40-60%) */}
+                <tr>
+                  <td className="text-left pr-4 py-1 font-medium text-slate-500 text-[11px]">
+                    Previsto
+                  </td>
+                  <td className="px-3 py-1 font-semibold text-[#16A34A]/60">
+                    {formatMoneyBRL(resultadoPeriodoIntegral.entradas_previstas)}
+                  </td>
+                  <td className="px-3 py-1 font-semibold text-[#DC2626]/60">
+                    {formatMoneyBRL(resultadoPeriodoIntegral.saidas_previstas)}
+                  </td>
+                  <td
+                    className={`pl-3 py-1 font-semibold ${
+                      resultadoPeriodoIntegral.resultado_previsto >= 0
+                        ? 'text-[#2563EB]/60'
+                        : 'text-[#EA580C]/60'
+                    }`}
+                  >
+                    {formatMoneyBRL(resultadoPeriodoIntegral.resultado_previsto)}
+                  </td>
+                </tr>
+
+                {/* Linha 2: Efetivado (intensidade cheia 100%) */}
+                <tr>
+                  <td className="text-left pr-4 py-1 font-bold text-slate-700 text-[11px]">
+                    Efetivado
+                  </td>
+                  <td className="px-3 py-1 font-bold text-[#16A34A]">
+                    {formatMoneyBRL(resultadoPeriodoIntegral.entradas_efetivadas)}
+                  </td>
+                  <td className="px-3 py-1 font-bold text-[#DC2626]">
+                    {formatMoneyBRL(resultadoPeriodoIntegral.saidas_efetivadas)}
+                  </td>
+                  <td
+                    className={`pl-3 py-1 font-bold ${
+                      resultadoPeriodoIntegral.resultado_efetivado >= 0
+                        ? 'text-[#2563EB]'
+                        : 'text-[#EA580C]'
+                    }`}
+                  >
+                    {formatMoneyBRL(resultadoPeriodoIntegral.resultado_efetivado)}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -965,8 +1042,66 @@ export default function LancamentosPage() {
           </Button>
         </div>
 
-        {/* Direita: Ações rápidas */}
-        <div className="flex items-center gap-2">
+        {/* Direita: Ações rápidas + Seletor de Modo de Visualização */}
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Seletor de modo: quadradinho com 2 linhas ao lado dos 3 pontinhos */}
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setModalModoVisualizacaoOpen(true)}
+                  aria-label="Modo de Visualização"
+                  className="w-9 h-9 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition shadow-2xs hover:border-slate-300"
+                >
+                  {/* Ícone de quadradinho com 2 linhas */}
+                  <svg
+                    className="w-4 h-4 text-slate-700"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="3" y="3" width="18" height="18" rx="3" ry="3" />
+                    <line x1="7" y1="9" x2="17" y2="9" />
+                    <line x1="7" y1="15" x2="17" y2="15" />
+                  </svg>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs font-medium">
+                Modo de Visualização
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* Botão de 3 pontinhos com opções rápidas */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-9 w-9 border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg"
+                title="Mais opções"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44 text-xs bg-white border-slate-200">
+              <DropdownMenuItem
+                onClick={() => setModalModoVisualizacaoOpen(true)}
+                className="cursor-pointer"
+              >
+                Modo de Visualização
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => carregarDados()} className="cursor-pointer">
+                Atualizar dados
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
           <Button
             variant="ghost"
             size="sm"
@@ -975,7 +1110,7 @@ export default function LancamentosPage() {
             title="Recarregar lançamentos do banco"
           >
             <RefreshCw className="w-3.5 h-3.5 mr-1" />
-            <span>Atualizar</span>
+            <span className="hidden sm:inline">Atualizar</span>
           </Button>
         </div>
       </div>
@@ -1826,6 +1961,24 @@ export default function LancamentosPage() {
           setBloqueioFaturaInfo(null)
         }}
         info={bloqueioFaturaInfo}
+      />
+
+      {/* MODAL DO SELETOR DE MODO DE VISUALIZAÇÃO (3 MODOS) */}
+      <ModalModoVisualizacao
+        open={modalModoVisualizacaoOpen}
+        onOpenChange={setModalModoVisualizacaoOpen}
+        modoAtual={modoVisualizacao}
+        onSelecionarModo={(novoModo) => {
+          if (novoModo === 'competencia_integral') {
+            setModoVisualizacao('competencia_integral')
+            toast.success('Visualização definida para Regime de Competência Integral.')
+          } else {
+            // Modos 2 e 3 em breve
+            toast.info(
+              'Este modo estará disponível em breve com o Orçamento. O modo padrão (Competência Integral) foi mantido.',
+            )
+          }
+        }}
       />
     </div>
   )

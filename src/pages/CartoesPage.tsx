@@ -1017,14 +1017,21 @@ export default function CartoesPage() {
             <CardTitle className="text-2xl font-bold text-rose-600">
               {formatMoneyBRL(
                 Object.values(resumosFatura).reduce((acc: number, r: any) => {
-                  if (r?.status === 'paga' || r?.statusExibicao === 'Paga') return acc
-                  return acc + (r?.saldoDevedor ?? r?.totalCompras ?? 0)
+                  const valorExib =
+                    r?.status === 'paga' || r?.statusExibicao === 'Paga'
+                      ? r?.totalPago && r.totalPago > 0
+                        ? r.totalPago
+                        : (r?.totalCompras ?? 0)
+                      : (r?.totalCompras ?? r?.saldoDevedor ?? 0)
+                  return acc + Number(valorExib || 0)
                 }, 0),
               )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-xs text-slate-500">Compras + parcelas em faturas abertas</p>
+            <p className="text-xs text-slate-500">
+              Inclui todas as faturas da competência selecionada
+            </p>
           </CardContent>
         </Card>
 
@@ -1145,7 +1152,13 @@ export default function CartoesPage() {
                       <div className="flex items-center justify-between sm:justify-end gap-3 self-end sm:self-auto w-full sm:w-auto">
                         <div className="text-right">
                           <div className="font-bold text-sm md:text-base text-rose-600">
-                            {formatMoneyBRL(resumo?.saldoDevedor ?? fatura)}
+                            {formatMoneyBRL(
+                              resumo?.status === 'paga' || resumo?.statusExibicao === 'Paga'
+                                ? resumo?.totalPago && resumo.totalPago > 0
+                                  ? resumo.totalPago
+                                  : (resumo?.totalCompras ?? 0)
+                                : (resumo?.totalCompras ?? resumo?.saldoDevedor ?? fatura),
+                            )}
                           </div>
                           <div className="text-[11px] text-slate-400">
                             Fatura {competenciaFiltro} (
