@@ -25,8 +25,10 @@ import {
   Edit2,
   Trash2,
   Scale,
-  Calendar,
+  Calendar as CalendarIcon,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   RefreshCw,
   FileCheck,
   ThumbsUp,
@@ -37,6 +39,8 @@ import {
   X,
   Receipt,
 } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Calendar } from '@/components/ui/calendar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -95,6 +99,9 @@ export default function LancamentosPage() {
   const [filtroStatus, setFiltroStatus] = useState<string>('todos')
   const [busca, setBusca] = useState('')
   const [mostrarBusca, setMostrarBusca] = useState(false)
+  // Ordenação da listagem: 'desc' = do mais recente para o mais antigo (padrão), 'asc' = do mais antigo para o mais recente
+  const [ordemData, setOrdemData] = useState<'desc' | 'asc'>('desc')
+  const [calendarioPopoverOpen, setCalendarioPopoverOpen] = useState(false)
 
   // BUILD 5 (SAP-5 BLOCO 2): Seletor de Modo de Visualização (padrão: Competência Integral)
   const [modoVisualizacao, setModoVisualizacao] = useState<ModoVisualizacao>('competencia_integral')
@@ -857,127 +864,46 @@ export default function LancamentosPage() {
     if (l.data) todasDatasSet.add(l.data)
   })
 
-  // Ordenação CRESCENTE por data (Requisito 5)
-  const datasOrdenadas = Array.from(todasDatasSet).sort((a, b) => a.localeCompare(b))
+  // Ordenação por data: 'desc' (padrão - mais recente para o mais antigo) ou 'asc' (mais antigo para o mais recente)
+  const datasOrdenadas = Array.from(todasDatasSet).sort((a, b) =>
+    ordemData === 'desc' ? b.localeCompare(a) : a.localeCompare(b),
+  )
+
+  // Data atual do período para inicializar o calendário do Popover
+  const dataReferenciaCalendario = (() => {
+    if (dataInicio) {
+      const [y, m, d] = dataInicio.split('-').map(Number)
+      if (y && m && d) return new Date(y, m - 1, d)
+    }
+    const [y, m] = anoMes.split('-').map(Number)
+    if (y && m) return new Date(y, m - 1, 1)
+    return new Date()
+  })()
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6">
-      {/* 1. BALÃO COM VALORES TOTAIS — SUMMARY CARD: RESULTADO PERÍODO (REGIME DE COMPETÊNCIA INTEGRAL) */}
-      <div className="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold tracking-tight text-slate-900">
-              Lançamentos Financeiros
-            </h1>
-            <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 px-2 py-0.5 rounded-full">
-              Competência Integral
-            </span>
-          </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Controle de fluxo de caixa familiar e acompanhamento de faturas
-          </p>
-        </div>
-
-        {/* Quadro Resultado Período — Entradas | Saídas | Resultado do Período com linhas Previsto e Efetivado */}
-        <div className="bg-slate-50/80 p-3.5 px-4 rounded-xl border border-slate-200 shadow-2xs">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 pb-1.5 border-b border-slate-200/70 mb-2 flex items-center justify-between">
-            <span>Resultado Período</span>
-            <span className="font-normal text-[9px] text-slate-400 lowercase">
-              previsto vs efetivado
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="text-xs w-full text-right border-collapse">
-              <thead>
-                <tr className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
-                  <th className="text-left pr-4 font-normal">Indicador</th>
-                  <th className="px-3 text-[#16A34A]">Entradas</th>
-                  <th className="px-3 text-[#DC2626]">Saídas</th>
-                  <th className="pl-3">Resultado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200/50">
-                {/* Linha 1: Previsto (intensidade suavizada 40-60%) */}
-                <tr>
-                  <td className="text-left pr-4 py-1 font-medium text-slate-500 text-[11px]">
-                    Previsto
-                  </td>
-                  <td className="px-3 py-1 font-semibold text-[#16A34A]/60">
-                    {formatMoneyBRL(resultadoPeriodoIntegral.entradas_previstas)}
-                  </td>
-                  <td className="px-3 py-1 font-semibold text-[#DC2626]/60">
-                    {formatMoneyBRL(resultadoPeriodoIntegral.saidas_previstas)}
-                  </td>
-                  <td
-                    className={`pl-3 py-1 font-semibold ${
-                      resultadoPeriodoIntegral.resultado_previsto >= 0
-                        ? 'text-[#2563EB]/60'
-                        : 'text-[#EA580C]/60'
-                    }`}
-                  >
-                    {formatMoneyBRL(resultadoPeriodoIntegral.resultado_previsto)}
-                  </td>
-                </tr>
-
-                {/* Linha 2: Efetivado (intensidade cheia 100%) */}
-                <tr>
-                  <td className="text-left pr-4 py-1 font-bold text-slate-700 text-[11px]">
-                    Efetivado
-                  </td>
-                  <td className="px-3 py-1 font-bold text-[#16A34A]">
-                    {formatMoneyBRL(resultadoPeriodoIntegral.entradas_efetivadas)}
-                  </td>
-                  <td className="px-3 py-1 font-bold text-[#DC2626]">
-                    {formatMoneyBRL(resultadoPeriodoIntegral.saidas_efetivadas)}
-                  </td>
-                  <td
-                    className={`pl-3 py-1 font-bold ${
-                      resultadoPeriodoIntegral.resultado_efetivado >= 0
-                        ? 'text-[#2563EB]'
-                        : 'text-[#EA580C]'
-                    }`}
-                  >
-                    {formatMoneyBRL(resultadoPeriodoIntegral.resultado_efetivado)}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+    <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-4">
+      {/* 1.1 TÍTULO: Lançamentos Financeiros */}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          Lançamentos Financeiros
+        </h1>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Controle de fluxo de caixa familiar e acompanhamento de faturas
+        </p>
       </div>
 
-      {/* 2. BARRA SUPERIOR DE AÇÕES E NAVEGAÇÃO DE PERÍODO */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-        {/* Esquerda: Botões + Lançamento e Conciliar */}
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <Button
-            onClick={() => abrirNovoLancamento('despesa')}
-            className="bg-neutral-800 hover:bg-neutral-900 text-white font-medium text-xs sm:text-sm rounded-xl px-4 py-2 h-10 shadow-sm flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Lançamento</span>
-          </Button>
+      {/* 1.2 SUMMARY CARD: PERÍODO + REGIME NA MESMA LINHA */}
+      <div className="bg-white rounded-2xl p-3 sm:p-4 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3">
+        {/* Esquerda: Período com navegação < Outubro de 2026 > e ícone de calendário */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-xs font-semibold text-slate-600 mr-1">Período</span>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setModalConciliacaoOpen(true)}
-            className="h-10 text-xs rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50"
-            title="Conciliação Bancária"
-          >
-            <Scale className="w-3.5 h-3.5 mr-1 text-teal-600" />
-            <span>Conciliar</span>
-          </Button>
-        </div>
-
-        {/* Centro: Navegação por mês e setas */}
-        <div className="flex items-center gap-1">
+          {/* Seta anterior */}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => navegarMes(-1)}
-            className="h-9 w-9 text-slate-700 hover:bg-slate-100 rounded-lg"
+            className="h-8 w-8 text-slate-700 hover:bg-slate-100 rounded-lg"
             title="Mês anterior"
           >
             <ChevronLeft className="w-4 h-4" />
@@ -988,7 +914,7 @@ export default function LancamentosPage() {
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="px-3 py-1.5 text-xs sm:text-sm font-bold text-slate-800 hover:bg-slate-100 rounded-lg flex items-center gap-1.5 transition select-none"
+                className="px-2.5 py-1 text-xs sm:text-sm font-bold text-slate-800 hover:bg-slate-100 rounded-lg flex items-center gap-1 transition select-none"
               >
                 <span>
                   {filtroPeriodoTipo === 'mes'
@@ -1002,7 +928,7 @@ export default function LancamentosPage() {
                 <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="center" className="w-48 text-xs bg-white border-slate-200">
+            <DropdownMenuContent align="start" className="w-48 text-xs bg-white border-slate-200">
               <DropdownMenuItem
                 onClick={() => aplicarFiltroRapido('hoje')}
                 className="cursor-pointer font-medium"
@@ -1031,20 +957,86 @@ export default function LancamentosPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* BLOCO 2 (Teste 2): Ícone de abrir calendário diretamente no lado direito, antes da última seta */}
+          <Popover open={calendarioPopoverOpen} onOpenChange={setCalendarioPopoverOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-slate-600 hover:bg-slate-100 hover:text-slate-900 rounded-lg"
+                title="Abrir calendário para escolher data/competência"
+              >
+                <CalendarIcon className="w-4 h-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="center"
+              className="w-auto p-0 bg-white border-slate-200 shadow-lg"
+            >
+              <div className="p-3">
+                <Calendar
+                  mode="single"
+                  selected={dataReferenciaCalendario}
+                  onSelect={(date) => {
+                    if (date) {
+                      const y = date.getFullYear()
+                      const m = String(date.getMonth() + 1).padStart(2, '0')
+                      const d = String(date.getDate()).padStart(2, '0')
+                      const iso = `${y}-${m}-${d}`
+                      const anoMesIso = `${y}-${m}`
+                      setAnoMes(anoMesIso)
+                      setDataInicio(iso)
+                      setDataFim(iso)
+                      setFiltroPeriodoTipo('periodo')
+                      setCalendarioPopoverOpen(false)
+                    }
+                  }}
+                  initialFocus
+                />
+                <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-[11px] text-slate-500"
+                    onClick={() => {
+                      aplicarFiltroRapido('este_mes')
+                      setCalendarioPopoverOpen(false)
+                    }}
+                  >
+                    Mês Atual
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 text-[11px] text-slate-500"
+                    onClick={() => setCalendarioPopoverOpen(false)}
+                  >
+                    Fechar
+                  </Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+
+          {/* Seta próximo mês (última seta) */}
           <Button
             variant="ghost"
             size="icon"
             onClick={() => navegarMes(1)}
-            className="h-9 w-9 text-slate-700 hover:bg-slate-100 rounded-lg"
+            className="h-8 w-8 text-slate-700 hover:bg-slate-100 rounded-lg"
             title="Próximo mês"
           >
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
 
-        {/* Direita: Ações rápidas + Seletor de Modo de Visualização */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Seletor de modo: quadradinho com 2 linhas ao lado dos 3 pontinhos */}
+        {/* Direita: REGIME NA MESMA LINHA/CARD com o quadradinho do seletor de regime */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-500 font-medium">Regime de</span>
+            <span className="text-xs font-bold text-slate-800">Competência Integral</span>
+          </div>
+
           <TooltipProvider delayDuration={150}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1052,11 +1044,11 @@ export default function LancamentosPage() {
                   type="button"
                   onClick={() => setModalModoVisualizacaoOpen(true)}
                   aria-label="Modo de Visualização"
-                  className="w-9 h-9 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition shadow-2xs hover:border-slate-300"
+                  className="w-8 h-8 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 flex items-center justify-center transition shadow-2xs hover:border-slate-300"
                 >
                   {/* Ícone de quadradinho com 2 linhas */}
                   <svg
-                    className="w-4 h-4 text-slate-700"
+                    className="w-3.5 h-3.5 text-slate-700"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
@@ -1076,16 +1068,16 @@ export default function LancamentosPage() {
             </Tooltip>
           </TooltipProvider>
 
-          {/* Botão de 3 pontinhos com opções rápidas */}
+          {/* 3 pontinhos para opções rápidas */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 variant="outline"
                 size="icon"
-                className="h-9 w-9 border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg"
+                className="h-8 w-8 border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg"
                 title="Mais opções"
               >
-                <MoreVertical className="w-4 h-4" />
+                <MoreVertical className="w-3.5 h-3.5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44 text-xs bg-white border-slate-200">
@@ -1106,7 +1098,7 @@ export default function LancamentosPage() {
             variant="ghost"
             size="sm"
             onClick={() => carregarDados()}
-            className="text-xs text-slate-600 h-9 rounded-lg"
+            className="text-xs text-slate-600 h-8 rounded-lg px-2"
             title="Recarregar lançamentos do banco"
           >
             <RefreshCw className="w-3.5 h-3.5 mr-1" />
@@ -1115,22 +1107,122 @@ export default function LancamentosPage() {
         </div>
       </div>
 
-      {/* 2.1 BLOCO PRÓPRIO DE LARGURA TOTAL: MINHAS CONTAS — SALDOS DISPONÍVEIS (Logo abaixo da barra de ações) */}
+      {/* Caixa de período customizado quando 'periodo' estiver ativo */}
+      {filtroPeriodoTipo === 'periodo' && (
+        <div className="bg-white rounded-xl p-2.5 px-3 border border-slate-200 flex flex-wrap items-center gap-2.5 text-xs">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500 font-medium">De:</span>
+            <Input
+              type="date"
+              value={dataInicio}
+              onChange={(e) => setDataInicio(e.target.value)}
+              className="w-36 text-xs h-7"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500 font-medium">Até:</span>
+            <Input
+              type="date"
+              value={dataFim}
+              onChange={(e) => setDataFim(e.target.value)}
+              className="w-36 text-xs h-7"
+            />
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setFiltroPeriodoTipo('mes')}
+            className="h-7 text-xs text-slate-500 hover:text-slate-800"
+          >
+            <X className="w-3.5 h-3.5 mr-1" />
+            Voltar para mês
+          </Button>
+        </div>
+      )}
+
+      {/* 1.3 SUMMARY CARD: "RESUMO DO PERÍODO" (substitui "Resultado Período", sem "Indicador" nem "previsto vs efetivado") */}
+      <div className="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs">
+        <div className="text-xs font-bold uppercase tracking-wider text-slate-700 pb-2 border-b border-slate-100 mb-2.5">
+          Resumo do Período
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="text-xs w-full text-right border-collapse">
+            <thead>
+              <tr className="text-[11px] uppercase tracking-wider font-semibold">
+                <th className="text-left pr-4 w-28"></th>
+                <th className="px-3 text-[#16A34A]">Entradas</th>
+                <th className="px-3 text-[#DC2626]">Saídas</th>
+                <th className="pl-3">Resultado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {/* Linha 1: Previsto (intensidade suavizada 40-60%) */}
+              <tr>
+                <td className="text-left pr-4 py-1.5 font-medium text-slate-500 text-[11px]">
+                  Previsto
+                </td>
+                <td className="px-3 py-1.5 font-semibold text-[#16A34A]/60">
+                  {formatMoneyBRL(resultadoPeriodoIntegral.entradas_previstas)}
+                </td>
+                <td className="px-3 py-1.5 font-semibold text-[#DC2626]/60">
+                  {formatMoneyBRL(resultadoPeriodoIntegral.saidas_previstas)}
+                </td>
+                <td
+                  className={`pl-3 py-1.5 font-semibold ${
+                    resultadoPeriodoIntegral.resultado_previsto >= 0
+                      ? 'text-[#2563EB]/60'
+                      : 'text-[#EA580C]/60'
+                  }`}
+                >
+                  {formatMoneyBRL(resultadoPeriodoIntegral.resultado_previsto)}
+                </td>
+              </tr>
+
+              {/* Linha 2: Efetivado (intensidade cheia 100%) */}
+              <tr>
+                <td className="text-left pr-4 py-1.5 font-bold text-slate-700 text-[11px]">
+                  Efetivado
+                </td>
+                <td className="px-3 py-1.5 font-bold text-[#16A34A]">
+                  {formatMoneyBRL(resultadoPeriodoIntegral.entradas_efetivadas)}
+                </td>
+                <td className="px-3 py-1.5 font-bold text-[#DC2626]">
+                  {formatMoneyBRL(resultadoPeriodoIntegral.saidas_efetivadas)}
+                </td>
+                <td
+                  className={`pl-3 py-1.5 font-bold ${
+                    resultadoPeriodoIntegral.resultado_efetivado >= 0
+                      ? 'text-[#2563EB]'
+                      : 'text-[#EA580C]'
+                  }`}
+                >
+                  {formatMoneyBRL(resultadoPeriodoIntegral.resultado_efetivado)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 1.4 SUMMARY CARD "SALDOS DISPONÍVEIS" (sem "Minhas contas", faixa compacta e corpo na altura do ícone) */}
       {contas.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs w-full">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-            <div className="flex items-center gap-2">
-              <Wallet className="w-4 h-4 text-emerald-600" />
-              <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-700">
-                Minhas Contas — Saldos Disponíveis
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-3 shadow-xs w-full">
+          {/* Faixa do título com altura reduzida */}
+          <div className="flex items-center justify-between pb-1.5 border-b border-slate-100 mb-2">
+            <div className="flex items-center gap-1.5">
+              <Wallet className="w-3.5 h-3.5 text-emerald-600" />
+              <h2 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                Saldos Disponíveis
               </h2>
             </div>
-            <span className="text-[11px] text-slate-400">
+            <span className="text-[10px] text-slate-400">
               Clique em uma conta para ver o extrato detalhado
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {/* Corpo do card: altura compacta nivelada à altura do ícone */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {contas.map((c) => {
               const isNegativo = (c.saldo_atual || 0) < 0
               return (
@@ -1138,34 +1230,34 @@ export default function LancamentosPage() {
                   key={c.id}
                   type="button"
                   onClick={() => abrirDetalhesConta(c)}
-                  className="p-3.5 rounded-xl border border-slate-200/90 bg-slate-50/60 hover:bg-white hover:border-emerald-300 hover:shadow-xs transition text-left flex items-center justify-between gap-3 group"
+                  className="p-2 px-3 rounded-xl border border-slate-200/90 bg-slate-50/60 hover:bg-white hover:border-emerald-300 hover:shadow-2xs transition text-left flex items-center justify-between gap-2.5 group"
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex items-center gap-2.5 min-w-0">
                     <div
-                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-2xs"
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-white font-bold text-[10px] shrink-0 shadow-2xs"
                       style={{ backgroundColor: c.cor || '#10B981' }}
                     >
-                      <Wallet className="w-4 h-4" />
+                      <Wallet className="w-3.5 h-3.5" />
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-xs sm:text-sm font-bold text-slate-800 truncate group-hover:text-emerald-700 transition">
+                    <div className="min-w-0 leading-tight">
+                      <div className="text-xs font-bold text-slate-800 truncate group-hover:text-emerald-700 transition">
                         {c.nome}
                       </div>
-                      <div className="text-[10px] text-slate-400 uppercase font-medium">
-                        {c.tipo || 'Conta bancária'}
+                      <div className="text-[9px] text-slate-400 uppercase font-medium truncate">
+                        {c.tipo || 'Conta'}
                       </div>
                     </div>
                   </div>
 
-                  <div className="text-right shrink-0">
+                  <div className="text-right shrink-0 leading-tight">
                     <div
-                      className={`text-xs sm:text-sm font-bold ${
+                      className={`text-xs font-bold ${
                         isNegativo ? 'text-rose-600' : 'text-blue-600'
                       }`}
                     >
                       {formatMoneyBRL(c.saldo_atual)}
                     </div>
-                    <span className="text-[9px] text-slate-400 block font-normal">Saldo atual</span>
+                    <span className="text-[8px] text-slate-400 block font-normal">Saldo atual</span>
                   </div>
                 </button>
               )
@@ -1174,10 +1266,32 @@ export default function LancamentosPage() {
         </div>
       )}
 
-      {/* 2.2 BARRA DE FILTROS COMPACTA HORIZONTAL (Origem, Tipo, Categorias, Status e Lupa) */}
-      <div className="bg-neutral-100/80 rounded-2xl p-2 px-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Filtro: Origem (Contas e Cartões) */}
+      {/* 1.5 BOTÕES DE AÇÃO: "+ Novo Lançamento" e "Conciliar" logo abaixo dos saldos */}
+      <div className="flex items-center gap-2">
+        <Button
+          onClick={() => abrirNovoLancamento('despesa')}
+          className="bg-neutral-800 hover:bg-neutral-900 text-white font-medium text-xs sm:text-sm rounded-xl px-4 py-2 h-9 shadow-sm flex items-center gap-1.5"
+        >
+          <Plus className="w-4 h-4" />
+          <span>+ Novo Lançamento</span>
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setModalConciliacaoOpen(true)}
+          className="h-9 text-xs rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50"
+          title="Conciliação Bancária"
+        >
+          <Scale className="w-3.5 h-3.5 mr-1 text-teal-600" />
+          <span>Conciliar</span>
+        </Button>
+      </div>
+
+      {/* 1.6 SUMMARY CARD BUSCA + FILTROS — TODOS NA HORIZONTAL (estilo OrganiZe) */}
+      <div className="bg-neutral-100/90 rounded-2xl p-2 px-3 flex flex-nowrap items-center gap-2 overflow-x-auto">
+        {/* Filtro: Origem (Contas e Cartões) */}
+        <div className="shrink-0">
           <Select
             value={
               filtroConta !== 'todas'
@@ -1199,12 +1313,12 @@ export default function LancamentosPage() {
               }
             }}
           >
-            <SelectTrigger className="h-8 text-xs bg-transparent border-none shadow-none font-medium text-neutral-700 hover:bg-neutral-200/60 rounded-xl px-2.5">
+            <SelectTrigger className="h-8 text-xs bg-white/70 hover:bg-white border-none shadow-none font-medium text-neutral-700 rounded-xl px-2.5 whitespace-nowrap">
               <span>
                 {filtroConta !== 'todas'
-                  ? `Conta: ${contas.find((c) => c.id === filtroConta)?.nome || ''}`
+                  ? `Origem: ${contas.find((c) => c.id === filtroConta)?.nome || ''}`
                   : filtroCartao !== 'todos'
-                    ? `Cartão: ${cartoes.find((c) => c.id === filtroCartao)?.nome || ''}`
+                    ? `Origem: ${cartoes.find((c) => c.id === filtroCartao)?.nome || ''}`
                     : 'Origem'}
               </span>
             </SelectTrigger>
@@ -1232,10 +1346,12 @@ export default function LancamentosPage() {
               ))}
             </SelectContent>
           </Select>
+        </div>
 
-          {/* Filtro: Tipo */}
+        {/* Filtro: Tipo */}
+        <div className="shrink-0">
           <Select value={filtroTipo} onValueChange={setFiltroTipo}>
-            <SelectTrigger className="h-8 text-xs bg-transparent border-none shadow-none font-medium text-neutral-700 hover:bg-neutral-200/60 rounded-xl px-2.5">
+            <SelectTrigger className="h-8 text-xs bg-white/70 hover:bg-white border-none shadow-none font-medium text-neutral-700 rounded-xl px-2.5 whitespace-nowrap">
               <span>
                 {filtroTipo === 'despesa'
                   ? 'Tipo: Despesas'
@@ -1253,10 +1369,12 @@ export default function LancamentosPage() {
               <SelectItem value="transferencia">Transferências</SelectItem>
             </SelectContent>
           </Select>
+        </div>
 
-          {/* Filtro: Categorias */}
+        {/* Filtro: Categorias */}
+        <div className="shrink-0">
           <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
-            <SelectTrigger className="h-8 text-xs bg-transparent border-none shadow-none font-medium text-neutral-700 hover:bg-neutral-200/60 rounded-xl px-2.5">
+            <SelectTrigger className="h-8 text-xs bg-white/70 hover:bg-white border-none shadow-none font-medium text-neutral-700 rounded-xl px-2.5 whitespace-nowrap">
               <span>
                 {filtroCategoria !== 'todas'
                   ? `Cat: ${categorias.find((c) => c.id === filtroCategoria)?.nome || ''}`
@@ -1272,10 +1390,12 @@ export default function LancamentosPage() {
               ))}
             </SelectContent>
           </Select>
+        </div>
 
-          {/* Filtro: Status */}
+        {/* Filtro: Status */}
+        <div className="shrink-0">
           <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-            <SelectTrigger className="h-8 text-xs bg-transparent border-none shadow-none font-medium text-neutral-700 hover:bg-neutral-200/60 rounded-xl px-2.5">
+            <SelectTrigger className="h-8 text-xs bg-white/70 hover:bg-white border-none shadow-none font-medium text-neutral-700 rounded-xl px-2.5 whitespace-nowrap">
               <span>
                 {filtroStatus === 'pago'
                   ? 'Status: Pago'
@@ -1292,17 +1412,17 @@ export default function LancamentosPage() {
           </Select>
         </div>
 
-        {/* Lupa de busca rápida */}
-        <div className="flex items-center">
+        {/* Campo de Busca na mesma linha horizontal */}
+        <div className="shrink-0 ml-auto flex items-center">
           {mostrarBusca ? (
-            <div className="flex items-center gap-1 bg-white rounded-full px-2 py-0.5 border border-slate-200">
-              <Search className="w-3.5 h-3.5 text-slate-400" />
+            <div className="flex items-center gap-1 bg-white rounded-full px-2.5 py-1 border border-slate-200 shadow-2xs">
+              <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <input
                 type="text"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
-                placeholder="Filtrar lançamentos..."
-                className="text-xs bg-transparent border-none focus:outline-none w-36 sm:w-48 text-slate-800"
+                placeholder="Buscar lançamentos..."
+                className="text-xs bg-transparent border-none focus:outline-none w-32 sm:w-44 text-slate-800"
                 autoFocus
               />
               <button
@@ -1311,7 +1431,8 @@ export default function LancamentosPage() {
                   setBusca('')
                   setMostrarBusca(false)
                 }}
-                className="text-slate-400 hover:text-slate-600"
+                className="text-slate-400 hover:text-slate-600 ml-1"
+                title="Fechar busca"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -1320,8 +1441,8 @@ export default function LancamentosPage() {
             <button
               type="button"
               onClick={() => setMostrarBusca(true)}
-              className="p-1.5 rounded-full hover:bg-neutral-200/70 text-neutral-600 transition"
-              title="Buscar por descrição"
+              className="p-1.5 rounded-full bg-white/70 hover:bg-white text-neutral-600 transition shadow-2xs"
+              title="Buscar lançamentos"
             >
               <Search className="w-4 h-4" />
             </button>
@@ -1329,41 +1450,51 @@ export default function LancamentosPage() {
         </div>
       </div>
 
-      {/* Caixa de período customizado quando 'periodo' estiver ativo */}
-      {filtroPeriodoTipo === 'periodo' && (
-        <div className="bg-white rounded-xl p-3 border border-slate-200 flex flex-wrap items-center gap-3 text-xs">
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 font-medium">De:</span>
-            <Input
-              type="date"
-              value={dataInicio}
-              onChange={(e) => setDataInicio(e.target.value)}
-              className="w-36 text-xs h-8"
-            />
+      {/* 1.7 LISTAGEM DE LANÇAMENTOS COM CABEÇALHO E ORDENAÇÃO (Setas pra cima e pra baixo) */}
+      <div className="space-y-4">
+        {/* Cabeçalho da Listagem com controles de ordenação */}
+        <div className="flex items-center justify-between pt-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
+              Lançamentos
+            </span>
+            <span className="text-[11px] text-slate-400">
+              ({lancamentos.length} {lancamentos.length === 1 ? 'registro' : 'registros'})
+            </span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 font-medium">Até:</span>
-            <Input
-              type="date"
-              value={dataFim}
-              onChange={(e) => setDataFim(e.target.value)}
-              className="w-36 text-xs h-8"
-            />
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setFiltroPeriodoTipo('mes')}
-            className="h-8 text-xs text-slate-500 hover:text-slate-800"
-          >
-            <X className="w-3.5 h-3.5 mr-1" />
-            Voltar para mês
-          </Button>
-        </div>
-      )}
 
-      {/* 4. LISTAGEM AGRUPADA POR DATA EM ORDEM CRESCENTE (Visual fiel à referência) */}
-      <div className="space-y-6">
+          {/* Ícones de seta pra cima e pra baixo para alternar a ordenação */}
+          <div className="flex items-center gap-1 bg-slate-100/80 p-0.5 rounded-lg border border-slate-200/60">
+            <button
+              type="button"
+              onClick={() => setOrdemData('asc')}
+              className={`p-1 rounded-md text-xs transition flex items-center gap-1 ${
+                ordemData === 'asc'
+                  ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+              title="Ordenar do mais antigo para o mais recente"
+            >
+              <ArrowUp className="w-3.5 h-3.5" />
+              <span className="text-[10px] hidden sm:inline">Mais antigo</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setOrdemData('desc')}
+              className={`p-1 rounded-md text-xs transition flex items-center gap-1 ${
+                ordemData === 'desc'
+                  ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+              title="Ordenar do mais recente para o mais antigo (padrão)"
+            >
+              <ArrowDown className="w-3.5 h-3.5" />
+              <span className="text-[10px] hidden sm:inline">Mais recente</span>
+            </button>
+          </div>
+        </div>
+
         {loading ? (
           <div className="bg-white rounded-2xl p-12 text-center text-xs text-slate-400 space-y-2 border border-slate-100 shadow-xs">
             <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
@@ -1372,7 +1503,7 @@ export default function LancamentosPage() {
         ) : datasOrdenadas.length === 0 ? (
           <div className="bg-white rounded-2xl p-12 text-center space-y-3 border border-slate-100 shadow-xs">
             <div className="w-14 h-14 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
-              <Calendar className="w-7 h-7" />
+              <CalendarIcon className="w-7 h-7" />
             </div>
             <div className="text-sm font-semibold text-slate-800">
               Nenhum lançamento encontrado para os filtros selecionados
@@ -1384,8 +1515,7 @@ export default function LancamentosPage() {
               onClick={() => abrirNovoLancamento('despesa')}
               className="bg-neutral-800 hover:bg-neutral-900 text-white text-xs mt-2"
             >
-              <Plus className="w-3.5 h-3.5 mr-1" />
-              Novo Lançamento
+              <Plus className="w-3.5 h-3.5 mr-1" />+ Novo Lançamento
             </Button>
           </div>
         ) : (

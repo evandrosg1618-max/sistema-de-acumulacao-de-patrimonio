@@ -1577,6 +1577,14 @@ export type Database = {
         Args: { p_data_inicio: string }
         Returns: string
       }
+      calcular_regime_competencia_integral_rpc: {
+        Args: {
+          p_data_fim: string
+          p_data_inicio: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       converter_regime_lancamento_rpc: {
         Args: {
           p_lancamento_id: string
