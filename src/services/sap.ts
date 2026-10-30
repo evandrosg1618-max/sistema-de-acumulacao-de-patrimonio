@@ -1108,23 +1108,33 @@ export const meioPagamentoService = {
 // BUILD 1: SERVIÇO DE CATEGORIAS E SUBCATEGORIAS
 // ----------------------------------------------------
 export const categoriaService = {
-  async listComSubcategorias(workspaceId: string): Promise<any[]> {
-    const { data: cats, error: errCats } = await db
+  async listComSubcategorias(workspaceId: string, incluirArquivadas = true): Promise<any[]> {
+    let qCats = db
       .from('categorias')
       .select('*')
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
       .order('nome', { ascending: true })
 
+    if (!incluirArquivadas) {
+      qCats = qCats.eq('arquivado', false)
+    }
+
+    const { data: cats, error: errCats } = await qCats
     if (errCats) throw errCats
 
-    const { data: subs, error: errSubs } = await db
+    let qSubs = db
       .from('subcategorias')
       .select('*')
       .eq('workspace_id', workspaceId)
       .is('deleted_at', null)
       .order('nome', { ascending: true })
 
+    if (!incluirArquivadas) {
+      qSubs = qSubs.eq('arquivado', false)
+    }
+
+    const { data: subs, error: errSubs } = await qSubs
     if (errSubs) throw errSubs
 
     const subMap: Record<string, any[]> = {}
@@ -1143,10 +1153,9 @@ export const categoriaService = {
     workspace_id: string
     nome: string
     tipo: 'despesa' | 'receita'
-    natureza?: 'fixa' | 'variavel'
-    classificacao_gerencial?: string
     cor?: string
     icone?: string
+    observacao?: string
     created_by?: string
   }): Promise<any> {
     const { data, error } = await db
@@ -1155,11 +1164,11 @@ export const categoriaService = {
         workspace_id: dados.workspace_id,
         nome: dados.nome.trim(),
         tipo: dados.tipo,
-        natureza: dados.natureza || 'variavel',
-        classificacao_gerencial: dados.classificacao_gerencial || 'Custo de Vida',
-        cor: dados.cor || '#64748B',
+        cor: dados.cor || '#10B981',
         icone: dados.icone || 'tag',
+        observacao: dados.observacao || null,
         ativo: true,
+        arquivado: false,
         created_by: dados.created_by,
       })
       .select()
@@ -1185,11 +1194,11 @@ export const categoriaService = {
     updates: {
       nome?: string
       tipo?: 'despesa' | 'receita'
-      natureza?: 'fixa' | 'variavel'
-      classificacao_gerencial?: string
       cor?: string
       icone?: string
+      observacao?: string
       ativo?: boolean
+      arquivado?: boolean
     },
     userId?: string,
   ): Promise<any> {
@@ -1221,47 +1230,132 @@ export const categoriaService = {
     return data
   },
 
-  async softDeleteCategoria(id: string, workspaceId: string, userId?: string): Promise<void> {
-    const { data: anterior } = await db.from('categorias').select('*').eq('id', id).single()
+  // Nova caixa de diálogo combinada: cria ou atualiza Categoria + Subcategoria atomicamente
+  async salvarCategoriaESubcategoria(dados: {
+    workspace_id: string
+    categoria_id?: string | null
+    subcategoria_id?: string | null
+    nome_categoria: string
+    nome_subcategoria: string
+    tipo: 'despesa' | 'receita'
+    classificacao?: string | null
+    natureza?: string | null
+    regularidade?: string | null
+    origem_economica?: string | null
+    cor?: string
+    icone?: string
+    observacao?: string | null
+    created_by?: string
+  }): Promise<{ categoria: any; subcategoria: any }> {
+    let catObj: any = null
 
-    const { error } = await db
-      .from('categorias')
-      .update({
-        deleted_at: new Date().toISOString(),
-        ativo: false,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .eq('workspace_id', workspaceId)
+    // 1. Categoria: se fornecido ID existente, atualiza; senão cria ou localiza por nome
+    if (dados.categoria_id) {
+      const { data: catAtualizada, error: errCat } = await db
+        .from('categorias')
+        .update({
+          nome: dados.nome_categoria.trim(),
+          cor: dados.cor,
+          icone: dados.icone,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', dados.categoria_id)
+        .eq('workspace_id', dados.workspace_id)
+        .select()
+        .single()
 
-    if (error) throw error
+      if (errCat) throw errCat
+      catObj = catAtualizada
+    } else {
+      // Verificar se já existe categoria com esse nome e tipo
+      const { data: existente } = await db
+        .from('categorias')
+        .select('*')
+        .eq('workspace_id', dados.workspace_id)
+        .eq('nome', dados.nome_categoria.trim())
+        .eq('tipo', dados.tipo)
+        .is('deleted_at', null)
+        .maybeSingle()
 
-    // Soft delete em subcategorias vinculadas
-    await db
-      .from('subcategorias')
-      .update({
-        deleted_at: new Date().toISOString(),
-        ativo: false,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('categoria_id', id)
-      .eq('workspace_id', workspaceId)
+      if (existente) {
+        catObj = existente
+      } else {
+        const { data: novaCat, error: errNova } = await db
+          .from('categorias')
+          .insert({
+            workspace_id: dados.workspace_id,
+            nome: dados.nome_categoria.trim(),
+            tipo: dados.tipo,
+            cor: dados.cor || '#10B981',
+            icone: dados.icone || 'tag',
+            ativo: true,
+            arquivado: false,
+            created_by: dados.created_by,
+          })
+          .select()
+          .single()
 
-    await auditoriaService.registrar({
-      workspace_id: workspaceId,
-      entidade: 'categorias',
-      entidade_id: id,
-      acao: 'delete',
-      estado_anterior: anterior,
-      created_by: userId,
-    })
+        if (errNova) throw errNova
+        catObj = novaCat
+      }
+    }
+
+    // 2. Subcategoria: se fornecido subcategoria_id, atualiza; senão cria
+    let subObj: any = null
+    const payloadSub: any = {
+      workspace_id: dados.workspace_id,
+      categoria_id: catObj.id,
+      nome: dados.nome_subcategoria.trim(),
+      cor: dados.cor,
+      icone: dados.icone,
+      observacao: dados.observacao || null,
+      classificacao: dados.tipo === 'despesa' ? dados.classificacao : null,
+      natureza: dados.tipo === 'despesa' ? dados.natureza : null,
+      regularidade: dados.tipo === 'receita' ? dados.regularidade : null,
+      origem_economica: dados.tipo === 'receita' ? dados.origem_economica : null,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (dados.subcategoria_id) {
+      const { data: subAtualizada, error: errSub } = await db
+        .from('subcategorias')
+        .update(payloadSub)
+        .eq('id', dados.subcategoria_id)
+        .eq('workspace_id', dados.workspace_id)
+        .select()
+        .single()
+
+      if (errSub) throw errSub
+      subObj = subAtualizada
+    } else {
+      payloadSub.ativo = true
+      payloadSub.arquivado = false
+      payloadSub.created_by = dados.created_by
+
+      const { data: novaSub, error: errNovaSub } = await db
+        .from('subcategorias')
+        .insert(payloadSub)
+        .select()
+        .single()
+
+      if (errNovaSub) throw errNovaSub
+      subObj = novaSub
+    }
+
+    return { categoria: catObj, subcategoria: subObj }
   },
 
   async createSubcategoria(dados: {
     workspace_id: string
     categoria_id: string
     nome: string
-    observacao?: string
+    classificacao?: string | null
+    natureza?: string | null
+    regularidade?: string | null
+    origem_economica?: string | null
+    cor?: string
+    icone?: string
+    observacao?: string | null
     created_by?: string
   }): Promise<any> {
     const { data, error } = await db
@@ -1270,8 +1364,15 @@ export const categoriaService = {
         workspace_id: dados.workspace_id,
         categoria_id: dados.categoria_id,
         nome: dados.nome.trim(),
+        classificacao: dados.classificacao || null,
+        natureza: dados.natureza || null,
+        regularidade: dados.regularidade || null,
+        origem_economica: dados.origem_economica || null,
+        cor: dados.cor || null,
+        icone: dados.icone || null,
         observacao: dados.observacao || null,
         ativo: true,
+        arquivado: false,
         created_by: dados.created_by,
       })
       .select()
@@ -1296,8 +1397,15 @@ export const categoriaService = {
     workspaceId: string,
     updates: {
       nome?: string
-      observacao?: string
+      classificacao?: string | null
+      natureza?: string | null
+      regularidade?: string | null
+      origem_economica?: string | null
+      cor?: string | null
+      icone?: string | null
+      observacao?: string | null
       ativo?: boolean
+      arquivado?: boolean
     },
     userId?: string,
   ): Promise<any> {
@@ -1329,29 +1437,83 @@ export const categoriaService = {
     return data
   },
 
-  async softDeleteSubcategoria(id: string, workspaceId: string, userId?: string): Promise<void> {
-    const { data: anterior } = await db.from('subcategorias').select('*').eq('id', id).single()
-
-    const { error } = await db
-      .from('subcategorias')
-      .update({
-        deleted_at: new Date().toISOString(),
-        ativo: false,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .eq('workspace_id', workspaceId)
-
-    if (error) throw error
-
-    await auditoriaService.registrar({
-      workspace_id: workspaceId,
-      entidade: 'subcategorias',
-      entidade_id: id,
-      acao: 'delete',
-      estado_anterior: anterior,
-      created_by: userId,
+  // Verificação e Exclusão Segura de Subcategoria com RPC atômica
+  async verificarPodeExcluirSubcategoria(
+    workspaceId: string,
+    subcategoriaId: string,
+  ): Promise<{
+    sucesso: boolean
+    pode_excluir: boolean
+    mensagem: string
+    motivo?: string
+    total_lancamentos?: number
+  }> {
+    const { data, error } = await db.rpc('verificar_pode_excluir_subcategoria_rpc', {
+      p_workspace_id: workspaceId,
+      p_subcategoria_id: subcategoriaId,
     })
+    if (error) throw error
+    return data
+  },
+
+  async excluirSubcategoria(
+    workspaceId: string,
+    subcategoriaId: string,
+    userId?: string,
+  ): Promise<{ sucesso: boolean; bloqueado?: boolean; mensagem: string }> {
+    const { data, error } = await db.rpc('excluir_subcategoria_rpc', {
+      p_workspace_id: workspaceId,
+      p_subcategoria_id: subcategoriaId,
+      p_user_id: userId || null,
+    })
+    if (error) throw error
+    return data
+  },
+
+  async arquivarSubcategoria(
+    workspaceId: string,
+    subcategoriaId: string,
+    arquivar: boolean,
+    userId?: string,
+  ): Promise<any> {
+    const { data, error } = await db.rpc('arquivar_subcategoria_rpc', {
+      p_workspace_id: workspaceId,
+      p_subcategoria_id: subcategoriaId,
+      p_arquivar: arquivar,
+      p_user_id: userId || null,
+    })
+    if (error) throw error
+    return data
+  },
+
+  async verificarPodeExcluirCategoria(
+    workspaceId: string,
+    categoriaId: string,
+  ): Promise<{ sucesso: boolean; pode_excluir: boolean; mensagem: string; motivo?: string }> {
+    const { data, error } = await db.rpc('verificar_pode_excluir_categoria_rpc', {
+      p_workspace_id: workspaceId,
+      p_categoria_id: categoriaId,
+    })
+    if (error) throw error
+    return data
+  },
+
+  async arquivarCategoria(
+    workspaceId: string,
+    categoriaId: string,
+    arquivar: boolean,
+    arquivarSubcategorias = true,
+    userId?: string,
+  ): Promise<any> {
+    const { data, error } = await db.rpc('arquivar_categoria_rpc', {
+      p_workspace_id: workspaceId,
+      p_categoria_id: categoriaId,
+      p_arquivar: arquivar,
+      p_arquivar_subcategorias: arquivarSubcategorias,
+      p_user_id: userId || null,
+    })
+    if (error) throw error
+    return data
   },
 
   async semearCategoriasPadrao(workspaceId: string, userId: string): Promise<number> {

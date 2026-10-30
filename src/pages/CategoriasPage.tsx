@@ -1,95 +1,62 @@
 import React, { useEffect, useState } from 'react'
 import { useAuth } from '@/hooks/use-auth'
 import { categoriaService } from '@/services/sap'
+import { Categoria, Subcategoria, CategoriaTipo } from '@/types/sap'
 import {
-  Categoria,
-  Subcategoria,
-  CategoriaTipo,
-  NaturezaCategoria,
-  ClassificacaoGerencial,
-} from '@/types/sap'
-import {
-  Tag,
   Plus,
   Edit2,
   Trash2,
-  ChevronDown,
-  ChevronRight,
   FolderTree,
-  Sparkles,
-  Layers,
   ArrowDownLeft,
   ArrowUpRight,
-  Check,
+  Archive,
+  ArchiveRestore,
+  AlertTriangle,
+  HelpCircle,
+  Tag,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { toast } from 'sonner'
-
-const CLASSIFICACOES_GERENCIAIS: ClassificacaoGerencial[] = [
-  'Receitas Fixas',
-  'Receitas Variáveis',
-  'Custo de Vida',
-  'Despesas Variáveis',
-  'Dívidas',
-  'Liberdade',
-  'Acumulação de Patrimônio',
-]
-
-const PALETA_CORES = [
-  '#10B981', // Verde
-  '#3B82F6', // Azul
-  '#8B5CF6', // Roxo
-  '#EC4899', // Rosa
-  '#F59E0B', // Âmbar
-  '#06B6D4', // Ciano
-  '#E11D48', // Vermelho
-  '#64748B', // Slate
-]
+import { ModalCategoriaSubcategoria } from '@/components/ModalCategoriaSubcategoria'
+import { ModalAjudaConceitos } from '@/components/ModalAjudaConceitos'
+import { renderIconePorId } from '@/components/SeletorVisualIconeCor'
 
 export default function CategoriasPage() {
   const { currentWorkspace, user } = useAuth()
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [loading, setLoading] = useState(true)
-  const [semeando, setSemeando] = useState(false)
-  const [filtroTipo, setFiltroTipo] = useState<'todas' | 'despesa' | 'receita'>('todas')
+  const [filtroTipo, setFiltroTipo] = useState<'todas' | 'despesa' | 'receita' | 'arquivadas'>(
+    'todas',
+  )
 
-  // Modais
-  const [modalCatOpen, setModalCatOpen] = useState(false)
+  // Modais de Criação / Edição
+  const [modalFormOpen, setModalFormOpen] = useState(false)
   const [editingCat, setEditingCat] = useState<Categoria | null>(null)
-  const [modalSubOpen, setModalSubOpen] = useState(false)
   const [editingSub, setEditingSub] = useState<Subcategoria | null>(null)
-  const [parentCatId, setParentCatId] = useState<string>('')
-  const [saving, setSaving] = useState(false)
+  const [parentCatFixa, setParentCatFixa] = useState<Categoria | null>(null)
+  const [tipoInicialModal, setTipoInicialModal] = useState<CategoriaTipo>('despesa')
 
-  // Form Categoria
-  const [nomeCat, setNomeCat] = useState('')
-  const [tipoCat, setTipoCat] = useState<CategoriaTipo>('despesa')
-  const [naturezaCat, setNaturezaCat] = useState<NaturezaCategoria>('variavel')
-  const [classificacaoCat, setClassificacaoCat] = useState<ClassificacaoGerencial>('Custo de Vida')
-  const [corCat, setCorCat] = useState('#10B981')
+  // Modal Explicativo de Conceitos
+  const [modalAjudaOpen, setModalAjudaOpen] = useState(false)
 
-  // Form Subcategoria
-  const [nomeSub, setNomeSub] = useState('')
-  const [obsSub, setObsSub] = useState('')
+  // Diálogo de Exclusão / Bloqueio Referencial com oferta de Arquivar
+  const [dialogBloqueioOpen, setDialogBloqueioOpen] = useState(false)
+  const [subParaExcluir, setSubParaExcluir] = useState<Subcategoria | null>(null)
+  const [catParaExcluir, setCatParaExcluir] = useState<Categoria | null>(null)
+  const [mensagemBloqueio, setMensagemBloqueio] = useState<string>('')
+  const [isBloqueadoComLancamentos, setIsBloqueadoComLancamentos] = useState<boolean>(false)
 
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
@@ -98,7 +65,8 @@ export default function CategoriasPage() {
     if (!wsId) return
     setLoading(true)
     try {
-      const data = await categoriaService.listComSubcategorias(wsId)
+      // Carrega com subcategorias, incluindo arquivadas para alimentar a aba Arquivadas
+      const data = await categoriaService.listComSubcategorias(wsId, true)
       setCategorias(data)
     } catch (err: any) {
       toast.error('Erro ao carregar categorias: ' + (err.message || 'tente novamente'))
@@ -111,203 +79,220 @@ export default function CategoriasPage() {
     carregarCategorias()
   }, [wsId])
 
-  const semearPadrao = async () => {
-    if (!wsId || !user) return
-    setSemeando(true)
-    try {
-      const total = await categoriaService.semearCategoriasPadrao(wsId, user.id)
-      toast.success(`${total} categorias recomendadas do PRD SAP criadas com sucesso!`)
-      await carregarCategorias()
-    } catch (err: any) {
-      toast.error('Erro ao semear categorias: ' + (err.message || 'tente novamente'))
-    } finally {
-      setSemeando(false)
-    }
-  }
-
-  // Abertura de Modais
+  // Aberturas de Diálogo de Cadastro / Edição
   const abrirNovaCategoria = () => {
     setEditingCat(null)
-    setNomeCat('')
-    setTipoCat('despesa')
-    setNaturezaCat('variavel')
-    setClassificacaoCat('Custo de Vida')
-    setCorCat('#10B981')
-    setModalCatOpen(true)
-  }
-
-  const abrirEdicaoCategoria = (c: Categoria) => {
-    setEditingCat(c)
-    setNomeCat(c.nome)
-    setTipoCat(c.tipo)
-    setNaturezaCat(c.natureza)
-    setClassificacaoCat(c.classificacao_gerencial)
-    setCorCat(c.cor || '#10B981')
-    setModalCatOpen(true)
-  }
-
-  const abrirNovaSubcategoria = (catId: string) => {
     setEditingSub(null)
-    setParentCatId(catId)
-    setNomeSub('')
-    setObsSub('')
-    setModalSubOpen(true)
+    setParentCatFixa(null)
+    setTipoInicialModal('despesa')
+    setModalFormOpen(true)
   }
 
-  const abrirEdicaoSubcategoria = (sub: Subcategoria) => {
+  const abrirNovaSubcategoria = (cat: Categoria) => {
+    setEditingCat(null)
+    setEditingSub(null)
+    setParentCatFixa(cat)
+    setTipoInicialModal(cat.tipo)
+    setModalFormOpen(true)
+  }
+
+  const abrirEdicaoCategoria = (cat: Categoria) => {
+    setEditingCat(cat)
+    setEditingSub(null)
+    setParentCatFixa(null)
+    setTipoInicialModal(cat.tipo)
+    setModalFormOpen(true)
+  }
+
+  const abrirEdicaoSubcategoria = (sub: Subcategoria, catPai: Categoria) => {
+    setEditingCat(null)
     setEditingSub(sub)
-    setParentCatId(sub.categoria_id)
-    setNomeSub(sub.nome)
-    setObsSub(sub.observacao || '')
-    setModalSubOpen(true)
+    setParentCatFixa(catPai)
+    setTipoInicialModal(catPai.tipo)
+    setModalFormOpen(true)
   }
 
-  // Handlers de Salvar
-  const handleSalvarCategoria = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-
-    const formElement = e.currentTarget
-    const formData = new FormData(formElement)
-    const formNome = (formData.get('nome') as string)?.trim() || nomeCat.trim()
-
-    if (!formNome) {
-      toast.error('Informe o nome da categoria')
-      return
-    }
-
-    if (!wsId) {
-      toast.error('Selecione um espaço familiar para continuar. Atualize a página.')
-      return
-    }
-
-    setSaving(true)
-    try {
-      if (editingCat) {
-        await categoriaService.updateCategoria(
-          editingCat.id,
-          wsId,
-          {
-            nome: formNome,
-            tipo: tipoCat,
-            natureza: naturezaCat,
-            classificacao_gerencial: classificacaoCat,
-            cor: corCat,
-          },
-          user?.id,
-        )
-        toast.success(`Categoria "${formNome}" atualizada!`)
-      } else {
-        await categoriaService.createCategoria({
-          workspace_id: wsId,
-          nome: formNome,
-          tipo: tipoCat,
-          natureza: naturezaCat,
-          classificacao_gerencial: classificacaoCat,
-          cor: corCat,
-          created_by: user?.id,
-        })
-        toast.success(`Categoria "${formNome}" criada!`)
-      }
-
-      setModalCatOpen(false)
-      await carregarCategorias()
-    } catch (err: any) {
-      toast.error('Erro ao salvar categoria: ' + (err.message || 'verifique os dados'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleSalvarSubcategoria = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-
-    const formElement = e.currentTarget
-    const formData = new FormData(formElement)
-    const formNomeSub = (formData.get('nome') as string)?.trim() || nomeSub.trim()
-    const formObsSub = (formData.get('observacao') as string)?.trim() ?? obsSub.trim()
-
-    if (!formNomeSub) {
-      toast.error('Informe o nome da subcategoria')
-      return
-    }
-
-    if (!parentCatId) {
-      toast.error('Categoria pai não identificada. Tente novamente.')
-      return
-    }
-
-    if (!wsId) {
-      toast.error('Selecione um espaço familiar para continuar. Atualize a página.')
-      return
-    }
-
-    setSaving(true)
-    try {
-      if (editingSub) {
-        await categoriaService.updateSubcategoria(
-          editingSub.id,
-          wsId,
-          {
-            nome: formNomeSub,
-            observacao: formObsSub || undefined,
-          },
-          user?.id,
-        )
-        toast.success(`Subcategoria "${formNomeSub}" atualizada!`)
-      } else {
-        await categoriaService.createSubcategoria({
-          workspace_id: wsId,
-          categoria_id: parentCatId,
-          nome: formNomeSub,
-          observacao: formObsSub || undefined,
-          created_by: user?.id,
-        })
-        toast.success(`Subcategoria "${formNomeSub}" criada!`)
-      }
-
-      setModalSubOpen(false)
-      await carregarCategorias()
-    } catch (err: any) {
-      toast.error('Erro ao salvar subcategoria: ' + (err.message || 'verifique os dados'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleExcluirCategoria = async (c: Categoria) => {
+  // Handler de Salvar Categoria / Subcategoria
+  const handleSalvar = async (dados: any) => {
     if (!wsId) return
-    const ok = window.confirm(
-      `Deseja realmente desativar a categoria "${c.nome}" e todas as suas subcategorias?`,
-    )
-    if (!ok) return
+    await categoriaService.salvarCategoriaESubcategoria({
+      workspace_id: wsId,
+      categoria_id: dados.categoria_id,
+      subcategoria_id: dados.subcategoria_id,
+      nome_categoria: dados.nome_categoria,
+      nome_subcategoria: dados.nome_subcategoria,
+      tipo: dados.tipo,
+      classificacao: dados.classificacao,
+      natureza: dados.natureza,
+      regularidade: dados.regularidade,
+      origem_economica: dados.origem_economica,
+      cor: dados.cor,
+      icone: dados.icone,
+      observacao: dados.observacao,
+      created_by: user?.id,
+    })
 
-    try {
-      await categoriaService.softDeleteCategoria(c.id, wsId, user?.id)
-      toast.success(`Categoria "${c.nome}" desativada.`)
-      await carregarCategorias()
-    } catch (err: any) {
-      toast.error('Erro ao desativar: ' + (err.message || 'tente novamente'))
-    }
+    toast.success('Registro gravado com sucesso!')
+    await carregarCategorias()
   }
 
-  const handleExcluirSubcategoria = async (s: Subcategoria) => {
+  // AÇÕES EM SUBCATEGORIAS
+  const handleTentarExcluirSubcategoria = async (sub: Subcategoria) => {
     if (!wsId) return
-    const ok = window.confirm(`Deseja desativar a subcategoria "${s.nome}"?`)
-    if (!ok) return
-
     try {
-      await categoriaService.softDeleteSubcategoria(s.id, wsId, user?.id)
-      toast.success(`Subcategoria "${s.nome}" desativada.`)
-      await carregarCategorias()
+      const verif = await categoriaService.verificarPodeExcluirSubcategoria(wsId, sub.id)
+      setSubParaExcluir(sub)
+      setCatParaExcluir(null)
+
+      if (!verif.pode_excluir) {
+        setIsBloqueadoComLancamentos(true)
+        setMensagemBloqueio(
+          verif.mensagem ||
+            'Existem lançamentos registrados nesta subcategoria. Não é permitida a exclusão.',
+        )
+      } else {
+        setIsBloqueadoComLancamentos(false)
+        setMensagemBloqueio(
+          `A subcategoria "${sub.nome}" não possui lançamentos históricos. Confirma a exclusão definitiva?`,
+        )
+      }
+      setDialogBloqueioOpen(true)
     } catch (err: any) {
-      toast.error('Erro ao desativar: ' + (err.message || 'tente novamente'))
+      toast.error('Erro ao verificar histórico: ' + (err.message || 'tente novamente'))
     }
   }
 
-  const categoriasFiltradas = categorias.filter((c) => {
-    if (filtroTipo === 'todas') return true
-    return c.tipo === filtroTipo
-  })
+  const handleConfirmarExclusaoDefinitivaSub = async () => {
+    if (!wsId || !subParaExcluir) return
+    try {
+      const res = await categoriaService.excluirSubcategoria(wsId, subParaExcluir.id, user?.id)
+      if (res.bloqueado) {
+        toast.error(res.mensagem)
+      } else {
+        toast.success(`Subcategoria "${subParaExcluir.nome}" excluída definitivamente!`)
+        await carregarCategorias()
+      }
+    } catch (err: any) {
+      toast.error('Erro ao excluir subcategoria: ' + (err.message || 'tente novamente'))
+    } finally {
+      setDialogBloqueioOpen(false)
+      setSubParaExcluir(null)
+    }
+  }
+
+  const handleArquivarSub = async (sub: Subcategoria, arquivar: boolean) => {
+    if (!wsId) return
+    try {
+      await categoriaService.arquivarSubcategoria(wsId, sub.id, arquivar, user?.id)
+      toast.success(
+        arquivar
+          ? `Subcategoria "${sub.nome}" arquivada com sucesso. Histórico preservado.`
+          : `Subcategoria "${sub.nome}" reativada com sucesso!`,
+      )
+      setDialogBloqueioOpen(false)
+      setSubParaExcluir(null)
+      await carregarCategorias()
+    } catch (err: any) {
+      toast.error('Erro ao alterar status de arquivamento: ' + (err.message || 'tente novamente'))
+    }
+  }
+
+  // AÇÕES EM CATEGORIAS PRINCIPAIS
+  const handleTentarExcluirCategoria = async (cat: Categoria) => {
+    if (!wsId) return
+    try {
+      const verif = await categoriaService.verificarPodeExcluirCategoria(wsId, cat.id)
+      setCatParaExcluir(cat)
+      setSubParaExcluir(null)
+
+      if (!verif.pode_excluir) {
+        setIsBloqueadoComLancamentos(true)
+        setMensagemBloqueio(
+          verif.mensagem ||
+            'Não é permitida a exclusão de categoria com subcategorias ou lançamentos vinculados.',
+        )
+      } else {
+        setIsBloqueadoComLancamentos(false)
+        setMensagemBloqueio(
+          `A categoria "${cat.nome}" não possui subcategorias nem lançamentos. Confirma a exclusão definitiva?`,
+        )
+      }
+      setDialogBloqueioOpen(true)
+    } catch (err: any) {
+      toast.error('Erro ao verificar histórico: ' + (err.message || 'tente novamente'))
+    }
+  }
+
+  const handleConfirmarExclusaoDefinitivaCat = async () => {
+    if (!wsId || !catParaExcluir) return
+    try {
+      // Soft/hard delete via categoriaService
+      await categoriaService.updateCategoria(catParaExcluir.id, wsId, { ativo: false }, user?.id)
+      toast.success(`Categoria "${catParaExcluir.nome}" excluída!`)
+      await carregarCategorias()
+    } catch (err: any) {
+      toast.error('Erro ao excluir categoria: ' + (err.message || 'tente novamente'))
+    } finally {
+      setDialogBloqueioOpen(false)
+      setCatParaExcluir(null)
+    }
+  }
+
+  const handleArquivarCategoria = async (cat: Categoria, arquivar: boolean) => {
+    if (!wsId) return
+    try {
+      await categoriaService.arquivarCategoria(wsId, cat.id, arquivar, true, user?.id)
+      toast.success(
+        arquivar
+          ? `Categoria "${cat.nome}" e suas subcategorias foram arquivadas.`
+          : `Categoria "${cat.nome}" reativada com sucesso!`,
+      )
+      setDialogBloqueioOpen(false)
+      setCatParaExcluir(null)
+      await carregarCategorias()
+    } catch (err: any) {
+      toast.error('Erro ao arquivar/reativar: ' + (err.message || 'tente novamente'))
+    }
+  }
+
+  // CÁLCULO DE LISTAS CONFORME FILTRO (TODAS, DESPESAS, RECEITAS, ARQUIVADAS)
+  const totalArquivadasCount = categorias.reduce((acc, cat) => {
+    const subsArq = (cat.subcategorias || []).filter((s) => s.arquivado).length
+    return acc + subsArq + (cat.arquivado ? 1 : 0)
+  }, 0)
+
+  // Filtragem das categorias exibidas
+  const categoriasFiltradas = categorias
+    .filter((cat) => {
+      if (filtroTipo === 'arquivadas') {
+        // Exibe categorias arquivadas OU que possuem subcategorias arquivadas
+        return cat.arquivado || (cat.subcategorias || []).some((s) => s.arquivado)
+      }
+      if (filtroTipo === 'todas') {
+        return !cat.arquivado
+      }
+      if (filtroTipo === 'despesa') {
+        return !cat.arquivado && cat.tipo === 'despesa'
+      }
+      if (filtroTipo === 'receita') {
+        return !cat.arquivado && cat.tipo === 'receita'
+      }
+      return true
+    })
+    .map((cat) => {
+      if (filtroTipo === 'arquivadas') {
+        return {
+          ...cat,
+          // Se a categoria está arquivada, mostra todas ou as arquivadas
+          subcategorias: (cat.subcategorias || []).filter((s) => s.arquivado || cat.arquivado),
+        }
+      }
+      return {
+        ...cat,
+        // No fluxo normal ativo, mostra apenas subcategorias NÃO arquivadas
+        subcategorias: (cat.subcategorias || []).filter((s) => !s.arquivado),
+      }
+    })
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-6">
@@ -320,62 +305,63 @@ export default function CategoriasPage() {
             </h1>
             <Badge
               variant="outline"
-              className="text-emerald-700 bg-emerald-50 border-emerald-200 text-xs"
+              className="text-emerald-700 bg-emerald-50 border-emerald-200 text-xs font-semibold"
             >
-              Build 1
+              Taxonomia Analítica
             </Badge>
           </div>
           <p className="text-xs md:text-sm text-slate-500 mt-1">
-            Estruture suas despesas e receitas por natureza (fixa/variável) e classificação
-            gerencial do PRD.
+            Classificação analítica por subcategoria: padrões de vida (Essencial / Ajustável /
+            Discricionária / Supérflua), naturezas (Consumo / Patrimonial) e fontes de receita
+            (Trabalho / Capital).
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {categorias.length === 0 && (
-            <Button
-              onClick={semearPadrao}
-              disabled={semeando}
-              variant="outline"
-              className="text-xs border-emerald-300 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 flex items-center gap-1.5"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-              {semeando ? 'Gerando...' : 'Carregar Categorias do PRD'}
-            </Button>
-          )}
+          <Button
+            onClick={() => setModalAjudaOpen(true)}
+            variant="outline"
+            className="text-xs border-slate-300 text-slate-700 bg-white hover:bg-slate-50 flex items-center gap-1.5"
+          >
+            <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
+            <span>ⓘ Entenda as classificações</span>
+          </Button>
 
           <Button
             onClick={abrirNovaCategoria}
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs sm:text-sm flex items-center gap-2 shadow-sm"
           >
-            <Plus className="w-4 h-4" />
-            Nova Categoria
+            <Plus className="w-4 h-4" />+ Nova Categoria
           </Button>
         </div>
       </div>
 
-      {/* Filtros rápidos */}
-      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
+      {/* Cards/Filtros Rápidos: Todas, Despesas, Receitas, Arquivadas */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
         <Button
           variant={filtroTipo === 'todas' ? 'default' : 'ghost'}
           size="sm"
           onClick={() => setFiltroTipo('todas')}
           className={
-            filtroTipo === 'todas' ? 'bg-slate-900 text-white text-xs' : 'text-xs text-slate-600'
+            filtroTipo === 'todas'
+              ? 'bg-slate-900 text-white text-xs'
+              : 'text-xs text-slate-600 hover:text-slate-900'
           }
         >
-          Todas ({categorias.length})
+          Todas ({categorias.filter((c) => !c.arquivado).length})
         </Button>
         <Button
           variant={filtroTipo === 'despesa' ? 'default' : 'ghost'}
           size="sm"
           onClick={() => setFiltroTipo('despesa')}
           className={
-            filtroTipo === 'despesa' ? 'bg-rose-600 text-white text-xs' : 'text-xs text-slate-600'
+            filtroTipo === 'despesa'
+              ? 'bg-rose-600 text-white text-xs'
+              : 'text-xs text-slate-600 hover:text-rose-600'
           }
         >
           <ArrowUpRight className="w-3 h-3 mr-1" />
-          Despesas ({categorias.filter((c) => c.tipo === 'despesa').length})
+          Despesas ({categorias.filter((c) => !c.arquivado && c.tipo === 'despesa').length})
         </Button>
         <Button
           variant={filtroTipo === 'receita' ? 'default' : 'ghost'}
@@ -384,140 +370,270 @@ export default function CategoriasPage() {
           className={
             filtroTipo === 'receita'
               ? 'bg-emerald-600 text-white text-xs'
-              : 'text-xs text-slate-600'
+              : 'text-xs text-slate-600 hover:text-emerald-600'
           }
         >
           <ArrowDownLeft className="w-3 h-3 mr-1" />
-          Receitas ({categorias.filter((c) => c.tipo === 'receita').length})
+          Receitas ({categorias.filter((c) => !c.arquivado && c.tipo === 'receita').length})
+        </Button>
+        <Button
+          variant={filtroTipo === 'arquivadas' ? 'default' : 'ghost'}
+          size="sm"
+          onClick={() => setFiltroTipo('arquivadas')}
+          className={
+            filtroTipo === 'arquivadas'
+              ? 'bg-amber-600 text-white text-xs'
+              : 'text-xs text-slate-600 hover:text-amber-700'
+          }
+        >
+          <Archive className="w-3 h-3 mr-1" />
+          Arquivadas ({totalArquivadasCount})
         </Button>
       </div>
 
-      {/* Lista de Categorias com Subcategorias Aninhadas */}
+      {/* Lista de Categorias e Subcategorias com Badges Discretos */}
       <div className="space-y-4">
         {loading ? (
-          <div className="p-12 text-center text-slate-400 text-sm">Carregando categorias...</div>
+          <div className="p-12 text-center text-slate-400 text-sm">
+            Carregando taxonomia analítica...
+          </div>
         ) : categoriasFiltradas.length === 0 ? (
           <Card className="border-slate-200 p-12 text-center bg-white space-y-3">
             <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
               <FolderTree className="w-6 h-6" />
             </div>
-            <h3 className="text-sm font-semibold text-slate-800">Nenhuma categoria encontrada</h3>
+            <h3 className="text-sm font-semibold text-slate-800">
+              {filtroTipo === 'arquivadas'
+                ? 'Nenhum registro arquivado'
+                : 'Nenhuma categoria encontrada'}
+            </h3>
             <p className="text-xs text-slate-500 max-w-md mx-auto">
-              Você pode iniciar rapidamente carregando as categorias financeiras recomendadas pelo
-              PRD SAP (Alimentação, Moradia, Transporte, etc.) ou criar as suas manualmente.
+              {filtroTipo === 'arquivadas'
+                ? 'Subcategorias e categorias arquivadas aparecem aqui com a opção de desarquivamento.'
+                : 'Crie suas categorias e subcategorias pelo botão acima para estruturar suas finanças.'}
             </p>
-            <Button
-              onClick={semearPadrao}
-              disabled={semeando}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs"
-            >
-              <Sparkles className="w-3.5 h-3.5 mr-1" />
-              Carregar Categorias Padrão do PRD
-            </Button>
           </Card>
         ) : (
           categoriasFiltradas.map((cat) => (
             <Card key={cat.id} className="border-slate-200 shadow-sm bg-white overflow-hidden">
-              <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50 border-b border-slate-100">
+              {/* Cabeçalho da Categoria */}
+              <div className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/70 border-b border-slate-100">
                 <div className="flex items-center gap-3">
+                  {/* Círculo do Ícone no padrão visual do SAP */}
                   <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 shadow-xs font-bold text-xs"
+                    className="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 shadow-xs"
                     style={{ backgroundColor: cat.cor || '#10B981' }}
                   >
-                    <Tag className="w-4 h-4" />
+                    {renderIconePorId(cat.icone, 'w-4 h-4 stroke-[2]')}
                   </div>
+
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-slate-900 text-sm md:text-base">
-                        {cat.nome}
-                      </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {/* Distinção visual Despesa (vermelho) / Receita (verde) na frente do nome da categoria */}
                       <Badge
                         variant="secondary"
                         className={
                           cat.tipo === 'despesa'
-                            ? 'bg-rose-50 text-rose-700 text-[10px]'
-                            : 'bg-emerald-50 text-emerald-700 text-[10px]'
+                            ? 'bg-rose-100 text-rose-700 hover:bg-rose-100 text-[11px] font-bold border-rose-200'
+                            : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 text-[11px] font-bold border-emerald-200'
                         }
                       >
                         {cat.tipo === 'despesa' ? 'Despesa' : 'Receita'}
                       </Badge>
-                      <span className="text-[10px] text-slate-500 bg-white border border-slate-200 px-2 py-0.5 rounded font-medium">
-                        {cat.natureza === 'fixa' ? 'Fixa' : 'Variável'}
+
+                      <span className="font-bold text-slate-900 text-sm md:text-base">
+                        {cat.nome}
                       </span>
+
+                      {cat.arquivado && (
+                        <Badge
+                          variant="outline"
+                          className="bg-amber-50 text-amber-800 border-amber-300 text-[10px]"
+                        >
+                          Categoria Arquivada
+                        </Badge>
+                      )}
                     </div>
+
                     <div className="text-xs text-slate-500 mt-0.5">
-                      Classificação PRD: <strong>{cat.classificacao_gerencial}</strong> •{' '}
-                      {cat.subcategorias?.length || 0} subcategorias
+                      {cat.subcategorias?.length || 0}{' '}
+                      {cat.subcategorias?.length === 1 ? 'subcategoria' : 'subcategorias'}
+                      {cat.observacao && <span> • {cat.observacao}</span>}
                     </div>
                   </div>
                 </div>
 
+                {/* Ações da Categoria */}
                 <div className="flex items-center gap-1 self-end sm:self-center">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => abrirNovaSubcategoria(cat.id)}
-                    className="text-xs text-emerald-700 border-emerald-200 bg-white hover:bg-emerald-50 flex items-center gap-1 h-7"
-                  >
-                    <Plus className="w-3 h-3" />
-                    Subcategoria
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => abrirEdicaoCategoria(cat)}
-                    className="h-7 w-7 text-slate-500 hover:text-slate-900"
-                  >
-                    <Edit2 className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleExcluirCategoria(cat)}
-                    className="h-7 w-7 text-slate-400 hover:text-rose-600"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
+                  {!cat.arquivado && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => abrirNovaSubcategoria(cat)}
+                      className="text-xs text-emerald-700 border-emerald-200 bg-white hover:bg-emerald-50 flex items-center gap-1 h-7 font-medium"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Subcategoria
+                    </Button>
+                  )}
+
+                  {cat.arquivado ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleArquivarCategoria(cat, false)}
+                      className="text-xs text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 flex items-center gap-1 h-7"
+                    >
+                      <ArchiveRestore className="w-3 h-3" />
+                      Desarquivar Categoria
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Editar Categoria"
+                        onClick={() => abrirEdicaoCategoria(cat)}
+                        className="h-7 w-7 text-slate-500 hover:text-slate-900"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Arquivar Categoria"
+                        onClick={() => handleArquivarCategoria(cat, true)}
+                        className="h-7 w-7 text-slate-400 hover:text-amber-700"
+                      >
+                        <Archive className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Excluir Categoria"
+                        onClick={() => handleTentarExcluirCategoria(cat)}
+                        className="h-7 w-7 text-slate-400 hover:text-rose-600"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {/* Subcategorias */}
+              {/* Subcategorias aninhadas */}
               <div className="divide-y divide-slate-100">
                 {cat.subcategorias && cat.subcategorias.length > 0 ? (
                   cat.subcategorias.map((sub) => (
                     <div
                       key={sub.id}
-                      className="py-2.5 px-6 flex items-center justify-between hover:bg-slate-50/70 transition"
+                      className="py-2.5 px-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/70 transition"
                     >
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-                        <span className="text-xs md:text-sm font-medium text-slate-700">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        {/* Ícone da subcategoria */}
+                        <div
+                          className="w-6 h-6 rounded-full flex items-center justify-center text-white shrink-0 text-xs shadow-xs"
+                          style={{ backgroundColor: sub.cor || cat.cor || '#10B981' }}
+                        >
+                          {renderIconePorId(sub.icone || cat.icone, 'w-3 h-3 stroke-[2]')}
+                        </div>
+
+                        <span className="text-xs md:text-sm font-semibold text-slate-800">
                           {sub.nome}
                         </span>
+
+                        {/* BADGES DISCRETOS:
+                            Despesa: Classificação · Natureza
+                            Receita: Regularidade · Origem Econômica */}
+                        {cat.tipo === 'despesa' ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[11px] font-medium text-slate-600 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md flex items-center gap-1">
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  sub.classificacao === 'Essencial'
+                                    ? 'bg-emerald-500'
+                                    : sub.classificacao === 'Ajustável'
+                                      ? 'bg-blue-500'
+                                      : sub.classificacao === 'Discricionária'
+                                        ? 'bg-amber-500'
+                                        : 'bg-rose-500'
+                                }`}
+                              />
+                              <strong>{sub.classificacao || 'Essencial'}</strong>
+                              <span className="text-slate-400">·</span>
+                              <span>{sub.natureza || 'Consumo'}</span>
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[11px] font-medium text-slate-600 bg-emerald-50/80 border border-emerald-200/60 px-2 py-0.5 rounded-md flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                              <strong>{sub.regularidade || 'Recorrente mensal'}</strong>
+                              <span className="text-slate-400">·</span>
+                              <span>{sub.origem_economica || 'Trabalho'}</span>
+                            </span>
+                          </div>
+                        )}
+
                         {sub.observacao && (
                           <span className="text-[11px] text-slate-400 italic">
                             ({sub.observacao})
                           </span>
                         )}
+
+                        {sub.arquivado && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-amber-50 text-amber-800 border-amber-300"
+                          >
+                            Arquivada
+                          </Badge>
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => abrirEdicaoSubcategoria(sub)}
-                          className="h-6 w-6 text-slate-400 hover:text-slate-800"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleExcluirSubcategoria(sub)}
-                          className="h-6 w-6 text-slate-300 hover:text-rose-600"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </Button>
+                      {/* Ações da Subcategoria */}
+                      <div className="flex items-center gap-1 self-end sm:self-center">
+                        {sub.arquivado ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleArquivarSub(sub, false)}
+                            className="text-xs text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 flex items-center gap-1 h-6 px-2"
+                          >
+                            <ArchiveRestore className="w-3 h-3" />
+                            <span>Desarquivar</span>
+                          </Button>
+                        ) : (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Editar Subcategoria"
+                              onClick={() => abrirEdicaoSubcategoria(sub, cat)}
+                              className="h-6 w-6 text-slate-400 hover:text-slate-900"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Arquivar Subcategoria"
+                              onClick={() => handleArquivarSub(sub, true)}
+                              className="h-6 w-6 text-slate-400 hover:text-amber-700"
+                            >
+                              <Archive className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Excluir Subcategoria"
+                              onClick={() => handleTentarExcluirSubcategoria(sub)}
+                              className="h-6 w-6 text-slate-300 hover:text-rose-600"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </>
+                        )}
                       </div>
                     </div>
                   ))
@@ -532,182 +648,81 @@ export default function CategoriasPage() {
         )}
       </div>
 
-      {/* Modal Categoria */}
-      <Dialog open={modalCatOpen} onOpenChange={setModalCatOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <form onSubmit={handleSalvarCategoria}>
-            <DialogHeader>
-              <DialogTitle>{editingCat ? 'Editar Categoria' : 'Nova Categoria'}</DialogTitle>
-              <DialogDescription>
-                Categorias agrupam seus lançamentos por finalidade financeira e gerencial.
-              </DialogDescription>
-            </DialogHeader>
+      {/* Caixa de diálogo de Categoria / Subcategoria */}
+      <ModalCategoriaSubcategoria
+        open={modalFormOpen}
+        onOpenChange={setModalFormOpen}
+        workspaceId={wsId || ''}
+        userId={user?.id}
+        categoriaParaEdicao={editingCat}
+        subcategoriaParaEdicao={editingSub}
+        categoriaPaiFixa={parentCatFixa}
+        tipoInicial={tipoInicialModal}
+        categoriasExistentes={categorias}
+        onSalvar={handleSalvar}
+      />
 
-            <div className="py-4 space-y-4">
-              <div>
-                <Label htmlFor="nome-cat" className="text-xs font-semibold text-slate-700">
-                  Nome da Categoria *
-                </Label>
-                <Input
-                  id="nome-cat"
-                  name="nome"
-                  placeholder="Ex: Alimentação, Moradia, Transporte, Lazer"
-                  value={nomeCat}
-                  onChange={(e) => setNomeCat(e.target.value)}
-                  className="mt-1"
-                  autoFocus
-                  required
-                />
+      {/* Modal explicativo centralizado de conceitos */}
+      <ModalAjudaConceitos open={modalAjudaOpen} onOpenChange={setModalAjudaOpen} />
+
+      {/* Diálogo de Exclusão / Bloqueio Referencial com Oferta de Arquivamento */}
+      <AlertDialog open={dialogBloqueioOpen} onOpenChange={setDialogBloqueioOpen}>
+        <AlertDialogContent className="bg-white text-slate-900 border-slate-200">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+                  isBloqueadoComLancamentos
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-rose-100 text-rose-700'
+                }`}
+              >
+                <AlertTriangle className="w-5 h-5" />
               </div>
+              <AlertDialogTitle className="text-base font-bold text-slate-900">
+                {isBloqueadoComLancamentos ? 'Exclusão Bloqueada' : 'Confirmar Exclusão Definitiva'}
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-xs text-slate-600 pt-2 leading-relaxed">
+              {mensagemBloqueio}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label htmlFor="tipo-cat" className="text-xs font-semibold text-slate-700">
-                    Tipo de Fluxo *
-                  </Label>
-                  <Select value={tipoCat} onValueChange={(val: any) => setTipoCat(val)}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="despesa">Despesa</SelectItem>
-                      <SelectItem value="receita">Receita</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+          <AlertDialogFooter className="pt-3 gap-2">
+            <AlertDialogCancel onClick={() => setDialogBloqueioOpen(false)}>
+              Fechar
+            </AlertDialogCancel>
 
-                <div>
-                  <Label htmlFor="natureza-cat" className="text-xs font-semibold text-slate-700">
-                    Natureza *
-                  </Label>
-                  <Select value={naturezaCat} onValueChange={(val: any) => setNaturezaCat(val)}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="fixa">Fixa</SelectItem>
-                      <SelectItem value="variavel">Variável</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div>
-                <Label htmlFor="classificacao-cat" className="text-xs font-semibold text-slate-700">
-                  Classificação Gerencial (Metas e Acumulação do PRD) *
-                </Label>
-                <Select
-                  value={classificacaoCat}
-                  onValueChange={(val: any) => setClassificacaoCat(val)}
+            {isBloqueadoComLancamentos ? (
+              // Se bloqueado por lançamentos, oferece a alternativa explícita: "Arquivar subcategoria"
+              subParaExcluir && (
+                <Button
+                  type="button"
+                  onClick={() => handleArquivarSub(subParaExcluir, true)}
+                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex items-center gap-1.5"
                 >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CLASSIFICACOES_GERENCIAIS.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div>
-                <Label className="text-xs font-semibold text-slate-700">Cor</Label>
-                <div className="flex items-center gap-2 mt-2">
-                  {PALETA_CORES.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setCorCat(c)}
-                      className="w-7 h-7 rounded-full border-2 transition flex items-center justify-center text-white"
-                      style={{
-                        backgroundColor: c,
-                        borderColor: corCat === c ? '#0f172a' : 'transparent',
-                      }}
-                    >
-                      {corCat === c && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setModalCatOpen(false)}>
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                disabled={saving}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  <Archive className="w-3.5 h-3.5" />
+                  Arquivar subcategoria
+                </Button>
+              )
+            ) : (
+              // Sem lançamentos: confirmação definitiva
+              <AlertDialogAction
+                onClick={() => {
+                  if (subParaExcluir) {
+                    handleConfirmarExclusaoDefinitivaSub()
+                  } else if (catParaExcluir) {
+                    handleConfirmarExclusaoDefinitivaCat()
+                  }
+                }}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold"
               >
-                {saving ? 'Salvando...' : editingCat ? 'Salvar' : 'Criar Categoria'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Modal Subcategoria */}
-      <Dialog open={modalSubOpen} onOpenChange={setModalSubOpen}>
-        <DialogContent className="sm:max-w-md">
-          <form onSubmit={handleSalvarSubcategoria}>
-            <DialogHeader>
-              <DialogTitle>{editingSub ? 'Editar Subcategoria' : 'Nova Subcategoria'}</DialogTitle>
-              <DialogDescription>
-                Subdivisão específica dentro da categoria selecionada.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="py-4 space-y-3">
-              <div>
-                <Label htmlFor="nome-sub" className="text-xs font-semibold text-slate-700">
-                  Nome da Subcategoria *
-                </Label>
-                <Input
-                  id="nome-sub"
-                  name="nome"
-                  placeholder="Ex: Supermercado, Farmácia, Combustível"
-                  value={nomeSub}
-                  onChange={(e) => setNomeSub(e.target.value)}
-                  className="mt-1"
-                  autoFocus
-                  required
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="obs-sub" className="text-xs font-semibold text-slate-700">
-                  Observação (opcional)
-                </Label>
-                <Input
-                  id="obs-sub"
-                  name="observacao"
-                  placeholder="Ex: Itens de higiene e limpeza"
-                  value={obsSub}
-                  onChange={(e) => setObsSub(e.target.value)}
-                  className="mt-1"
-                />
-              </div>
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setModalSubOpen(false)}>
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                disabled={saving}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white"
-              >
-                {saving ? 'Salvando...' : editingSub ? 'Salvar' : 'Criar Subcategoria'}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+                Excluir Definitivamente
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

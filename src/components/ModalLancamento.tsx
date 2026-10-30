@@ -128,10 +128,14 @@ export function ModalLancamento({
   }
 
   // Lista de todas as subcategorias para o tipo atual ('despesa' ou 'receita'), ordenadas alfabeticamente
+  // REGRA: Subcategorias arquivadas NÃO devem aparecer normalmente como opção para novos lançamentos;
+  // Porém se for edição de lançamento histórico que já possuía a subcategoria arquivada, ela é preservada.
   const subcategoriasDisponiveis = React.useMemo(() => {
     if (tipo === 'transferencia') return []
-    const catsDoTipo = categorias.filter((c) =>
-      tipo === 'receita' ? c.tipo === 'receita' : c.tipo === 'despesa',
+    const catsDoTipo = categorias.filter(
+      (c) =>
+        (tipo === 'receita' ? c.tipo === 'receita' : c.tipo === 'despesa') &&
+        (!c.arquivado || initialData?.categoria_id === c.id),
     )
     const lista: Array<{
       id: string
@@ -144,13 +148,16 @@ export function ModalLancamento({
     catsDoTipo.forEach((cat) => {
       if (cat.subcategorias && cat.subcategorias.length > 0) {
         cat.subcategorias.forEach((sub) => {
-          lista.push({
-            id: sub.id,
-            nome: sub.nome,
-            categoriaId: cat.id,
-            categoriaNome: cat.nome,
-            categoriaCor: cat.cor,
-          })
+          // Oculta arquivadas, a menos que seja a própria subcategoria já vinculada ao lançamento em edição
+          if (!sub.arquivado || initialData?.subcategoria_id === sub.id) {
+            lista.push({
+              id: sub.id,
+              nome: sub.arquivado ? `${sub.nome} (Arquivada)` : sub.nome,
+              categoriaId: cat.id,
+              categoriaNome: cat.nome,
+              categoriaCor: cat.cor,
+            })
+          }
         })
       } else {
         // Se a categoria não tem subcategorias cadastradas, gera opção padrão com o próprio nome da categoria
@@ -166,7 +173,7 @@ export function ModalLancamento({
 
     // Ordenar estritamente em ordem alfabética pelo nome da subcategoria
     return lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }))
-  }, [categorias, tipo])
+  }, [categorias, tipo, initialData?.subcategoria_id, initialData?.categoria_id])
 
   // Resetar/Inicializar formulário
   useEffect(() => {

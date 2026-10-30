@@ -11,6 +11,21 @@ export type TipoConta =
 export type MeioPagamentoTipo = 'CONTA' | 'CARTAO' | 'DINHEIRO'
 
 export type CategoriaTipo = 'despesa' | 'receita'
+
+// NOVA TAXONOMIA ANALÍTICA (SEÇÃO 2 A 11 DO PRD):
+// Despesas:
+export type ClassificacaoDespesa = 'Essencial' | 'Ajustável' | 'Discricionária' | 'Supérflua'
+export type NaturezaDespesa = 'Consumo' | 'Patrimonial'
+
+// Receitas:
+export type RegularidadeReceita =
+  | 'Recorrente mensal'
+  | 'Recorrente anual'
+  | 'Recorrente variável'
+  | 'Eventual'
+export type OrigemEconomicaReceita = 'Trabalho' | 'Capital' | 'Outras'
+
+// Tipos legados mantidos apenas para compatibilidade de tipagem se necessário
 export type NaturezaCategoria = 'fixa' | 'variavel'
 export type ClassificacaoGerencial =
   | 'Receitas Fixas'
@@ -160,16 +175,20 @@ export interface Categoria {
   workspace_id: string
   nome: string
   tipo: CategoriaTipo
-  natureza: NaturezaCategoria
-  classificacao_gerencial: ClassificacaoGerencial
   cor?: string | null
   icone?: string | null
   ativo: boolean
+  arquivado?: boolean
+  data_arquivamento?: string | null
+  observacao?: string | null
   created_by?: string | null
   created_at: string
   updated_at: string
   deleted_at?: string | null
   subcategorias?: Subcategoria[]
+  // Campos legados mantidos como opcionais para compatibilidade
+  natureza?: NaturezaCategoria | null
+  classificacao_gerencial?: ClassificacaoGerencial | string | null
 }
 
 export interface Subcategoria {
@@ -177,8 +196,17 @@ export interface Subcategoria {
   workspace_id: string
   categoria_id: string
   nome: string
+  // Novos atributos analíticos por subcategoria
+  classificacao?: ClassificacaoDespesa | null
+  natureza?: NaturezaDespesa | null
+  regularidade?: RegularidadeReceita | null
+  origem_economica?: OrigemEconomicaReceita | null
+  cor?: string | null
+  icone?: string | null
   observacao?: string | null
   ativo: boolean
+  arquivado?: boolean
+  data_arquivamento?: string | null
   created_by?: string | null
   created_at: string
   updated_at: string
