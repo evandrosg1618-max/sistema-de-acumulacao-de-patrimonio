@@ -23,6 +23,7 @@ import {
   OrcamentoSubcategoriaItem,
   LancamentoPeriodoAnteriorItem,
 } from '@/types/sap'
+import { CardMetaPoupanca, MetaPoupancaDados } from '@/components/CardMetaPoupanca'
 import { formatMoneyBRL, getCurrentAnoMes, formatAnoMesPT } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -71,6 +72,16 @@ export default function OrcamentosPage() {
   // CARD 6: Lupa de texto
   const [buscaTexto, setBuscaTexto] = useState('')
 
+  // Requisito 9.9: Novos filtros de despesas no card de filtros
+  // "Por classificação" (Todas / Essencial / Ajustável / Discricionária / Supérflua)
+  // "Por natureza" (Todas / Consumo / Patrimonial)
+  const [filtroClassificacao, setFiltroClassificacao] = useState<string>('todas')
+  const [filtroNatureza, setFiltroNatureza] = useState<string>('todas')
+
+  // Requisito 9: Estado do Card Meta de Poupança (RPC atômica no banco)
+  const [metaPoupancaDados, setMetaPoupancaDados] = useState<MetaPoupancaDados | null>(null)
+  const [loadingMeta, setLoadingMeta] = useState(false)
+
   // Edição inline de limite da subcategoria (Card 7.5)
   const [editingSubcatId, setEditingSubcatId] = useState<string | null>(null)
   const [editValorInput, setEditValorInput] = useState('')
@@ -93,9 +104,14 @@ export default function OrcamentosPage() {
   const carregarDados = async (showToastError = true) => {
     if (!wsId) return
     setLoading(true)
+    setLoadingMeta(true)
     try {
-      const data = await orcamentoService.obterConsolidado(wsId, anoMes)
+      const [data, metaData] = await Promise.all([
+        orcamentoService.obterConsolidado(wsId, anoMes),
+        orcamentoService.calcularMetaPoupanca(wsId, anoMes),
+      ])
       setConsolidado(data)
+      setMetaPoupancaDados(metaData)
     } catch (err: any) {
       console.error('Erro ao carregar orçamento:', err)
       if (showToastError) {
@@ -103,12 +119,44 @@ export default function OrcamentosPage() {
       }
     } finally {
       setLoading(false)
+      setLoadingMeta(false)
     }
   }
 
   useEffect(() => {
     carregarDados()
   }, [wsId, anoMes])
+
+  // Salvar Meta de Poupança por competência de forma idempotente com RPC atômica
+  const handleSalvarMetaPoupanca = async (
+    novaMeta: number | null,
+    percentual: number,
+    subcategoriasIds: string[],
+  ) => {
+    if (!wsId) return
+    try {
+      await orcamentoService.gravarMetaPoupanca({
+        workspace_id: wsId,
+        competencia: anoMes,
+        meta_poupanca: novaMeta,
+        percentual_minimo: percentual,
+        subcategorias_selecionadas: subcategoriasIds,
+        user_id: user?.id,
+      })
+      toast.success('Meta de poupança atualizada!')
+      // Recarregar cálculo atualizado do banco
+      const metaAtualizada = await orcamentoService.calcularMetaPoupanca(
+        wsId,
+        anoMes,
+        subcategoriasIds,
+        percentual,
+      )
+      setMetaPoupancaDados(metaAtualizada)
+    } catch (e: any) {
+      toast.error('Erro ao salvar meta de poupança: ' + (e.message || 'tente novamente'))
+      throw e
+    }
+  }
 
   // Fechar dropdown do filtro de subcategorias ao clicar fora
   useEffect(() => {
@@ -294,15 +342,21 @@ export default function OrcamentosPage() {
     }
   }
 
-  // Iniciar edição de subcategoria
-  const iniciarEdicao = (sub: OrcamentoSubcategoriaItem) => {
+  // Iniciar edição de subcategoria (Requisito 9.11: recorrentes pré-preenchem o limite quando limite for 0)
+  const iniciarEdicao = (sub: any) => {
     setEditingSubcatId(sub.id)
-    setEditValorInput(
-      sub.limite_definido > 0 ? sub.limite_definido.toFixed(2).replace('.', ',') : '',
-    )
+    if (sub.limite_definido > 0) {
+      setEditValorInput(sub.limite_definido.toFixed(2).replace('.', ','))
+    } else if (sub.valor_recorrente_periodo && sub.valor_recorrente_periodo > 0) {
+      // Requisito 9.11: trazer preenchido em "R$yy" o referido valor quando houver lançamento recorrente para aquela subcategoria
+      setEditValorInput(sub.valor_recorrente_periodo.toFixed(2).replace('.', ','))
+    } else {
+      setEditValorInput('')
+    }
   }
 
-  // Categorias filtradas pela busca de texto (Card 6) e seleção de categoria (Card 5)
+  // Categorias filtradas pela busca de texto (Card 6), seleção de categoria (Card 5)
+  // e novos filtros: "Por classificação" e "Por natureza" (Requisito 9.9)
   const categoriasExibicao = useMemo(() => {
     if (!consolidado?.categorias) return []
 
@@ -311,6 +365,32 @@ export default function OrcamentosPage() {
     // Filtro do Card 5 (ao selecionar categoria via clique em item de subcategoria)
     if (categoriaSelecionadaId) {
       list = list.filter((c) => c.id === categoriaSelecionadaId)
+    }
+
+    // Filtro por classificação e por natureza (Requisito 9.9)
+    if (filtroClassificacao !== 'todas' || filtroNatureza !== 'todas') {
+      list = list
+        .map((cat) => {
+          const subsFiltradas = (cat.subcategorias || []).filter((sub: any) => {
+            const matchClass =
+              filtroClassificacao === 'todas' ||
+              (sub.classificacao &&
+                sub.classificacao.toLowerCase() === filtroClassificacao.toLowerCase())
+            const matchNat =
+              filtroNatureza === 'todas' ||
+              (sub.natureza && sub.natureza.toLowerCase() === filtroNatureza.toLowerCase())
+            return matchClass && matchNat
+          })
+
+          if (subsFiltradas.length > 0) {
+            return {
+              ...cat,
+              subcategorias: subsFiltradas,
+            }
+          }
+          return null
+        })
+        .filter(Boolean) as OrcamentoCategoriaItem[]
     }
 
     // Filtro do Card 6 (lupa de texto)
@@ -339,7 +419,7 @@ export default function OrcamentosPage() {
     }
 
     return list
-  }, [consolidado, categoriaSelecionadaId, buscaTexto])
+  }, [consolidado, categoriaSelecionadaId, buscaTexto, filtroClassificacao, filtroNatureza])
 
   // Verificação de tela vazia:
   // Se não tem limites definidos e o usuário NÃO clicou em "Definir limite de gastos"
@@ -409,6 +489,14 @@ export default function OrcamentosPage() {
           </Button>
         </div>
       </div>
+
+      {/* CARD META DE POUPANÇA (Posicionado exatamente entre o card Regime/Período e o card Despesas) */}
+      <CardMetaPoupanca
+        dados={metaPoupancaDados}
+        loading={loadingMeta}
+        onSalvarMeta={handleSalvarMetaPoupanca}
+        onRecarregar={carregarDados}
+      />
 
       {/* CASO: TELA SEM LIMITES DEFINIDOS (Competência vazia) */}
       {loading ? (
@@ -494,135 +582,181 @@ export default function OrcamentosPage() {
             </div>
           </div>
 
-          {/* LINHA DOS FILTROS: CARD 5 (Filtro de subcategorias) + CARD 6 (Lupa de texto) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* CARD 5 — Filtro de subcategorias (modelo da caixa de Novo Lançamento com melhorias) */}
-            <div className="relative" ref={filtroSubcatContainerRef}>
-              <div className="relative">
-                <Input
-                  type="text"
-                  value={filtroSubcatInput}
-                  onChange={(e) => {
-                    setFiltroSubcatInput(e.target.value)
-                    setFiltroSubcatOpen(true)
-                  }}
-                  onFocus={() => setFiltroSubcatOpen(true)}
-                  placeholder="Filtrar por subcategoria..."
-                  className="text-xs h-9 pl-3 pr-8 bg-white border-slate-200 focus:border-slate-400"
-                />
-                {categoriaSelecionadaId ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCategoriaSelecionadaId(null)
-                      setFiltroSubcatInput('')
+          {/* LINHA DOS FILTROS: CARD 5 (Filtro de subcategorias) + CARD 6 (Lupa de texto) + Requisito 9.9 (Por classificação e por natureza) */}
+          <div className="bg-white rounded-2xl p-3 border border-slate-200/80 shadow-xs space-y-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {/* CARD 5 — Filtro de subcategorias */}
+              <div className="relative" ref={filtroSubcatContainerRef}>
+                <div className="relative">
+                  <Input
+                    type="text"
+                    value={filtroSubcatInput}
+                    onChange={(e) => {
+                      setFiltroSubcatInput(e.target.value)
+                      setFiltroSubcatOpen(true)
                     }}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                    title="Limpar filtro de categoria"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                ) : (
-                  <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    onFocus={() => setFiltroSubcatOpen(true)}
+                    placeholder="Filtrar por subcategoria..."
+                    className="text-xs h-9 pl-3 pr-8 bg-slate-50 border-slate-200 focus:border-slate-400"
+                  />
+                  {categoriaSelecionadaId ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategoriaSelecionadaId(null)
+                        setFiltroSubcatInput('')
+                      }}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                      title="Limpar filtro de categoria"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  )}
+                </div>
+
+                {categoriaSelecionadaId && (
+                  <div className="mt-1 flex items-center justify-between text-[11px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    <span>
+                      Filtrando categoria:{' '}
+                      <strong>
+                        {consolidado?.categorias.find((c) => c.id === categoriaSelecionadaId)?.nome}
+                      </strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCategoriaSelecionadaId(null)}
+                      className="text-emerald-700 hover:text-emerald-950 font-bold ml-2"
+                    >
+                      Exibir todas
+                    </button>
+                  </div>
+                )}
+
+                {filtroSubcatOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-30 divide-y divide-slate-100">
+                    {subcategoriasSugeridas.length === 0 ? (
+                      <div className="p-3 text-center text-xs text-slate-400">
+                        Nenhuma subcategoria encontrada
+                      </div>
+                    ) : (
+                      subcategoriasSugeridas.map((item) => {
+                        const itemPct =
+                          item.limite_definido > 0
+                            ? Math.round((item.valor_efetivado / item.limite_definido) * 100)
+                            : 0
+                        const itemBarraCor = getBarraConsumoClass(itemPct)
+
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => {
+                              setCategoriaSelecionadaId(item.categoriaId)
+                              setFiltroSubcatInput(item.categoriaNome)
+                              setFiltroSubcatOpen(false)
+                            }}
+                            className="w-full text-left p-2.5 hover:bg-slate-50 transition flex items-center justify-between gap-2"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="text-[10px] text-slate-400 uppercase font-medium truncate">
+                                {item.categoriaNome}
+                              </div>
+                              <div className="text-xs font-semibold text-slate-800 truncate">
+                                {item.nome}
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 text-right space-y-1 w-24">
+                              <div className="text-[10px] font-medium text-slate-600 truncate">
+                                {formatMoneyBRL(item.valor_efetivado)} /{' '}
+                                {formatMoneyBRL(item.limite_definido)}
+                              </div>
+                              <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full ${itemBarraCor}`}
+                                  style={{
+                                    width: `${Math.min(100, itemPct)}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
                 )}
               </div>
 
-              {categoriaSelecionadaId && (
-                <div className="mt-1 flex items-center justify-between text-[11px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                  <span>
-                    Filtrando categoria:{' '}
-                    <strong>
-                      {consolidado?.categorias.find((c) => c.id === categoriaSelecionadaId)?.nome}
-                    </strong>
-                  </span>
+              {/* CARD 6 — Lupa de texto */}
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Input
+                  type="text"
+                  value={buscaTexto}
+                  onChange={(e) => setBuscaTexto(e.target.value)}
+                  placeholder="Pesquisar categoria ou subcategoria..."
+                  className="text-xs h-9 pl-8 pr-8 bg-slate-50 border-slate-200 focus:border-slate-400"
+                />
+                {buscaTexto && (
                   <button
                     type="button"
-                    onClick={() => setCategoriaSelecionadaId(null)}
-                    className="text-emerald-700 hover:text-emerald-950 font-bold ml-2"
+                    onClick={() => setBuscaTexto('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                    title="Limpar pesquisa"
                   >
-                    Exibir todas
+                    <X className="w-3.5 h-3.5" />
                   </button>
-                </div>
-              )}
-
-              {/* Dropdown com a lista de subcategorias + nome da categoria na frente com menos contraste + mini barra de consumo */}
-              {filtroSubcatOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-30 divide-y divide-slate-100">
-                  {subcategoriasSugeridas.length === 0 ? (
-                    <div className="p-3 text-center text-xs text-slate-400">
-                      Nenhuma subcategoria encontrada
-                    </div>
-                  ) : (
-                    subcategoriasSugeridas.map((item) => {
-                      const itemPct =
-                        item.limite_definido > 0
-                          ? Math.round((item.valor_efetivado / item.limite_definido) * 100)
-                          : 0
-                      const itemBarraCor = getBarraConsumoClass(itemPct)
-
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => {
-                            // Ao clicar em um item, seleciona a CATEGORIA inteira (requisito Card 5)
-                            setCategoriaSelecionadaId(item.categoriaId)
-                            setFiltroSubcatInput(item.categoriaNome)
-                            setFiltroSubcatOpen(false)
-                          }}
-                          className="w-full text-left p-2.5 hover:bg-slate-50 transition flex items-center justify-between gap-2"
-                        >
-                          <div className="min-w-0 flex-1">
-                            {/* Nome da categoria na frente, com menos contraste */}
-                            <div className="text-[10px] text-slate-400 uppercase font-medium truncate">
-                              {item.categoriaNome}
-                            </div>
-                            <div className="text-xs font-semibold text-slate-800 truncate">
-                              {item.nome}
-                            </div>
-                          </div>
-
-                          {/* Mini barra de consumo com valores e cores (cabe no celular) */}
-                          <div className="shrink-0 text-right space-y-1 w-24">
-                            <div className="text-[10px] font-medium text-slate-600 truncate">
-                              {formatMoneyBRL(item.valor_efetivado)} /{' '}
-                              {formatMoneyBRL(item.limite_definido)}
-                            </div>
-                            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full ${itemBarraCor}`}
-                                style={{
-                                  width: `${Math.min(100, itemPct)}%`,
-                                }}
-                              />
-                            </div>
-                          </div>
-                        </button>
-                      )
-                    })
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
-            {/* CARD 6 — Lupa de texto (mesmo comportamento da lupa de Lançamentos) */}
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <Input
-                type="text"
-                value={buscaTexto}
-                onChange={(e) => setBuscaTexto(e.target.value)}
-                placeholder="Pesquisar categoria ou subcategoria..."
-                className="text-xs h-9 pl-8 pr-8 bg-white border-slate-200 focus:border-slate-400"
-              />
-              {buscaTexto && (
+            {/* Requisito 9.9: Novos Filtros de Despesas (Por Classificação e Por Natureza) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 text-xs">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Filtro Por Classificação */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500">Classificação:</span>
+                  <select
+                    value={filtroClassificacao}
+                    onChange={(e) => setFiltroClassificacao(e.target.value)}
+                    className="h-7 text-[11px] rounded-lg border border-slate-200 bg-white px-2 text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="todas">Todas as Classificações</option>
+                    <option value="Essencial">Essencial</option>
+                    <option value="Ajustável">Ajustável</option>
+                    <option value="Discricionária">Discricionária</option>
+                    <option value="Supérflua">Supérflua</option>
+                  </select>
+                </div>
+
+                {/* Filtro Por Natureza */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500">Natureza:</span>
+                  <select
+                    value={filtroNatureza}
+                    onChange={(e) => setFiltroNatureza(e.target.value)}
+                    className="h-7 text-[11px] rounded-lg border border-slate-200 bg-white px-2 text-slate-700 font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="todas">Todas as Naturezas</option>
+                    <option value="Consumo">Consumo</option>
+                    <option value="Patrimonial">Patrimonial</option>
+                  </select>
+                </div>
+              </div>
+
+              {(filtroClassificacao !== 'todas' || filtroNatureza !== 'todas') && (
                 <button
                   type="button"
-                  onClick={() => setBuscaTexto('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
-                  title="Limpar pesquisa"
+                  onClick={() => {
+                    setFiltroClassificacao('todas')
+                    setFiltroNatureza('todas')
+                  }}
+                  className="text-[11px] text-emerald-700 hover:underline font-semibold"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  Limpar filtros analíticos
                 </button>
               )}
             </div>
@@ -773,15 +907,23 @@ export default function OrcamentosPage() {
                             const subBarraCor = getBarraConsumoClass(subPct)
                             const isEditing = editingSubcatId === sub.id
 
+                            const temLimiteInformado = sub.limite_definido > 0
+
                             return (
                               <div
                                 key={sub.id}
-                                className="space-y-1.5 p-1.5 rounded-lg hover:bg-slate-100/60 transition"
+                                className={`space-y-1.5 p-1.5 rounded-lg hover:bg-slate-100/60 transition ${
+                                  !temLimiteInformado ? 'opacity-60 text-slate-400' : 'opacity-100'
+                                }`}
                               >
                                 <div className="flex items-center justify-between gap-2">
-                                  {/* Nome da subcategoria com quebra de linha permitida */}
+                                  {/* Requisito 9.12: Subcategorias sem limite de gasto informado mantêm contraste por volta de 50%, tom cinza, e voltam ao contraste normal de 100% ao preencher um valor */}
                                   <div className="min-w-0 flex-1">
-                                    <span className="text-xs font-semibold text-slate-800 break-words">
+                                    <span
+                                      className={`text-xs font-semibold break-words ${
+                                        temLimiteInformado ? 'text-slate-800' : 'text-slate-500'
+                                      }`}
+                                    >
                                       {sub.nome}
                                     </span>
                                   </div>
@@ -796,12 +938,20 @@ export default function OrcamentosPage() {
                                   {/* Coluna 4 (Subcategoria): "{Valor Efetivado} de {Limite Definido}"
                                       recuado a uma distância da margem direita para não confundir com a categoria */}
                                   <div className="text-right shrink-0 pr-1">
-                                    <div className="text-xs text-slate-700">
+                                    <div
+                                      className={`text-xs ${
+                                        temLimiteInformado ? 'text-slate-700' : 'text-slate-500'
+                                      }`}
+                                    >
                                       <span className="font-semibold">
                                         {formatMoneyBRL(sub.valor_efetivado)}
                                       </span>
                                       <span className="text-slate-400"> de </span>
-                                      <span className="font-semibold text-slate-900">
+                                      <span
+                                        className={`font-semibold ${
+                                          temLimiteInformado ? 'text-slate-900' : 'text-slate-500'
+                                        }`}
+                                      >
                                         {sub.limite_definido > 0
                                           ? formatMoneyBRL(sub.limite_definido)
                                           : 'R$ 0,00'}

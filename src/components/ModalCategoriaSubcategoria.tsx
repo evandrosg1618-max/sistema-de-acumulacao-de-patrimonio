@@ -252,7 +252,7 @@ export function ModalCategoriaSubcategoria({
                     placeholder="Ex: Alimentação, Moradia, Transporte"
                     value={nomeCategoria}
                     onChange={(e) => setNomeCategoria(e.target.value)}
-                    disabled={Boolean(categoriaPaiFixa) && !isEditingOnlyCat}
+                    disabled={Boolean(categoriaPaiFixa) && !categoriaParaEdicao}
                     className="mt-1 text-xs"
                     required
                   />

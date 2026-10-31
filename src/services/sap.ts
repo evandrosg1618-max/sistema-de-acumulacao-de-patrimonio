@@ -479,7 +479,26 @@ export const contaService = {
     return data
   },
 
+  async verificarPodeExcluir(
+    workspaceId: string,
+    contaId: string,
+  ): Promise<{ pode_excluir: boolean; motivo?: string; total_efetivados?: number }> {
+    const { data, error } = await db.rpc('verificar_pode_excluir_conta_rpc', {
+      p_workspace_id: workspaceId,
+      p_conta_id: contaId,
+    })
+    if (error) throw error
+    return data as any
+  },
+
   async softDelete(id: string, workspaceId: string, userId?: string): Promise<void> {
+    const checagem = await this.verificarPodeExcluir(workspaceId, id)
+    if (!checagem.pode_excluir) {
+      throw new Error(
+        checagem.motivo || 'Esta conta possui movimentações efetivadas e não pode ser excluída.',
+      )
+    }
+
     const anterior = await this.getById(id)
     const { error } = await db
       .from('contas')
@@ -926,7 +945,34 @@ export const cartaoService = {
     return data
   },
 
+  async verificarPodeDesativar(
+    workspaceId: string,
+    cartaoId: string,
+  ): Promise<{
+    pode_desativar: boolean
+    motivos?: string[]
+    faturas_nao_pagas?: number
+    recorrentes_futuros?: number
+    parcelas_futuras?: number
+  }> {
+    const { data, error } = await db.rpc('verificar_pode_desativar_cartao_rpc', {
+      p_workspace_id: workspaceId,
+      p_cartao_id: cartaoId,
+    })
+    if (error) throw error
+    return data as any
+  },
+
   async softDelete(id: string, workspaceId: string, userId?: string): Promise<void> {
+    const checagem = await this.verificarPodeDesativar(workspaceId, id)
+    if (!checagem.pode_desativar) {
+      const msg =
+        checagem.motivos && checagem.motivos.length > 0
+          ? checagem.motivos.join(' ')
+          : 'O cartão possui faturas pendentes, parcelas futuras ou despesas recorrentes ativas e não pode ser desativado.'
+      throw new Error(msg)
+    }
+
     const anterior = await this.getById(id)
     const { error } = await db
       .from('cartoes')
@@ -1660,6 +1706,47 @@ export const orcamentoService = {
       p_competencia: competencia,
     })
 
+    if (error) throw error
+    return data
+  },
+
+  // Realiza o cálculo atômico da Meta de Poupança (10 passos do requisito 9.7)
+  async calcularMetaPoupanca(
+    workspaceId: string,
+    competencia: string,
+    subcategoriasIds?: string[],
+    percentualMinimo?: number,
+  ): Promise<any> {
+    const { data, error } = await db.rpc('calcular_meta_poupanca_rpc', {
+      p_workspace_id: workspaceId,
+      p_competencia: competencia,
+      p_subcategorias_ids:
+        subcategoriasIds && subcategoriasIds.length > 0 ? subcategoriasIds : null,
+      p_percentual_minimo: percentualMinimo ?? null,
+    })
+    if (error) throw error
+    return data
+  },
+
+  // Grava atômica e idempotentemente a Meta e o Percentual por competência
+  async gravarMetaPoupanca(dados: {
+    workspace_id: string
+    competencia: string
+    meta_poupanca: number | null
+    percentual_minimo: number
+    subcategorias_selecionadas?: string[]
+    user_id?: string
+  }): Promise<any> {
+    const { data, error } = await db.rpc('gravar_meta_poupanca_rpc', {
+      p_workspace_id: dados.workspace_id,
+      p_competencia: dados.competencia,
+      p_meta_poupanca: dados.meta_poupanca,
+      p_percentual_minimo: dados.percentual_minimo,
+      p_subcategorias_selecionadas: dados.subcategorias_selecionadas
+        ? JSON.stringify(dados.subcategorias_selecionadas)
+        : null,
+      p_user_id: dados.user_id || null,
+    })
     if (error) throw error
     return data
   },
@@ -2537,7 +2624,7 @@ export const lancamentoService = {
       .select(`
         *,
         categorias (id, nome, cor, icone, tipo),
-        subcategorias (id, nome),
+        subcategorias (id, nome, cor, icone),
         conta_origem:contas!lancamentos_conta_origem_id_fkey (id, nome, tipo, cor, icone),
         conta_destino:contas!lancamentos_conta_destino_id_fkey (id, nome, tipo, cor, icone),
         cartoes (id, nome, bandeira, limite, cor, dia_fechamento, dia_vencimento),

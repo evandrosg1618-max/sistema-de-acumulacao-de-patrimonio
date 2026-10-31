@@ -39,6 +39,7 @@ import {
   X,
   Receipt,
 } from 'lucide-react'
+import { renderIconePorId } from '@/components/SeletorVisualIconeCor'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar } from '@/components/ui/calendar'
 import { Button } from '@/components/ui/button'
@@ -1263,14 +1264,14 @@ export default function LancamentosPage() {
         </div>
       )}
 
-      {/* 1.5 BOTÕES DE AÇÃO: "+ Novo Lançamento" e "Conciliar" logo abaixo dos saldos */}
+      {/* 1.5 BOTÕES DE AÇÃO: "Novo Lançamento" (verde padrão do sistema, um único "+") e "Conciliar" */}
       <div className="flex items-center gap-2">
         <Button
           onClick={() => abrirNovoLancamento('despesa')}
-          className="bg-neutral-800 hover:bg-neutral-900 text-white font-medium text-xs sm:text-sm rounded-xl px-4 py-2 h-9 shadow-sm flex items-center gap-1.5"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs sm:text-sm rounded-xl px-4 py-2 h-9 shadow-sm flex items-center gap-1.5"
         >
           <Plus className="w-4 h-4" />
-          <span>+ Novo Lançamento</span>
+          <span>Novo Lançamento</span>
         </Button>
 
         <Button
@@ -1510,9 +1511,9 @@ export default function LancamentosPage() {
             </p>
             <Button
               onClick={() => abrirNovoLancamento('despesa')}
-              className="bg-neutral-800 hover:bg-neutral-900 text-white text-xs mt-2"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs mt-2"
             >
-              <Plus className="w-3.5 h-3.5 mr-1" />+ Novo Lançamento
+              <Plus className="w-3.5 h-3.5 mr-1" /> Novo Lançamento
             </Button>
           </div>
         ) : (
@@ -1593,7 +1594,7 @@ export default function LancamentosPage() {
                       >
                         {/* 1ª COLUNA: Descrição (quebra de linha se longa) + Categoria/Subcategoria + Badge Fixo/Parcelado */}
                         <div className="flex items-start gap-3 min-w-0 pr-2">
-                          {/* Ícone circular */}
+                          {/* Ícone circular com o ícone e cor escolhidos para a subcategoria (Bloco 4) */}
                           <div
                             className={`w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 mt-0.5 shadow-2xs ${
                               isDespesa
@@ -1602,13 +1603,23 @@ export default function LancamentosPage() {
                                   ? 'bg-emerald-500'
                                   : 'bg-emerald-600'
                             }`}
-                            style={
-                              l.categoria?.cor ? { backgroundColor: l.categoria.cor } : undefined
-                            }
+                            style={{
+                              backgroundColor:
+                                l.subcategoria?.cor ||
+                                l.categoria?.cor ||
+                                (isDespesa ? '#EF4444' : isReceita ? '#10B981' : '#059669'),
+                            }}
                           >
-                            {isDespesa && <TrendingDown className="w-4 h-4 stroke-[2.5]" />}
-                            {isReceita && <TrendingUp className="w-4 h-4 stroke-[2.5]" />}
-                            {isTransf && <ArrowRightLeft className="w-4 h-4 stroke-[2.5]" />}
+                            {renderIconePorId(
+                              l.subcategoria?.icone ||
+                                l.categoria?.icone ||
+                                (isDespesa
+                                  ? 'tag'
+                                  : isReceita
+                                    ? 'trending-up'
+                                    : 'arrow-right-left'),
+                              'w-4 h-4 stroke-[2.2]',
+                            )}
                           </div>
 
                           <div className="min-w-0 flex-1 space-y-1">

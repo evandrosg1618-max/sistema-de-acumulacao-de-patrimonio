@@ -13,6 +13,8 @@ import {
   ArchiveRestore,
   AlertTriangle,
   HelpCircle,
+  ArrowUp,
+  ArrowDown,
   Tag,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -57,6 +59,8 @@ export default function CategoriasPage() {
   const [catParaExcluir, setCatParaExcluir] = useState<Categoria | null>(null)
   const [mensagemBloqueio, setMensagemBloqueio] = useState<string>('')
   const [isBloqueadoComLancamentos, setIsBloqueadoComLancamentos] = useState<boolean>(false)
+  const [subParaArquivar, setSubParaArquivar] = useState<Subcategoria | null>(null)
+  const [dialogConfirmarArquivamentoOpen, setDialogConfirmarArquivamentoOpen] = useState(false)
 
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
@@ -180,23 +184,29 @@ export default function CategoriasPage() {
     }
   }
 
+  const solicitarArquivamentoSub = (sub: Subcategoria) => {
+    setSubParaArquivar(sub)
+    setDialogConfirmarArquivamentoOpen(true)
+  }
+
   const handleArquivarSub = async (sub: Subcategoria, arquivar: boolean) => {
     if (!wsId) return
     try {
       await categoriaService.arquivarSubcategoria(wsId, sub.id, arquivar, user?.id)
       toast.success(
         arquivar
-          ? `Subcategoria "${sub.nome}" arquivada com sucesso. Histórico preservado.`
+          ? `Subcategoria "${sub.nome}" arquivada com sucesso!`
           : `Subcategoria "${sub.nome}" reativada com sucesso!`,
       )
       setDialogBloqueioOpen(false)
       setSubParaExcluir(null)
+      setDialogConfirmarArquivamentoOpen(false)
+      setSubParaArquivar(null)
       await carregarCategorias()
     } catch (err: any) {
-      toast.error('Erro ao alterar status de arquivamento: ' + (err.message || 'tente novamente'))
+      toast.error('Erro ao arquivar/reativar: ' + (err.message || 'tente novamente'))
     }
   }
-
   // AÇÕES EM CATEGORIAS PRINCIPAIS
   const handleTentarExcluirCategoria = async (cat: Categoria) => {
     if (!wsId) return
@@ -299,22 +309,9 @@ export default function CategoriasPage() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
-              Categorias & Subcategorias
-            </h1>
-            <Badge
-              variant="outline"
-              className="text-emerald-700 bg-emerald-50 border-emerald-200 text-xs font-semibold"
-            >
-              Taxonomia Analítica
-            </Badge>
-          </div>
-          <p className="text-xs md:text-sm text-slate-500 mt-1">
-            Classificação analítica por subcategoria: padrões de vida (Essencial / Ajustável /
-            Discricionária / Supérflua), naturezas (Consumo / Patrimonial) e fontes de receita
-            (Trabalho / Capital).
-          </p>
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
+            Categorias & Subcategorias
+          </h1>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -331,7 +328,7 @@ export default function CategoriasPage() {
             onClick={abrirNovaCategoria}
             className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs sm:text-sm flex items-center gap-2 shadow-sm"
           >
-            <Plus className="w-4 h-4" />+ Nova Categoria
+            <Plus className="w-4 h-4" /> Nova Categoria
           </Button>
         </div>
       </div>
@@ -360,7 +357,7 @@ export default function CategoriasPage() {
               : 'text-xs text-slate-600 hover:text-rose-600'
           }
         >
-          <ArrowUpRight className="w-3 h-3 mr-1" />
+          <ArrowDown className="w-3 h-3 mr-1" />
           Despesas ({categorias.filter((c) => !c.arquivado && c.tipo === 'despesa').length})
         </Button>
         <Button
@@ -373,7 +370,7 @@ export default function CategoriasPage() {
               : 'text-xs text-slate-600 hover:text-emerald-600'
           }
         >
-          <ArrowDownLeft className="w-3 h-3 mr-1" />
+          <ArrowUp className="w-3 h-3 mr-1" />
           Receitas ({categorias.filter((c) => !c.arquivado && c.tipo === 'receita').length})
         </Button>
         <Button
@@ -429,7 +426,12 @@ export default function CategoriasPage() {
 
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      {/* Distinção visual Despesa (vermelho) / Receita (verde) na frente do nome da categoria */}
+                      {/* 2ª Coluna: Nome da Categoria */}
+                      <span className="font-bold text-slate-900 text-sm md:text-base">
+                        {cat.nome}
+                      </span>
+
+                      {/* 3ª Coluna: Tipo de Fluxo (Despesa/Receita) depois do nome */}
                       <Badge
                         variant="secondary"
                         className={
@@ -440,10 +442,6 @@ export default function CategoriasPage() {
                       >
                         {cat.tipo === 'despesa' ? 'Despesa' : 'Receita'}
                       </Badge>
-
-                      <span className="font-bold text-slate-900 text-sm md:text-base">
-                        {cat.nome}
-                      </span>
 
                       {cat.arquivado && (
                         <Badge
@@ -618,7 +616,7 @@ export default function CategoriasPage() {
                               variant="ghost"
                               size="icon"
                               title="Arquivar Subcategoria"
-                              onClick={() => handleArquivarSub(sub, true)}
+                              onClick={() => solicitarArquivamentoSub(sub)}
                               className="h-6 w-6 text-slate-400 hover:text-amber-700"
                             >
                               <Archive className="w-3 h-3" />
@@ -662,6 +660,49 @@ export default function CategoriasPage() {
         onSalvar={handleSalvar}
       />
 
+      {/* Caixa de diálogo de confirmação de arquivamento de subcategoria */}
+      <AlertDialog
+        open={dialogConfirmarArquivamentoOpen}
+        onOpenChange={setDialogConfirmarArquivamentoOpen}
+      >
+        <AlertDialogContent className="bg-white text-slate-900 border-slate-200">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <Archive className="w-5 h-5" />
+              </div>
+              <AlertDialogTitle className="text-base font-bold text-slate-900">
+                Confirmar Arquivamento
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-xs text-slate-600 pt-2 leading-relaxed">
+              A subcategoria &ldquo;{subParaArquivar?.nome}&rdquo; não aparecerá mais na sua lista,
+              mas você poderá desarquivá-la. Confirma o arquivamento?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="pt-3 gap-2">
+            <AlertDialogCancel
+              onClick={() => {
+                setDialogConfirmarArquivamentoOpen(false)
+                setSubParaArquivar(null)
+              }}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (subParaArquivar) {
+                  handleArquivarSub(subParaArquivar, true)
+                }
+              }}
+              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+            >
+              Confirmar Arquivamento
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Modal explicativo centralizado de conceitos */}
       <ModalAjudaConceitos open={modalAjudaOpen} onOpenChange={setModalAjudaOpen} />
 
@@ -698,7 +739,12 @@ export default function CategoriasPage() {
               subParaExcluir && (
                 <Button
                   type="button"
-                  onClick={() => handleArquivarSub(subParaExcluir, true)}
+                  onClick={() => {
+                    const s = subParaExcluir
+                    setDialogBloqueioOpen(false)
+                    setSubParaExcluir(null)
+                    solicitarArquivamentoSub(s)
+                  }}
                   className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex items-center gap-1.5"
                 >
                   <Archive className="w-3.5 h-3.5" />

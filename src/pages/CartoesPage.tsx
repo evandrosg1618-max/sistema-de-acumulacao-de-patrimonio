@@ -36,7 +36,9 @@ import {
   Layers,
   ChevronLeft,
   RefreshCw,
+  AlertTriangle,
 } from 'lucide-react'
+import { LOGOS_CARTOES_OFICIAIS, renderMiniaturaLogo } from '@/components/LogomarcasOficiais'
 import { ModalLancamento } from '@/components/ModalLancamento'
 import { ModalPagamentoFatura } from '@/components/ModalPagamentoFatura'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
@@ -155,6 +157,7 @@ export default function CartoesPage() {
   const [diaVencimento, setDiaVencimento] = useState('20')
   const [limite, setLimite] = useState('5.000,00')
   const [cor, setCor] = useState('#4F46E5')
+  const [iconeLogo, setIconeLogo] = useState<string>('')
 
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
@@ -809,6 +812,7 @@ export default function CartoesPage() {
     setDiaVencimento('20')
     setLimite('5.000,00')
     setCor('#4F46E5')
+    setIconeLogo('')
     setModalOpen(true)
   }
 
@@ -820,6 +824,7 @@ export default function CartoesPage() {
     setDiaVencimento(c.dia_vencimento.toString())
     setLimite(c.limite.toString().replace('.', ','))
     setCor(c.cor || '#4F46E5')
+    setIconeLogo((c as any).icone || '')
     setModalOpen(true)
   }
 
@@ -900,6 +905,32 @@ export default function CartoesPage() {
 
   const handleExcluir = async (c: Cartao) => {
     if (!wsId) return
+
+    // Requisito 7.2: Checagem prévia no BANCO antes de permitir desativar
+    try {
+      const checagem = await cartaoService.verificarPodeDesativar(wsId, c.id)
+      if (!checagem.pode_desativar) {
+        const msg =
+          checagem.motivos && checagem.motivos.length > 0
+            ? checagem.motivos.join('\n\n')
+            : 'Não é possível desativar este cartão pois existem pendências futuras.'
+
+        setModalConfirmacaoConfig({
+          title: 'Bloqueio de Desativação de Cartão',
+          description: `${msg}\n\nPara desativar este cartão, quite as faturas em aberto e remova ou transfira as compras parceladas e fixas recorrentes para outro meio de pagamento.`,
+          isAlertOnly: true,
+          confirmText: 'Entendi',
+          onConfirm: () => {
+            setModalConfirmacaoExclusaoOpen(false)
+          },
+        })
+        setModalConfirmacaoExclusaoOpen(true)
+        return
+      }
+    } catch (e: any) {
+      console.warn('Erro ao verificar desativação no banco:', e)
+    }
+
     setModalConfirmacaoConfig({
       title: 'Desativar Cartão',
       description: `Deseja realmente desativar o cartão "${c.nome}"? Ele deixará de aparecer na lista ativa.`,
@@ -913,7 +944,7 @@ export default function CartoesPage() {
           toast.success(`Cartão "${c.nome}" desativado.`)
           await carregarCartoes()
         } catch (err: any) {
-          toast.error('Erro ao excluir cartão: ' + (err.message || 'tente novamente'))
+          toast.error('Erro ao desativar cartão: ' + (err.message || 'tente novamente'))
         }
       },
     })
@@ -1119,7 +1150,11 @@ export default function CartoesPage() {
                           className="w-11 h-8 rounded-md flex items-center justify-center text-white font-bold shrink-0 shadow-xs"
                           style={{ backgroundColor: cartao.cor || '#4F46E5' }}
                         >
-                          <CreditCard className="w-5 h-5" />
+                          {(cartao as any).icone && (cartao as any).icone.startsWith('logo-') ? (
+                            renderMiniaturaLogo((cartao as any).icone, 'w-9 h-7')
+                          ) : (
+                            <CreditCard className="w-5 h-5" />
+                          )}
                         </div>
 
                         <div>
@@ -1771,6 +1806,52 @@ export default function CartoesPage() {
                     required
                   />
                   <p className="text-[10px] text-slate-400 mt-0.5">Dia do mês (1 a 31)</p>
+                </div>
+              </div>
+
+              {/* Seletor de Logomarcas Oficiais de Bancos + Bandeiras (Requisito 7.1) */}
+              <div>
+                <Label className="text-xs font-semibold text-slate-700">
+                  Logomarca Oficial Banco + Bandeira (Opcional)
+                </Label>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Miniaturas oficiais: Master C6 Carbon Black, Caixa Mastercard Black, Caixa Visa
+                  Infinite, Bradesco Visa Infinite.
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {LOGOS_CARTOES_OFICIAIS.map((logo) => {
+                    const isSelected = iconeLogo === logo.id
+                    return (
+                      <button
+                        key={logo.id}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setIconeLogo('')
+                          } else {
+                            setIconeLogo(logo.id)
+                            setCor(logo.corFundo)
+                            if (logo.bandeira?.includes('Mastercard')) {
+                              setBandeira('Mastercard')
+                            } else if (logo.bandeira?.includes('Visa')) {
+                              setBandeira('Visa')
+                            }
+                          }
+                        }}
+                        className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition ${
+                          isSelected
+                            ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20'
+                            : 'border-slate-200 hover:border-slate-300 bg-white'
+                        }`}
+                        title={logo.nome}
+                      >
+                        {renderMiniaturaLogo(logo.id, 'w-10 h-7')}
+                        <span className="text-[10px] font-medium text-slate-800 truncate w-full mt-1">
+                          {logo.nome}
+                        </span>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
 

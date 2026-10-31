@@ -31,6 +31,18 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { LOGOS_BANCOS_OFICIAIS, renderMiniaturaLogo } from '@/components/LogomarcasOficiais'
+import { AlertTriangle, Archive } from 'lucide-react'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -103,6 +115,15 @@ export default function ContasPage() {
   const [tipo, setTipo] = useState<TipoConta>('movimento')
   const [saldoInicial, setSaldoInicial] = useState('0,00')
   const [cor, setCor] = useState('#10B981')
+  const [icone, setIcone] = useState('wallet')
+
+  // Modal padrão de exclusão / bloqueio referencial com opção de arquivar (6.2)
+  const [dialogExclusaoOpen, setDialogExclusaoOpen] = useState(false)
+  const [contaParaExcluir, setContaParaExcluir] = useState<Conta | null>(null)
+  const [bloqueioExclusao, setBloqueioExclusao] = useState<{
+    bloqueado: boolean
+    motivo?: string
+  }>({ bloqueado: false })
 
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
@@ -131,6 +152,7 @@ export default function ContasPage() {
     setTipo('movimento')
     setSaldoInicial('0,00')
     setCor('#10B981')
+    setIcone('wallet')
     setModalOpen(true)
   }
 
@@ -140,6 +162,7 @@ export default function ContasPage() {
     setTipo(c.tipo)
     setSaldoInicial(c.saldo_inicial.toString().replace('.', ','))
     setCor(c.cor || '#10B981')
+    setIcone(c.icone || 'wallet')
     setModalOpen(true)
   }
 
@@ -181,6 +204,7 @@ export default function ContasPage() {
             nome: formNome,
             tipo,
             cor,
+            icone,
           },
           user?.id,
         )
@@ -192,7 +216,7 @@ export default function ContasPage() {
           tipo,
           saldo_inicial: saldoNumerico,
           cor,
-          icone: 'wallet',
+          icone,
           created_by: user?.id,
         })
         toast.success(`Conta "${formNome}" cadastrada com sucesso!`)
@@ -209,17 +233,54 @@ export default function ContasPage() {
 
   const handleExcluir = async (c: Conta) => {
     if (!wsId) return
-    const confirma = window.confirm(
-      `Deseja realmente desativar/excluir a conta "${c.nome}"? Ela deixará de aparecer na lista ativa.`,
-    )
-    if (!confirma) return
+    setContaParaExcluir(c)
 
+    // Checagem atômica no banco de dados se há movimentação efetivada
     try {
-      await contaService.softDelete(c.id, wsId, user?.id)
-      toast.success(`Conta "${c.nome}" removida.`)
+      const checagem = await contaService.verificarPodeExcluir(wsId, c.id)
+      if (!checagem.pode_excluir) {
+        setBloqueioExclusao({
+          bloqueado: true,
+          motivo:
+            checagem.motivo ||
+            'Esta conta possui movimentações efetivadas e não pode ser excluída para preservar o histórico. Você pode arquivá-la e depois desarquivá-la quando desejar.',
+        })
+      } else {
+        setBloqueioExclusao({ bloqueado: false })
+      }
+    } catch (e) {
+      console.warn('Erro na checagem prévia de exclusão:', e)
+      setBloqueioExclusao({ bloqueado: false })
+    }
+
+    setDialogExclusaoOpen(true)
+  }
+
+  const confirmarExclusao = async () => {
+    if (!wsId || !contaParaExcluir) return
+    try {
+      await contaService.softDelete(contaParaExcluir.id, wsId, user?.id)
+      toast.success(`Conta "${contaParaExcluir.nome}" removida com sucesso.`)
+      setDialogExclusaoOpen(false)
+      setContaParaExcluir(null)
       await carregarContas()
     } catch (err: any) {
-      toast.error('Erro ao excluir conta: ' + (err.message || 'tente novamente'))
+      toast.error(err.message || 'Erro ao excluir conta.')
+    }
+  }
+
+  const handleArquivarConta = async () => {
+    if (!wsId || !contaParaExcluir) return
+    try {
+      await contaService.arquivar(contaParaExcluir.id, wsId, true, user?.id)
+      toast.success(
+        `Conta "${contaParaExcluir.nome}" arquivada com sucesso. Você poderá desarquivá-la a qualquer momento.`,
+      )
+      setDialogExclusaoOpen(false)
+      setContaParaExcluir(null)
+      await carregarContas()
+    } catch (err: any) {
+      toast.error('Erro ao arquivar conta: ' + (err.message || 'tente novamente'))
     }
   }
 
@@ -230,21 +291,9 @@ export default function ContasPage() {
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
-              Minhas Contas
-            </h1>
-            <Badge
-              variant="outline"
-              className="text-emerald-700 bg-emerald-50 border-emerald-200 text-xs"
-            >
-              Build 1
-            </Badge>
-          </div>
-          <p className="text-xs md:text-sm text-slate-500 mt-1">
-            Gerencie contas bancárias correntes, carteiras, investimentos e reservas patrimoniais
-            familiares.
-          </p>
+          <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
+            Minhas Contas
+          </h1>
         </div>
 
         <div className="flex items-center gap-3">
@@ -356,7 +405,11 @@ export default function ContasPage() {
                         className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0 shadow-xs"
                         style={{ backgroundColor: conta.cor || '#10B981' }}
                       >
-                        <IconComponent className="w-5 h-5" />
+                        {conta.icone && conta.icone.startsWith('logo-') ? (
+                          renderMiniaturaLogo(conta.icone, 'w-8 h-8')
+                        ) : (
+                          <IconComponent className="w-5 h-5" />
+                        )}
                       </div>
 
                       <div>
@@ -491,8 +544,46 @@ export default function ContasPage() {
                 </div>
               )}
 
+              {/* Seletor de Logomarcas Oficiais de Bancos (6.1) */}
               <div>
-                <Label className="text-xs font-semibold text-slate-700">Cor do Ícone</Label>
+                <Label className="text-xs font-semibold text-slate-700">
+                  Logomarca Oficial do Banco (Opcional)
+                </Label>
+                <p className="text-[11px] text-slate-500 mb-2">
+                  Selecione a miniatura oficial do seu banco ou mantenha o ícone padrão.
+                </p>
+                <div className="grid grid-cols-5 gap-2">
+                  {LOGOS_BANCOS_OFICIAIS.map((banco) => {
+                    const isSelected = icone === banco.id
+                    return (
+                      <button
+                        key={banco.id}
+                        type="button"
+                        onClick={() => {
+                          setIcone(isSelected ? 'wallet' : banco.id)
+                          if (!isSelected) {
+                            setCor(banco.corFundo)
+                          }
+                        }}
+                        className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition ${
+                          isSelected
+                            ? 'border-emerald-600 bg-emerald-50 ring-2 ring-emerald-500/20'
+                            : 'border-slate-200 hover:border-slate-300 bg-white'
+                        }`}
+                        title={banco.nome}
+                      >
+                        {renderMiniaturaLogo(banco.id, 'w-8 h-8')}
+                        <span className="text-[10px] font-medium text-slate-700 truncate w-full mt-1">
+                          {banco.nome}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <Label className="text-xs font-semibold text-slate-700">Cor da Conta</Label>
                 <div className="flex items-center gap-2 mt-2">
                   {PALETA_CORES.map((c) => (
                     <button
@@ -527,6 +618,75 @@ export default function ContasPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Caixa de diálogo padrão do sistema para Exclusão / Bloqueio com movimentação (6.2) */}
+      <AlertDialog open={dialogExclusaoOpen} onOpenChange={setDialogExclusaoOpen}>
+        <AlertDialogContent className="bg-white text-slate-900 border-slate-200">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${
+                  bloqueioExclusao.bloqueado
+                    ? 'bg-amber-100 text-amber-700'
+                    : 'bg-rose-100 text-rose-700'
+                }`}
+              >
+                {bloqueioExclusao.bloqueado ? (
+                  <AlertTriangle className="w-5 h-5" />
+                ) : (
+                  <Trash2 className="w-5 h-5" />
+                )}
+              </div>
+              <AlertDialogTitle className="text-base font-bold text-slate-900">
+                {bloqueioExclusao.bloqueado
+                  ? 'Conta com Movimentações Efetivadas'
+                  : 'Excluir Conta Bancária'}
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-xs text-slate-600 pt-2 leading-relaxed">
+              {bloqueioExclusao.bloqueado ? (
+                <>
+                  {bloqueioExclusao.motivo}
+                  <br />
+                  <br />
+                  Deseja <strong>arquivar</strong> a conta &ldquo;{contaParaExcluir?.nome}&rdquo;?
+                  Ela deixará de aparecer na lista ativa, e você poderá desarquivá-la quando
+                  desejar.
+                </>
+              ) : (
+                `Deseja realmente desativar/excluir a conta "${contaParaExcluir?.nome}"? Ela deixará de aparecer na lista ativa.`
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="pt-3 gap-2">
+            <AlertDialogCancel
+              onClick={() => {
+                setDialogExclusaoOpen(false)
+                setContaParaExcluir(null)
+              }}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            {bloqueioExclusao.bloqueado ? (
+              <Button
+                type="button"
+                onClick={handleArquivarConta}
+                className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold flex items-center gap-1.5"
+              >
+                <Archive className="w-3.5 h-3.5" />
+                Arquivar Conta
+              </Button>
+            ) : (
+              <AlertDialogAction
+                onClick={confirmarExclusao}
+                className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold"
+              >
+                Confirmar Exclusão
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
