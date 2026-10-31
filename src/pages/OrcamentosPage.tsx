@@ -936,7 +936,10 @@ export default function OrcamentosPage() {
                                   </div>
 
                                   {/* Coluna 4 (Subcategoria): "{Valor Efetivado} de {Limite Definido}"
-                                      recuado a uma distância da margem direita para não confundir com a categoria */}
+                                      recuado a uma distância da margem direita para não confundir com a categoria
+                                      Requisito 9.11: Na coluna imediatamente antes de "+", onde tem "R$ xx de R$yy",
+                                      trazer preenchido em "R$yy" o referido valor quando houver lançamento recorrente para aquela subcategoria
+                                      no período selecionado, independente se efetivado ou não. */}
                                   <div className="text-right shrink-0 pr-1">
                                     <div
                                       className={`text-xs ${
@@ -954,7 +957,10 @@ export default function OrcamentosPage() {
                                       >
                                         {sub.limite_definido > 0
                                           ? formatMoneyBRL(sub.limite_definido)
-                                          : 'R$ 0,00'}
+                                          : sub.valor_recorrente_periodo &&
+                                              sub.valor_recorrente_periodo > 0
+                                            ? formatMoneyBRL(sub.valor_recorrente_periodo)
+                                            : 'R$ 0,00'}
                                       </span>
                                     </div>
                                     <span className="text-[9px] text-slate-400 block sm:hidden">

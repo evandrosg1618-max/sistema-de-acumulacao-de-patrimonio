@@ -355,6 +355,9 @@ export interface OrcamentoSubcategoriaItem {
   limite_definido: number
   valor_efetivado: number
   gasto_periodo_anterior: number
+  valor_recorrente_periodo?: number
+  classificacao?: string | null
+  natureza?: string | null
 }
 
 export interface OrcamentoCategoriaItem {

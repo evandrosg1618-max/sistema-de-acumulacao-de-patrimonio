@@ -528,6 +528,45 @@ export const contaService = {
       created_by: userId,
     })
   },
+
+  async arquivar(
+    id: string,
+    workspaceId: string,
+    arquivar: boolean = true,
+    userId?: string,
+  ): Promise<any> {
+    const anterior = await this.getById(id)
+    const { data, error } = await db
+      .from('contas')
+      .update({
+        ativa: !arquivar,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .eq('workspace_id', workspaceId)
+      .select()
+      .single()
+
+    if (error) throw error
+
+    await db
+      .from('meios_pagamento')
+      .update({ ativo: !arquivar })
+      .eq('conta_id', id)
+      .eq('workspace_id', workspaceId)
+
+    await auditoriaService.registrar({
+      workspace_id: workspaceId,
+      entidade: 'contas',
+      entidade_id: id,
+      acao: arquivar ? 'archive' : 'unarchive',
+      estado_anterior: anterior,
+      estado_posterior: data,
+      created_by: userId,
+    })
+
+    return data
+  },
 }
 
 // ----------------------------------------------------
