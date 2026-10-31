@@ -61,6 +61,10 @@ export default function CategoriasPage() {
   const [isBloqueadoComLancamentos, setIsBloqueadoComLancamentos] = useState<boolean>(false)
   const [subParaArquivar, setSubParaArquivar] = useState<Subcategoria | null>(null)
   const [dialogConfirmarArquivamentoOpen, setDialogConfirmarArquivamentoOpen] = useState(false)
+  const [catParaArquivar, setCatParaArquivar] = useState<Categoria | null>(null)
+  const [dialogConfirmarArquivamentoCatOpen, setDialogConfirmarArquivamentoCatOpen] =
+    useState(false)
+  const [isArquivando, setIsArquivando] = useState(false)
 
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
@@ -248,8 +252,14 @@ export default function CategoriasPage() {
     }
   }
 
+  const solicitarArquivamentoCat = (cat: Categoria) => {
+    setCatParaArquivar(cat)
+    setDialogConfirmarArquivamentoCatOpen(true)
+  }
+
   const handleArquivarCategoria = async (cat: Categoria, arquivar: boolean) => {
-    if (!wsId) return
+    if (!wsId || isArquivando) return
+    setIsArquivando(true)
     try {
       await categoriaService.arquivarCategoria(wsId, cat.id, arquivar, true, user?.id)
       toast.success(
@@ -259,9 +269,13 @@ export default function CategoriasPage() {
       )
       setDialogBloqueioOpen(false)
       setCatParaExcluir(null)
+      setDialogConfirmarArquivamentoCatOpen(false)
+      setCatParaArquivar(null)
       await carregarCategorias()
     } catch (err: any) {
       toast.error('Erro ao arquivar/reativar: ' + (err.message || 'tente novamente'))
+    } finally {
+      setIsArquivando(false)
     }
   }
 
@@ -500,7 +514,7 @@ export default function CategoriasPage() {
                         variant="ghost"
                         size="icon"
                         title="Arquivar Categoria"
-                        onClick={() => handleArquivarCategoria(cat, true)}
+                        onClick={() => solicitarArquivamentoCat(cat)}
                         className="h-7 w-7 text-slate-400 hover:text-amber-700"
                       >
                         <Archive className="w-3.5 h-3.5" />
@@ -682,6 +696,7 @@ export default function CategoriasPage() {
           </AlertDialogHeader>
           <AlertDialogFooter className="pt-3 gap-2">
             <AlertDialogCancel
+              disabled={isArquivando}
               onClick={() => {
                 setDialogConfirmarArquivamentoOpen(false)
                 setSubParaArquivar(null)
@@ -690,6 +705,7 @@ export default function CategoriasPage() {
               Cancelar
             </AlertDialogCancel>
             <AlertDialogAction
+              disabled={isArquivando}
               onClick={() => {
                 if (subParaArquivar) {
                   handleArquivarSub(subParaArquivar, true)
@@ -697,7 +713,52 @@ export default function CategoriasPage() {
               }}
               className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
             >
-              Confirmar Arquivamento
+              {isArquivando ? 'Arquivando...' : 'Confirmar Arquivamento'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Caixa de diálogo de confirmação de arquivamento de categoria inteira (Bloco A) */}
+      <AlertDialog
+        open={dialogConfirmarArquivamentoCatOpen}
+        onOpenChange={setDialogConfirmarArquivamentoCatOpen}
+      >
+        <AlertDialogContent className="bg-white text-slate-900 border-slate-200">
+          <AlertDialogHeader>
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <Archive className="w-5 h-5" />
+              </div>
+              <AlertDialogTitle className="text-base font-bold text-slate-900">
+                Confirmar Arquivamento
+              </AlertDialogTitle>
+            </div>
+            <AlertDialogDescription className="text-xs text-slate-600 pt-2 leading-relaxed">
+              A categoria &ldquo;{catParaArquivar?.nome}&rdquo; e suas subcategorias não aparecerá
+              mais na sua lista, mas você poderá desarquivá-la. Confirma o arquivamento?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="pt-3 gap-2">
+            <AlertDialogCancel
+              disabled={isArquivando}
+              onClick={() => {
+                setDialogConfirmarArquivamentoCatOpen(false)
+                setCatParaArquivar(null)
+              }}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isArquivando}
+              onClick={() => {
+                if (catParaArquivar) {
+                  handleArquivarCategoria(catParaArquivar, true)
+                }
+              }}
+              className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold"
+            >
+              {isArquivando ? 'Arquivando...' : 'Confirmar Arquivamento'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

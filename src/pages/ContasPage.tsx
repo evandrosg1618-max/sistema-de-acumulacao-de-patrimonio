@@ -565,15 +565,15 @@ export default function ContasPage() {
                             setCor(banco.corFundo)
                           }
                         }}
-                        className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition ${
+                        className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition ${
                           isSelected
                             ? 'border-emerald-600 bg-emerald-50 ring-2 ring-emerald-500/20'
                             : 'border-slate-200 hover:border-slate-300 bg-white'
                         }`}
                         title={banco.nome}
                       >
-                        {renderMiniaturaLogo(banco.id, 'w-8 h-8')}
-                        <span className="text-[10px] font-medium text-slate-700 truncate w-full mt-1">
+                        {renderMiniaturaLogo(banco.id, 'w-10 h-10')}
+                        <span className="text-[10px] font-medium text-slate-700 truncate w-full mt-1.5">
                           {banco.nome}
                         </span>
                       </button>

@@ -1838,15 +1838,15 @@ export default function CartoesPage() {
                             }
                           }
                         }}
-                        className={`flex flex-col items-center justify-center p-2 rounded-lg border text-center transition ${
+                        className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition ${
                           isSelected
-                            ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20'
+                            ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-xs'
                             : 'border-slate-200 hover:border-slate-300 bg-white'
                         }`}
                         title={logo.nome}
                       >
-                        {renderMiniaturaLogo(logo.id, 'w-10 h-7')}
-                        <span className="text-[10px] font-medium text-slate-800 truncate w-full mt-1">
+                        {renderMiniaturaLogo(logo.id, 'w-14 h-9')}
+                        <span className="text-[10px] font-semibold text-slate-800 truncate w-full mt-1.5">
                           {logo.nome}
                         </span>
                       </button>

@@ -1782,7 +1782,7 @@ export const orcamentoService = {
       p_meta_poupanca: dados.meta_poupanca,
       p_percentual_minimo: dados.percentual_minimo,
       p_subcategorias_selecionadas: dados.subcategorias_selecionadas
-        ? JSON.stringify(dados.subcategorias_selecionadas)
+        ? (dados.subcategorias_selecionadas as any)
         : null,
       p_user_id: dados.user_id || null,
     })
