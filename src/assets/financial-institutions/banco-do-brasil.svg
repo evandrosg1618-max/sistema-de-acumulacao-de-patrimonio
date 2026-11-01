@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#FAF500"/>
+  <!-- Monograma geométrico Banco do Brasil em azul marinho #003882 -->
+  <g fill="none" stroke="#003882" stroke-width="52" stroke-linecap="round" stroke-linejoin="round" transform="translate(256, 256) rotate(-45)">
+    <!-- Dois elos / losangos entrelaçados -->
+    <rect x="-105" y="-105" width="210" height="210" rx="36"/>
+    <path d="M -145,-145 L 145,145"/>
+    <path d="M -145,145 L -45,45"/>
+    <path d="M 45,-45 L 145,-145"/>
+  </g>
+</svg>

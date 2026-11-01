@@ -863,6 +863,7 @@ export const cartaoService = {
     dia_vencimento: number
     limite: number
     cor?: string
+    icone?: string | null
     created_by?: string
   }): Promise<any> {
     const { data, error } = await db
@@ -875,6 +876,7 @@ export const cartaoService = {
         dia_vencimento: Number(dados.dia_vencimento),
         limite: Number(dados.limite || 0),
         cor: dados.cor || '#4F46E5',
+        icone: dados.icone || null,
         ativo: true,
         created_by: dados.created_by,
       })
@@ -918,6 +920,7 @@ export const cartaoService = {
       dia_vencimento?: number
       limite?: number
       cor?: string
+      icone?: string | null
       ativo?: boolean
     },
     userId?: string,

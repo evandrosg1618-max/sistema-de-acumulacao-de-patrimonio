@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="caixa-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#006DB8"/>
+      <stop offset="100%" stop-color="#003D73"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#caixa-grad)"/>
+  <!-- O 'X' da Caixa: barra diagonal branca e chevron cruzado laranja/branco -->
+  <g transform="translate(256, 256)">
+    <!-- Barra diagonal branca principal (topo-esq para baixo-dir) -->
+    <polygon points="-120,-120 -50,-120 120,120 50,120" fill="#FFFFFF"/>
+    <!-- Braço superior direito branco do segundo traço -->
+    <polygon points="50,-120 120,-120 0,-10 -25,-40" fill="#FFFFFF"/>
+    <!-- Braço inferior esquerdo laranja (#F37021) do chevron -->
+    <polygon points="-120,120 -50,120 25,20 -5,-15" fill="#F37021"/>
+  </g>
+</svg>

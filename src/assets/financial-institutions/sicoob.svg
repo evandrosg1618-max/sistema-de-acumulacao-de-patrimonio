@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="64" fill="#003641"/>
+  <!-- Pináculo Sicoob invertido conforme manual de marca e print do PDF -->
+  <!-- Base superior reta, ponta central apontando para baixo -->
+  <!-- Vértices externos: (-150, -80), (150, -80), (0, 160) -->
+  <!-- Vértice interno vazio: (0, -10) -->
+  <g id="sicoob-symbol" transform="translate(256, 260)">
+    <!-- Asa esquerda azul petróleo (#00798C) -->
+    <polygon points="-150,-80 -2,-80 -2,-12 -42,38" fill="#00798C"/>
+    <!-- Asa direita verde azulado (#00A887) -->
+    <polygon points="150,-80 2,-80 2,-12 42,38" fill="#00A887"/>
+    <!-- Ponta inferior verde folha (#78BE20) -->
+    <polygon points="-42,38 0,-12 42,38 0,160" fill="#78BE20"/>
+  </g>
+</svg>

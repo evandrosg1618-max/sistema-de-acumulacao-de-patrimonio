@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#CC092F"/>
+  <!-- Árvore estilizada Bradesco em linhas brancas -->
+  <g fill="none" stroke="#FFFFFF" stroke-linecap="round" transform="translate(256, 260)">
+    <!-- Arco superior largo -->
+    <path d="M -140,-10 C -140,-115 140,-115 140,-10" stroke-width="42"/>
+    <!-- Arco intermediário -->
+    <path d="M -85,35 C -85,-35 85,-35 85,35" stroke-width="36"/>
+    <!-- Tronco duplo / colunas verticais -->
+    <line x1="-18" y1="12" x2="-18" y2="125" stroke-width="32"/>
+    <line x1="18" y1="12" x2="18" y2="125" stroke-width="32"/>
+  </g>
+</svg>

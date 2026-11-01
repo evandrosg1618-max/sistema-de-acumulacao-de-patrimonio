@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#FFFFFF"/>
+  <g transform="translate(256, 256)">
+    <!-- Anel externo verde esmeralda Sofisa Direto -->
+    <circle cx="0" cy="0" r="160" fill="none" stroke="#00875A" stroke-width="60"/>
+    <!-- Ponto central laranja vibrante Sofisa Direto -->
+    <circle cx="0" cy="0" r="70" fill="#F58220"/>
+  </g>
+</svg>

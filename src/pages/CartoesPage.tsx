@@ -38,7 +38,8 @@ import {
   RefreshCw,
   AlertTriangle,
 } from 'lucide-react'
-import { LOGOS_CARTOES_OFICIAIS, renderMiniaturaLogo } from '@/components/LogomarcasOficiais'
+import { BrandLogoPicker, BrandLogoDisplay } from '@/components/BrandLogoPicker'
+import { obterInstituicaoPorId } from '@/components/InstituicoesFinanceiras'
 import { ModalLancamento } from '@/components/ModalLancamento'
 import { ModalPagamentoFatura } from '@/components/ModalPagamentoFatura'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
@@ -866,7 +867,7 @@ export default function CartoesPage() {
     setSaving(true)
     try {
       if (editingCartao) {
-        await cartaoService.update(
+        const resultado = await cartaoService.update(
           editingCartao.id,
           activeWsId,
           {
@@ -876,12 +877,19 @@ export default function CartoesPage() {
             dia_vencimento: dv,
             limite: limiteNum,
             cor,
+            icone: iconeLogo || null,
           },
           user?.id,
         )
+
+        // Verificação de persistência real antes de apresentar mensagem de sucesso
+        if (!resultado || !resultado.id) {
+          throw new Error('Falha na persistência dos dados do cartão no banco.')
+        }
+
         toast.success(`Cartão "${formNome}" atualizado com sucesso!`)
       } else {
-        await cartaoService.create({
+        const resultado = await cartaoService.create({
           workspace_id: activeWsId,
           nome: formNome,
           bandeira,
@@ -889,8 +897,14 @@ export default function CartoesPage() {
           dia_vencimento: dv,
           limite: limiteNum,
           cor,
+          icone: iconeLogo || null,
           created_by: user?.id,
         })
+
+        if (!resultado || !resultado.id) {
+          throw new Error('Falha ao confirmar criação do cartão no banco.')
+        }
+
         toast.success(`Cartão "${formNome}" cadastrado com sucesso!`)
       }
 
@@ -1150,8 +1164,12 @@ export default function CartoesPage() {
                           className="w-11 h-8 rounded-md flex items-center justify-center text-white font-bold shrink-0 shadow-xs"
                           style={{ backgroundColor: cartao.cor || '#4F46E5' }}
                         >
-                          {(cartao as any).icone && (cartao as any).icone.startsWith('logo-') ? (
-                            renderMiniaturaLogo((cartao as any).icone, 'w-9 h-7')
+                          {(cartao as any).icone ? (
+                            <BrandLogoDisplay
+                              id={(cartao as any).icone}
+                              tipo="cartao"
+                              className="w-11 h-7.5"
+                            />
                           ) : (
                             <CreditCard className="w-5 h-5" />
                           )}
@@ -1809,51 +1827,20 @@ export default function CartoesPage() {
                 </div>
               </div>
 
-              {/* Seletor de Logomarcas Oficiais de Bancos + Bandeiras (Requisito 7.1) */}
-              <div>
-                <Label className="text-xs font-semibold text-slate-700">
-                  Logomarca Oficial Banco + Bandeira (Opcional)
-                </Label>
-                <p className="text-[11px] text-slate-500 mb-2">
-                  Miniaturas oficiais: Master C6 Carbon Black, Caixa Mastercard Black, Caixa Visa
-                  Infinite, Bradesco Visa Infinite.
-                </p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {LOGOS_CARTOES_OFICIAIS.map((logo) => {
-                    const isSelected = iconeLogo === logo.id
-                    return (
-                      <button
-                        key={logo.id}
-                        type="button"
-                        onClick={() => {
-                          if (isSelected) {
-                            setIconeLogo('')
-                          } else {
-                            setIconeLogo(logo.id)
-                            setCor(logo.corFundo)
-                            if (logo.bandeira?.includes('Mastercard')) {
-                              setBandeira('Mastercard')
-                            } else if (logo.bandeira?.includes('Visa')) {
-                              setBandeira('Visa')
-                            }
-                          }
-                        }}
-                        className={`flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition ${
-                          isSelected
-                            ? 'border-indigo-600 bg-indigo-50 ring-2 ring-indigo-500/20 shadow-xs'
-                            : 'border-slate-200 hover:border-slate-300 bg-white'
-                        }`}
-                        title={logo.nome}
-                      >
-                        {renderMiniaturaLogo(logo.id, 'w-14 h-9')}
-                        <span className="text-[10px] font-semibold text-slate-800 truncate w-full mt-1.5">
-                          {logo.nome}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
+              {/* Brand/Logo Picker de Instituições Financeiras (Reutilizado com Contas) */}
+              <BrandLogoPicker
+                value={iconeLogo || null}
+                onChange={(novoId, inst) => {
+                  setIconeLogo(novoId || '')
+                  if (inst?.corSugerida) {
+                    setCor(inst.corSugerida)
+                  }
+                  // A bandeira continua independente da instituição emissora!
+                }}
+                tipo="cartao"
+                label="Ícone / Instituição"
+                descricao="Escolha a instituição financeira emissora da logomarca oficial."
+              />
 
               <div>
                 <Label className="text-xs font-semibold text-slate-700">Cor do Cartão</Label>

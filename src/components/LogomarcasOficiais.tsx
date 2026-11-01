@@ -1,4 +1,5 @@
 import React from 'react'
+import { BrandLogoDisplay } from '@/components/BrandLogoPicker'
 
 export interface LogoItem {
   id: string
@@ -611,32 +612,7 @@ function LogoSvgCartao({ id }: { id: string }) {
 export function renderMiniaturaLogo(logoId: string | null | undefined, className = 'w-8 h-8') {
   if (!logoId) return null
 
-  const isBanco = LOGOS_BANCOS_OFICIAIS.some((l) => l.id === logoId)
-  const isCartao = LOGOS_CARTOES_OFICIAIS.some((l) => l.id === logoId)
-
-  if (isBanco) {
-    const item = LOGOS_BANCOS_OFICIAIS.find((l) => l.id === logoId)!
-    return (
-      <div
-        className={`rounded-full overflow-hidden flex items-center justify-center shrink-0 shadow-xs select-none ${className}`}
-        title={item.nome}
-      >
-        <LogoSvgBanco id={item.id} />
-      </div>
-    )
-  }
-
-  if (isCartao) {
-    const item = LOGOS_CARTOES_OFICIAIS.find((l) => l.id === logoId)!
-    return (
-      <div
-        className={`rounded-md overflow-hidden flex items-center justify-center shrink-0 shadow-xs select-none border border-slate-700/30 ${className}`}
-        title={item.nome}
-      >
-        <LogoSvgCartao id={item.id} />
-      </div>
-    )
-  }
-
-  return null
+  // Delegado de forma unificada para o BrandLogoDisplay do catálogo oficial
+  const tipo = LOGOS_CARTOES_OFICIAIS.some((l) => l.id === logoId) ? 'cartao' : 'conta'
+  return <BrandLogoDisplay id={logoId} tipo={tipo} className={className} />
 }

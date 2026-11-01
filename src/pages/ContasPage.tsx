@@ -40,7 +40,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { LOGOS_BANCOS_OFICIAIS, renderMiniaturaLogo } from '@/components/LogomarcasOficiais'
+import { BrandLogoPicker, BrandLogoDisplay } from '@/components/BrandLogoPicker'
+import { obterInstituicaoPorId } from '@/components/InstituicoesFinanceiras'
 import { AlertTriangle, Archive } from 'lucide-react'
 import {
   Select,
@@ -405,8 +406,10 @@ export default function ContasPage() {
                         className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold shrink-0 shadow-xs"
                         style={{ backgroundColor: conta.cor || '#10B981' }}
                       >
-                        {conta.icone && conta.icone.startsWith('logo-') ? (
-                          renderMiniaturaLogo(conta.icone, 'w-8 h-8')
+                        {conta.icone && obterInstituicaoPorId(conta.icone) ? (
+                          <BrandLogoDisplay id={conta.icone} tipo="conta" className="w-9 h-9" />
+                        ) : conta.icone && conta.icone.startsWith('logo-') ? (
+                          <BrandLogoDisplay id={conta.icone} tipo="conta" className="w-9 h-9" />
                         ) : (
                           <IconComponent className="w-5 h-5" />
                         )}
@@ -544,43 +547,19 @@ export default function ContasPage() {
                 </div>
               )}
 
-              {/* Seletor de Logomarcas Oficiais de Bancos (6.1) */}
-              <div>
-                <Label className="text-xs font-semibold text-slate-700">
-                  Logomarca Oficial do Banco (Opcional)
-                </Label>
-                <p className="text-[11px] text-slate-500 mb-2">
-                  Selecione a miniatura oficial do seu banco ou mantenha o ícone padrão.
-                </p>
-                <div className="grid grid-cols-5 gap-2">
-                  {LOGOS_BANCOS_OFICIAIS.map((banco) => {
-                    const isSelected = icone === banco.id
-                    return (
-                      <button
-                        key={banco.id}
-                        type="button"
-                        onClick={() => {
-                          setIcone(isSelected ? 'wallet' : banco.id)
-                          if (!isSelected) {
-                            setCor(banco.corFundo)
-                          }
-                        }}
-                        className={`flex flex-col items-center justify-center p-2 rounded-xl border text-center transition ${
-                          isSelected
-                            ? 'border-emerald-600 bg-emerald-50 ring-2 ring-emerald-500/20'
-                            : 'border-slate-200 hover:border-slate-300 bg-white'
-                        }`}
-                        title={banco.nome}
-                      >
-                        {renderMiniaturaLogo(banco.id, 'w-10 h-10')}
-                        <span className="text-[10px] font-medium text-slate-700 truncate w-full mt-1.5">
-                          {banco.nome}
-                        </span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
+              {/* Brand/Logo Picker de Instituições Financeiras */}
+              <BrandLogoPicker
+                value={icone && icone !== 'wallet' ? icone : null}
+                onChange={(novoId, inst) => {
+                  setIcone(novoId || 'wallet')
+                  if (inst?.corSugerida) {
+                    setCor(inst.corSugerida)
+                  }
+                }}
+                tipo="conta"
+                label="Ícone / Instituição"
+                descricao="Escolha a instituição financeira oficial ou mantenha o ícone padrão."
+              />
 
               <div>
                 <Label className="text-xs font-semibold text-slate-700">Cor da Conta</Label>
