@@ -1330,6 +1330,7 @@ export const categoriaService = {
     natureza?: string | null
     regularidade?: string | null
     origem_economica?: string | null
+    afeta_resultado?: boolean
     cor?: string
     icone?: string
     observacao?: string | null
@@ -1401,6 +1402,12 @@ export const categoriaService = {
       natureza: dados.tipo === 'despesa' ? dados.natureza : null,
       regularidade: dados.tipo === 'receita' ? dados.regularidade : null,
       origem_economica: dados.tipo === 'receita' ? dados.origem_economica : null,
+      afeta_resultado:
+        dados.tipo === 'receita'
+          ? dados.afeta_resultado !== undefined
+            ? dados.afeta_resultado
+            : true
+          : true,
       updated_at: new Date().toISOString(),
     }
 
@@ -1441,6 +1448,7 @@ export const categoriaService = {
     natureza?: string | null
     regularidade?: string | null
     origem_economica?: string | null
+    afeta_resultado?: boolean
     cor?: string
     icone?: string
     observacao?: string | null
@@ -1456,6 +1464,7 @@ export const categoriaService = {
         natureza: dados.natureza || null,
         regularidade: dados.regularidade || null,
         origem_economica: dados.origem_economica || null,
+        afeta_resultado: dados.afeta_resultado !== undefined ? dados.afeta_resultado : true,
         cor: dados.cor || null,
         icone: dados.icone || null,
         observacao: dados.observacao || null,
@@ -1489,6 +1498,7 @@ export const categoriaService = {
       natureza?: string | null
       regularidade?: string | null
       origem_economica?: string | null
+      afeta_resultado?: boolean
       cor?: string | null
       icone?: string | null
       observacao?: string | null
@@ -1837,8 +1847,11 @@ export const orcamentoService = {
     competencia: string
     categoria_id?: string | null
     subcategoria_id?: string | null
+    modo?: 'anterior' | 'atual'
   }): Promise<{
     competencia_anterior: string
+    competencia_alvo?: string
+    modo?: string
     data_inicio: string
     data_fim: string
     total: number
@@ -1849,6 +1862,7 @@ export const orcamentoService = {
       p_competencia: dados.competencia,
       p_categoria_id: dados.categoria_id || null,
       p_subcategoria_id: dados.subcategoria_id || null,
+      p_modo: dados.modo || 'anterior',
     })
 
     if (error) throw error

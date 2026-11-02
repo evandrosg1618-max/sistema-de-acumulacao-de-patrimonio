@@ -51,6 +51,7 @@ interface ModalCategoriaSubcategoriaProps {
     natureza?: NaturezaDespesa | null
     regularidade?: RegularidadeReceita | null
     origem_economica?: OrigemEconomicaReceita | null
+    afeta_resultado?: boolean
     cor?: string
     icone?: string
     observacao?: string | null

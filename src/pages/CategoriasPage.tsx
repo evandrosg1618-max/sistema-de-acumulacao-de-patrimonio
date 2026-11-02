@@ -134,6 +134,7 @@ export default function CategoriasPage() {
       natureza: dados.natureza,
       regularidade: dados.regularidade,
       origem_economica: dados.origem_economica,
+      afeta_resultado: dados.afeta_resultado,
       cor: dados.cor,
       icone: dados.icone,
       observacao: dados.observacao,
@@ -583,6 +584,14 @@ export default function CategoriasPage() {
                               <strong>{sub.regularidade || 'Recorrente mensal'}</strong>
                               <span className="text-slate-400">·</span>
                               <span>{sub.origem_economica || 'Trabalho'}</span>
+                              {sub.afeta_resultado === false && (
+                                <>
+                                  <span className="text-slate-400">·</span>
+                                  <span className="text-amber-700 font-semibold">
+                                    Neutro no Resultado
+                                  </span>
+                                </>
+                              )}
                             </span>
                           </div>
                         )}

@@ -12,6 +12,13 @@ export type MeioPagamentoTipo = 'CONTA' | 'CARTAO' | 'DINHEIRO'
 
 export type CategoriaTipo = 'despesa' | 'receita'
 
+// MODALIDADES DE SAÍDA (PRD SEÇÃO 12 A 14):
+export type ModalidadeSaida =
+  | 'compra_propria'
+  | 'compra_compartilhada'
+  | 'compra_terceiros'
+  | 'emprestimo_terceiros'
+
 // NOVA TAXONOMIA ANALÍTICA (SEÇÃO 2 A 11 DO PRD):
 // Despesas:
 export type ClassificacaoDespesa = 'Essencial' | 'Ajustável' | 'Discricionária' | 'Supérflua'
@@ -23,7 +30,7 @@ export type RegularidadeReceita =
   | 'Recorrente anual'
   | 'Recorrente variável'
   | 'Eventual'
-export type OrigemEconomicaReceita = 'Trabalho' | 'Capital' | 'Outras'
+export type OrigemEconomicaReceita = 'Trabalho' | 'Capital' | 'Outras' | 'Reembolso'
 
 // Tipos legados mantidos apenas para compatibilidade de tipagem se necessário
 export type NaturezaCategoria = 'fixa' | 'variavel'
@@ -201,6 +208,7 @@ export interface Subcategoria {
   natureza?: NaturezaDespesa | null
   regularidade?: RegularidadeReceita | null
   origem_economica?: OrigemEconomicaReceita | null
+  afeta_resultado?: boolean | null
   cor?: string | null
   icone?: string | null
   observacao?: string | null
@@ -259,6 +267,11 @@ export interface Lancamento {
   lancamento_pai_id?: string | null
   natureza_previsao?: boolean
   eh_excecao?: boolean
+  modalidade_saida?: ModalidadeSaida | string | null
+  valor_proprio?: number | null
+  valor_terceiros?: number | null
+  afeta_resultado?: boolean | null
+  afeta_orcamento?: boolean | null
   categoria?: Categoria | null
   subcategoria?: Subcategoria | null
   conta_origem?: Conta | null
