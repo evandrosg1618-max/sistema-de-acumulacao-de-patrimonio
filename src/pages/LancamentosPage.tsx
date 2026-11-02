@@ -1628,9 +1628,9 @@ export default function LancamentosPage() {
                               {l.descricao}
                             </div>
 
-                            {/* Categoria / Subcategoria + Observação */}
+                            {/* Categoria / Subcategoria + Observação (Para empréstimo a terceiros fica em branco conforme PDF Seção 6.8) */}
                             <div className="flex items-center flex-wrap gap-1.5 text-[11px] text-slate-500">
-                              {l.categoria && (
+                              {l.modalidade_saida !== 'emprestimo_terceiros' && l.categoria && (
                                 <span className="font-medium text-slate-600">
                                   {l.categoria.nome}
                                   {l.subcategoria && ` / ${l.subcategoria.nome}`}
@@ -1638,13 +1638,54 @@ export default function LancamentosPage() {
                               )}
                               {l.observacao && (
                                 <>
-                                  <span className="text-slate-300">•</span>
+                                  {l.modalidade_saida !== 'emprestimo_terceiros' && l.categoria && (
+                                    <span className="text-slate-300">•</span>
+                                  )}
                                   <span className="italic text-slate-400 break-words line-clamp-1">
                                     {l.observacao}
                                   </span>
                                 </>
                               )}
                             </div>
+
+                            {/* Sublinha informativa conforme Modalidade da Saída (PDF Seções 4.8, 5.6 e 6.8) */}
+                            {l.tipo === 'despesa' &&
+                              l.modalidade_saida === 'compra_compartilhada' && (
+                                <div className="text-[11px] font-medium text-blue-700 bg-blue-50/80 px-2 py-0.5 rounded-md inline-flex items-center flex-wrap gap-1 border border-blue-100">
+                                  <span>
+                                    👥 Minha parte {formatMoneyBRL(l.valor_proprio ?? l.valor)}
+                                  </span>
+                                  <span className="text-blue-300">•</span>
+                                  <span>A receber {formatMoneyBRL(l.valor_terceiros ?? 0)}</span>
+                                </div>
+                              )}
+
+                            {l.tipo === 'despesa' && l.modalidade_saida === 'compra_terceiros' && (
+                              <div className="text-[11px] font-medium text-amber-800 bg-amber-50/80 px-2 py-0.5 rounded-md inline-flex items-center flex-wrap gap-1 border border-amber-100">
+                                <span>👤 Compra para Terceiros</span>
+                                <span className="text-amber-300">•</span>
+                                <span>
+                                  A receber {formatMoneyBRL(l.valor_terceiros ?? l.valor)}
+                                </span>
+                                <span className="text-amber-400 text-[10px] ml-1">
+                                  (Não afeta Resultado nem Orçamento)
+                                </span>
+                              </div>
+                            )}
+
+                            {l.tipo === 'despesa' &&
+                              l.modalidade_saida === 'emprestimo_terceiros' && (
+                                <div className="text-[11px] font-medium text-purple-800 bg-purple-50/80 px-2 py-0.5 rounded-md inline-flex items-center flex-wrap gap-1 border border-purple-100">
+                                  <span>👤 Empréstimo a Terceiros</span>
+                                  <span className="text-purple-300">•</span>
+                                  <span>
+                                    A receber {formatMoneyBRL(l.valor_terceiros ?? l.valor)}
+                                  </span>
+                                  <span className="text-purple-400 text-[10px] ml-1">
+                                    (Não afeta Resultado nem Orçamento)
+                                  </span>
+                                </div>
+                              )}
 
                             {/* Badges de Fixo / Parcelado (C.3) */}
                             <div className="flex items-center gap-1.5 pt-0.5">

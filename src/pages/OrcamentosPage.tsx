@@ -305,22 +305,35 @@ export default function OrcamentosPage() {
     setModoPreenchimentoZero(true)
   }
 
-  // Abrir modal de lançamentos do período anterior (Card 7.7)
-  const abrirLancamentosPeriodoAnterior = async (
+  // Modal de lançamentos: guarda também a competência alvo e modo para exibição correta
+  const [modalLancamentosCompetenciaAlvo, setModalLancamentosCompetenciaAlvo] = useState('')
+
+  // Abrir modal de lançamentos do período anterior ou atual (Card 7.7)
+  const abrirLancamentosPeriodo = async (
     categoriaId: string,
     categoriaNome: string,
     subcategoriaId?: string,
     subcategoriaNome?: string,
     totalGastoRef = 0,
+    modo: 'anterior' | 'atual' = 'anterior',
   ) => {
     if (!wsId) return
 
     setModalLancamentosTitulo(subcategoriaNome ? subcategoriaNome : categoriaNome)
     setModalLancamentosSubtitulo(
-      subcategoriaNome ? `Categoria: ${categoriaNome}` : 'Todos os lançamentos da categoria',
+      modo === 'atual'
+        ? subcategoriaNome
+          ? `Mês atual (${formatAnoMesPT(anoMes)}) • Categoria: ${categoriaNome}`
+          : `Mês atual (${formatAnoMesPT(anoMes)}) • Todos os lançamentos`
+        : subcategoriaNome
+          ? `Mês anterior • Categoria: ${categoriaNome}`
+          : 'Mês anterior • Todos os lançamentos da categoria',
     )
     setModalLancamentosTotal(totalGastoRef)
     setModalLancamentosLista([])
+    setModalLancamentosCompetenciaAlvo(
+      modo === 'atual' ? anoMes : consolidado?.competencia_anterior || '',
+    )
     setModalLancamentosOpen(true)
     setModalLancamentosLoading(true)
 
@@ -330,13 +343,17 @@ export default function OrcamentosPage() {
         competencia: anoMes,
         categoria_id: categoriaId,
         subcategoria_id: subcategoriaId || null,
+        modo,
       })
 
       setModalLancamentosLista(res.lancamentos || [])
       setModalLancamentosTotal(Number(res.total || 0))
+      if (res.competencia_alvo) {
+        setModalLancamentosCompetenciaAlvo(res.competencia_alvo)
+      }
     } catch (err: any) {
-      console.error('Erro ao listar lançamentos do período anterior:', err)
-      toast.error('Erro ao carregar lançamentos do período anterior.')
+      console.error('Erro ao listar lançamentos do período:', err)
+      toast.error('Erro ao carregar lançamentos.')
     } finally {
       setModalLancamentosLoading(false)
     }
@@ -867,12 +884,28 @@ export default function OrcamentosPage() {
                             >
                               <DropdownMenuItem
                                 onClick={() =>
-                                  abrirLancamentosPeriodoAnterior(
+                                  abrirLancamentosPeriodo(
+                                    cat.id,
+                                    cat.nome,
+                                    undefined,
+                                    undefined,
+                                    cat.valor_efetivado,
+                                    'atual',
+                                  )
+                                }
+                                className="cursor-pointer font-medium text-emerald-800 hover:bg-emerald-50"
+                              >
+                                Visualizar Lançamentos do mês atual
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  abrirLancamentosPeriodo(
                                     cat.id,
                                     cat.nome,
                                     undefined,
                                     undefined,
                                     cat.gasto_periodo_anterior,
+                                    'anterior',
                                   )
                                 }
                                 className="cursor-pointer font-medium"
@@ -1059,12 +1092,28 @@ export default function OrcamentosPage() {
                                       >
                                         <DropdownMenuItem
                                           onClick={() =>
-                                            abrirLancamentosPeriodoAnterior(
+                                            abrirLancamentosPeriodo(
+                                              cat.id,
+                                              cat.nome,
+                                              sub.id,
+                                              sub.nome,
+                                              sub.valor_efetivado,
+                                              'atual',
+                                            )
+                                          }
+                                          className="cursor-pointer font-medium text-emerald-800 hover:bg-emerald-50"
+                                        >
+                                          Visualizar Lançamentos do mês atual
+                                        </DropdownMenuItem>
+                                        <DropdownMenuItem
+                                          onClick={() =>
+                                            abrirLancamentosPeriodo(
                                               cat.id,
                                               cat.nome,
                                               sub.id,
                                               sub.nome,
                                               sub.gasto_periodo_anterior,
+                                              'anterior',
                                             )
                                           }
                                           className="cursor-pointer font-medium"
@@ -1099,13 +1148,15 @@ export default function OrcamentosPage() {
         </>
       )}
 
-      {/* Modal Card 7.7: Visualizar Lançamentos do período anterior */}
+      {/* Modal Card 7.7: Visualizar Lançamentos do período anterior / atual */}
       <ModalLancamentosPeriodoAnterior
         open={modalLancamentosOpen}
         onOpenChange={setModalLancamentosOpen}
         titulo={modalLancamentosTitulo}
         subtitulo={modalLancamentosSubtitulo}
-        competenciaAnterior={consolidado?.competencia_anterior || ''}
+        competenciaAnterior={
+          modalLancamentosCompetenciaAlvo || consolidado?.competencia_anterior || ''
+        }
         totalGasto={modalLancamentosTotal}
         lancamentos={modalLancamentosLista}
         loading={modalLancamentosLoading}

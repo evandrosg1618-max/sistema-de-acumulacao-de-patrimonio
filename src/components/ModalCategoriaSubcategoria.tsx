@@ -87,6 +87,7 @@ export function ModalCategoriaSubcategoria({
   // Campos analíticos de Receita
   const [regularidade, setRegularidade] = useState<RegularidadeReceita>('Recorrente mensal')
   const [origemEconomica, setOrigemEconomica] = useState<OrigemEconomicaReceita>('Trabalho')
+  const [afetaResultadoReceita, setAfetaResultadoReceita] = useState<boolean>(true)
 
   // Cor e Ícone
   const [cor, setCor] = useState('#10B981')
@@ -114,6 +115,11 @@ export function ModalCategoriaSubcategoria({
       setNatureza(subcategoriaParaEdicao.natureza || 'Consumo')
       setRegularidade(subcategoriaParaEdicao.regularidade || 'Recorrente mensal')
       setOrigemEconomica(subcategoriaParaEdicao.origem_economica || 'Trabalho')
+      setAfetaResultadoReceita(
+        subcategoriaParaEdicao.afeta_resultado !== undefined
+          ? Boolean(subcategoriaParaEdicao.afeta_resultado)
+          : true,
+      )
 
       setCor(subcategoriaParaEdicao.cor || catPai?.cor || '#10B981')
       setIcone(subcategoriaParaEdicao.icone || catPai?.icone || 'tag')
@@ -130,6 +136,7 @@ export function ModalCategoriaSubcategoria({
       setNatureza('Consumo')
       setRegularidade('Recorrente mensal')
       setOrigemEconomica('Trabalho')
+      setAfetaResultadoReceita(true)
     } else if (categoriaPaiFixa) {
       // Adicionar nova subcategoria dentro de categoria existente
       setNomeCategoria(categoriaPaiFixa.nome)
@@ -142,6 +149,7 @@ export function ModalCategoriaSubcategoria({
       setNatureza('Consumo')
       setRegularidade('Recorrente mensal')
       setOrigemEconomica('Trabalho')
+      setAfetaResultadoReceita(true)
     } else {
       // Novo registro
       setNomeCategoria('')
@@ -154,6 +162,7 @@ export function ModalCategoriaSubcategoria({
       setNatureza('Consumo')
       setRegularidade('Recorrente mensal')
       setOrigemEconomica('Trabalho')
+      setAfetaResultadoReceita(true)
     }
   }, [
     open,
@@ -193,6 +202,7 @@ export function ModalCategoriaSubcategoria({
         natureza: tipoFluxo === 'despesa' ? natureza : null,
         regularidade: tipoFluxo === 'receita' ? regularidade : null,
         origem_economica: tipoFluxo === 'receita' ? origemEconomica : null,
+        afeta_resultado: tipoFluxo === 'receita' ? afetaResultadoReceita : true,
         cor,
         icone,
         observacao: observacao.trim() || null,
@@ -478,9 +488,37 @@ export function ModalCategoriaSubcategoria({
                           <SelectItem value="Trabalho">Trabalho</SelectItem>
                           <SelectItem value="Capital">Capital</SelectItem>
                           <SelectItem value="Outras">Outras</SelectItem>
+                          <SelectItem value="Reembolso">Reembolso</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
+                  </div>
+
+                  {/* Campo Afeta Resultado (Sim/Não) conforme PDF Seção 12 e 14 */}
+                  <div className="pt-2 border-t border-emerald-200/60">
+                    <Label
+                      htmlFor="dlg-afeta-resultado"
+                      className="text-xs font-semibold text-slate-700 flex items-center justify-between"
+                    >
+                      <span>Afeta Resultado *</span>
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        {afetaResultadoReceita
+                          ? 'Soma nas Receitas do Resultado'
+                          : 'Aumenta saldo da conta sem afetar Resultado'}
+                      </span>
+                    </Label>
+                    <Select
+                      value={afetaResultadoReceita ? 'sim' : 'nao'}
+                      onValueChange={(val) => setAfetaResultadoReceita(val === 'sim')}
+                    >
+                      <SelectTrigger id="dlg-afeta-resultado" className="mt-1 text-xs bg-white">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="sim">Sim (Soma ao Resultado do Período)</SelectItem>
+                        <SelectItem value="nao">Não (Reembolso / Neutro no Resultado)</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               )}
