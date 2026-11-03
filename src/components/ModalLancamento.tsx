@@ -83,6 +83,11 @@ export function ModalLancamento({
   const [valor, setValor] = useState('')
   const [data, setData] = useState(() => getTodayDateString())
 
+  // Modalidade da Saída (apenas para despesas, PDF Seção 1 e 2)
+  const [modalidadeSaida, setModalidadeSaida] = useState<ModalidadeSaida>('compra_propria')
+  const [valorProprio, setValorProprio] = useState('')
+  const [erroValorProprio, setErroValorProprio] = useState<string | null>(null)
+
   // Seletor unificado "Pago com" (despesa) / "Recebido em" (receita)
   // Formato: "conta:<id>" | "cartao:<id>" | "dinheiro:principal"
   const [pagoComDestino, setPagoComDestino] = useState<string>('')
@@ -187,10 +192,30 @@ export function ModalLancamento({
       setValor(initialData.valor ? initialData.valor.toFixed(2).replace('.', ',') : '')
       setData(initialData.data || getTodayDateString())
 
+      // Modalidade existente do lançamento em edição
+      const modExistente = (initialData.modalidade_saida as ModalidadeSaida) || 'compra_propria'
+      setModalidadeSaida(modExistente)
+      if (
+        modExistente === 'compra_compartilhada' &&
+        initialData.valor_proprio !== undefined &&
+        initialData.valor_proprio !== null
+      ) {
+        setValorProprio(Number(initialData.valor_proprio).toFixed(2).replace('.', ','))
+      } else {
+        setValorProprio('')
+      }
+      setErroValorProprio(null)
+
       if (initialData.cartao_id || initialData.meio_pagamento_tipo === 'CARTAO') {
         const cId =
           initialData.cartao_id || cartaoPadraoId || (cartoes.length > 0 ? cartoes[0].id : '')
-        setPagoComDestino(`cartao:${cId}`)
+        // Se for empréstimo a terceiros, não permite cartão!
+        if (modExistente === 'emprestimo_terceiros') {
+          if (contas.length > 0) setPagoComDestino(`conta:${contas[0].id}`)
+          else setPagoComDestino('dinheiro:principal')
+        } else {
+          setPagoComDestino(`cartao:${cId}`)
+        }
       } else if (initialData.conta_origem_id || initialData.meio_pagamento_tipo === 'CONTA') {
         const cOrigem = initialData.conta_origem_id || (contas.length > 0 ? contas[0].id : '')
         setPagoComDestino(`conta:${cOrigem}`)
@@ -250,6 +275,9 @@ export function ModalLancamento({
       setDescricao('')
       setValor('')
       setData(dataPadrao || getTodayDateString())
+      setModalidadeSaida('compra_propria')
+      setValorProprio('')
+      setErroValorProprio(null)
       if (cartaoPadraoId) {
         setPagoComDestino(`cartao:${cartaoPadraoId}`)
       } else {
@@ -343,7 +371,12 @@ export function ModalLancamento({
       return
     }
 
-    if (tipo !== 'transferencia' && !subcategoriaId) {
+    // Validação de subcategoria obrigatória (PDF Seções 5.3 e 6.5: não exigir em compra para terceiros e empréstimo a terceiros)
+    const dispensaSubcategoria =
+      tipo === 'despesa' &&
+      (modalidadeSaida === 'compra_terceiros' || modalidadeSaida === 'emprestimo_terceiros')
+
+    if (tipo !== 'transferencia' && !dispensaSubcategoria && !subcategoriaId) {
       return
     }
 
@@ -393,6 +426,49 @@ export function ModalLancamento({
         resolvedContaOrigemId = pagoComDestino.replace('conta:', '')
       } else if (pagoComDestino.startsWith('dinheiro:')) {
         meioFinal = 'DINHEIRO'
+      }
+    }
+
+    // Validações de Modalidade da Saída para Despesas (PDF Seções 1 a 6)
+    let valorProprioFinal: number = valorNumerico
+    let valorTerceirosFinal: number = 0
+    let afetaResultadoFinal = true
+    let afetaOrcamentoFinal = true
+
+    if (tipo === 'despesa') {
+      if (modalidadeSaida === 'compra_compartilhada') {
+        const vpNum = parseFloat(valorProprio.replace(/\./g, '').replace(',', '.'))
+        if (!vpNum || isNaN(vpNum) || vpNum <= 0) {
+          setErroValorProprio('Informe o Valor Próprio maior que zero.')
+          return
+        }
+        if (vpNum >= valorNumerico) {
+          setErroValorProprio('O Valor Próprio deve ser menor que o Valor Total.')
+          return
+        }
+        valorProprioFinal = vpNum
+        valorTerceirosFinal = Number((valorNumerico - vpNum).toFixed(2))
+        afetaResultadoFinal = true
+        afetaOrcamentoFinal = true
+      } else if (modalidadeSaida === 'compra_terceiros') {
+        valorProprioFinal = 0
+        valorTerceirosFinal = valorNumerico
+        afetaResultadoFinal = false
+        afetaOrcamentoFinal = false
+      } else if (modalidadeSaida === 'emprestimo_terceiros') {
+        if (meioFinal === 'CARTAO') {
+          return
+        }
+        valorProprioFinal = 0
+        valorTerceirosFinal = valorNumerico
+        afetaResultadoFinal = false
+        afetaOrcamentoFinal = false
+      } else {
+        // compra_propria
+        valorProprioFinal = valorNumerico
+        valorTerceirosFinal = 0
+        afetaResultadoFinal = true
+        afetaOrcamentoFinal = true
       }
     }
 
@@ -452,6 +528,11 @@ export function ModalLancamento({
                 ? 'parcelado'
                 : 'unico',
           quantidade_parcelas: modoRepeticao === 'parcelado' ? quantidadeParcelas : 1,
+          modalidade_saida: tipo === 'despesa' ? modalidadeSaida : 'compra_propria',
+          valor_proprio: valorProprioFinal,
+          valor_terceiros: valorTerceirosFinal,
+          afeta_resultado: afetaResultadoFinal,
+          afeta_orcamento: afetaOrcamentoFinal,
           // Build 5: parâmetros para lançamento fixo
           fixo:
             modoRepeticao === 'fixo'
@@ -608,7 +689,7 @@ export function ModalLancamento({
                 </div>
               </div>
 
-              {/* Data e Pago com / Recebido em (Substituição unificada do Meio de Pagamento) */}
+              {/* Data | Modalidade da Saída (para despesa) ou Pago com / Recebido em */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="lan-data" className="text-xs font-semibold text-slate-700">
@@ -629,28 +710,105 @@ export function ModalLancamento({
                   </div>
                 </div>
 
-                {tipo !== 'transferencia' ? (
+                {tipo === 'despesa' ? (
                   <div>
                     <Label
-                      htmlFor="lan-pago-com"
+                      htmlFor="lan-modalidade"
                       className="text-xs font-semibold text-slate-700 flex items-center justify-between"
                     >
-                      <span>{tipo === 'despesa' ? 'Pago com *' : 'Recebido em *'}</span>
+                      <span>Modalidade da Saída *</span>
+                      <span className="text-[10px] text-slate-400 font-normal">
+                        define impacto e partilha
+                      </span>
+                    </Label>
+                    <Select
+                      value={modalidadeSaida}
+                      onValueChange={(val: ModalidadeSaida) => {
+                        setModalidadeSaida(val)
+                        setErroValorProprio(null)
+                        // Se selecionou empréstimo a terceiros e meio atual for cartão, redefinir para conta ou dinheiro
+                        if (
+                          val === 'emprestimo_terceiros' &&
+                          pagoComDestino.startsWith('cartao:')
+                        ) {
+                          if (contas.length > 0) setPagoComDestino(`conta:${contas[0].id}`)
+                          else setPagoComDestino('dinheiro:principal')
+                        }
+                        // Se for compartilhada e ainda não preencheu valor próprio, deixa limpo
+                        if (val === 'compra_compartilhada' && !valorProprio && valor) {
+                          const valNum = parseFloat(valor.replace(/\./g, '').replace(',', '.'))
+                          if (valNum > 0) {
+                            // sugestão de metade arredondada
+                            const metade = Math.round((valNum / 2) * 100) / 100
+                            setValorProprio(metade.toFixed(2).replace('.', ','))
+                          }
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        id="lan-modalidade"
+                        className="mt-1 text-xs bg-white text-slate-900 border-slate-300 font-semibold"
+                      >
+                        <SelectValue placeholder="Selecione a modalidade" />
+                      </SelectTrigger>
+                      <SelectContent className="text-xs">
+                        <SelectItem value="compra_propria">
+                          <div className="flex flex-col text-left py-0.5">
+                            <span className="font-semibold text-slate-900">Compra Própria</span>
+                            <span className="text-[11px] text-slate-500">
+                              100% consumo próprio (padrão)
+                            </span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="compra_compartilhada">
+                          <div className="flex flex-col text-left py-0.5">
+                            <span className="font-semibold text-blue-700">
+                              Compra Compartilhada
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              Parte minha e parte a receber de terceiros
+                            </span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="compra_terceiros">
+                          <div className="flex flex-col text-left py-0.5">
+                            <span className="font-semibold text-amber-700">
+                              Compra para Terceiros
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              100% em benefício de terceiros
+                            </span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="emprestimo_terceiros">
+                          <div className="flex flex-col text-left py-0.5">
+                            <span className="font-semibold text-purple-700">
+                              Empréstimo a Terceiros
+                            </span>
+                            <span className="text-[11px] text-slate-500">
+                              Saída financeira por empréstimo concedido
+                            </span>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : tipo !== 'transferencia' ? (
+                  <div>
+                    <Label
+                      htmlFor="lan-recebido-em"
+                      className="text-xs font-semibold text-slate-700 flex items-center justify-between"
+                    >
+                      <span>Recebido em *</span>
                       <span className="text-[10px] text-slate-400 font-normal">
                         vincula meio automaticamente
                       </span>
                     </Label>
                     <Select value={pagoComDestino} onValueChange={setPagoComDestino}>
-                      <SelectTrigger id="lan-pago-com" className="mt-1 text-xs">
-                        <SelectValue placeholder="Selecione conta, cartão ou dinheiro" />
+                      <SelectTrigger id="lan-recebido-em" className="mt-1 text-xs">
+                        <SelectValue placeholder="Selecione conta ou dinheiro" />
                       </SelectTrigger>
                       <SelectContent className="max-h-64">
-                        {/* Grupo: Contas Bancárias */}
-                        {contas.length > 0 && (
-                          <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                            Contas Bancárias
-                          </div>
-                        )}
                         {contas.map((c) => (
                           <SelectItem key={`conta:${c.id}`} value={`conta:${c.id}`}>
                             <div className="flex items-center gap-2">
@@ -662,29 +820,6 @@ export function ModalLancamento({
                             </div>
                           </SelectItem>
                         ))}
-
-                        {/* Grupo: Cartões de Crédito */}
-                        {cartoes.length > 0 && (
-                          <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
-                            Cartões de Crédito
-                          </div>
-                        )}
-                        {cartoes.map((c) => (
-                          <SelectItem key={`cartao:${c.id}`} value={`cartao:${c.id}`}>
-                            <div className="flex items-center gap-2">
-                              <CreditCard className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                              <span>{c.nome}</span>
-                              <span className="text-slate-400 text-[11px]">
-                                (Fecha dia {c.dia_fechamento})
-                              </span>
-                            </div>
-                          </SelectItem>
-                        ))}
-
-                        {/* Grupo: Dinheiro em Espécie */}
-                        <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
-                          Espécie
-                        </div>
                         <SelectItem value="dinheiro:principal">
                           <div className="flex items-center gap-2">
                             <Banknote className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -704,6 +839,137 @@ export function ModalLancamento({
                   </div>
                 )}
               </div>
+
+              {/* Se for Despesa, linha de Pago com | Repetir/Anexos (PDF Seção 2) */}
+              {tipo === 'despesa' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <Label
+                      htmlFor="lan-pago-com-despesa"
+                      className="text-xs font-semibold text-slate-700 flex items-center justify-between"
+                    >
+                      <span>Pago com *</span>
+                      <span className="text-[10px] text-slate-400 font-normal">
+                        vincula meio automaticamente
+                      </span>
+                    </Label>
+                    <Select value={pagoComDestino} onValueChange={setPagoComDestino}>
+                      <SelectTrigger id="lan-pago-com-despesa" className="mt-1 text-xs bg-white">
+                        <SelectValue placeholder="Selecione conta, cartão ou dinheiro" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {/* Grupo: Contas Bancárias (filtra cartões) */}
+                        {contas.length > 0 && (
+                          <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            Contas Bancárias
+                          </div>
+                        )}
+                        {contas.map((c) => (
+                          <SelectItem key={`conta:${c.id}`} value={`conta:${c.id}`}>
+                            <div className="flex items-center gap-2">
+                              <Wallet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                              <span>{c.nome}</span>
+                              <span className="text-slate-400 text-[11px]">
+                                ({formatMoneyBRL(c.saldo_atual)})
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+
+                        {/* Cartões de crédito: OCULTADOS E NÃO PERMITIDOS quando modalidade for Empréstimo a Terceiros (PDF Seção 6.3) */}
+                        {modalidadeSaida !== 'emprestimo_terceiros' && cartoes.length > 0 && (
+                          <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                            Cartões de Crédito
+                          </div>
+                        )}
+                        {modalidadeSaida !== 'emprestimo_terceiros' &&
+                          cartoes.map((c) => (
+                            <SelectItem key={`cartao:${c.id}`} value={`cartao:${c.id}`}>
+                              <div className="flex items-center gap-2">
+                                <CreditCard className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                                <span>{c.nome}</span>
+                                <span className="text-slate-400 text-[11px]">
+                                  (Fecha dia {c.dia_fechamento})
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+
+                        <div className="px-2 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">
+                          Espécie
+                        </div>
+                        <SelectItem value="dinheiro:principal">
+                          <div className="flex items-center gap-2">
+                            <Banknote className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                            <span>Dinheiro em Espécie / Carteira</span>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex flex-col justify-end">
+                    {/* Barra de Ações: Repetir / Anexos / Tags */}
+                    {modalidadeSaida !== 'emprestimo_terceiros' ? (
+                      <div className="flex items-center gap-2 py-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setMostrarOpcoesRepeticao(!mostrarOpcoesRepeticao)}
+                          className={`p-2 rounded-lg border transition flex items-center gap-1.5 text-xs font-semibold ${
+                            mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum'
+                              ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs'
+                              : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                          }`}
+                          title="Repetir lançamento: Fixo ou Parcelado"
+                        >
+                          <RotateCw
+                            className={`w-4 h-4 ${mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum' ? 'text-emerald-600' : 'text-slate-500'}`}
+                          />
+                          <span>
+                            Repetir{' '}
+                            {modoRepeticao === 'fixo'
+                              ? '(Fixo)'
+                              : modoRepeticao === 'parcelado'
+                                ? `(${quantidadeParcelas}x)`
+                                : ''}
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled
+                          title="Observações (disponível abaixo)"
+                          className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                        >
+                          <FileText className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled
+                          title="Anexar arquivo (em breve)"
+                          className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                        >
+                          <Paperclip className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled
+                          title="Tags (em breve)"
+                          className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                        >
+                          <Tag className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-slate-400 italic py-2">
+                        Repetição desabilitada para Empréstimo a Terceiros
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Informação em tempo real da competência da fatura que o lançamento vai compor ao selecionar cartão (OCR 2ª Tela) */}
               {pagoComDestino.startsWith('cartao:') &&
@@ -1037,76 +1303,211 @@ export function ModalLancamento({
               )}
 
               {/* REQUISITO: Somente SUBCATEGORIA no modal (Categoria oculta e vinculada automaticamente) */}
-              {tipo !== 'transferencia' && (
-                <div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="lan-subcat" className="text-xs font-semibold text-slate-700">
-                      Subcategoria *
-                    </Label>
-                    {categoriaId && (
-                      <span className="text-[11px] text-slate-500 font-medium">
-                        Categoria vinculada:{' '}
-                        <strong className="text-slate-800">
-                          {categorias.find((c) => c.id === categoriaId)?.nome}
-                        </strong>
-                      </span>
+              {/* PDF Seções 5.3 e 6.5: Subcategoria OCULTADA/DESABILITADA para Compra para Terceiros e Empréstimo a Terceiros */}
+              {tipo !== 'transferencia' &&
+                (tipo !== 'despesa' ||
+                  (modalidadeSaida !== 'compra_terceiros' &&
+                    modalidadeSaida !== 'emprestimo_terceiros')) && (
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="lan-subcat" className="text-xs font-semibold text-slate-700">
+                        Subcategoria *
+                      </Label>
+                      {categoriaId && (
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Categoria vinculada:{' '}
+                          <strong className="text-slate-800">
+                            {categorias.find((c) => c.id === categoriaId)?.nome}
+                          </strong>
+                        </span>
+                      )}
+                    </div>
+
+                    <Select
+                      value={subcategoriaId}
+                      onValueChange={handleSelecionarSubcategoria}
+                      required
+                    >
+                      <SelectTrigger
+                        id="lan-subcat"
+                        className="mt-1 text-xs bg-white text-slate-900 border-slate-300 font-medium"
+                      >
+                        <SelectValue placeholder="Selecione a subcategoria obrigatória (*)" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-72 bg-white text-slate-900 border-slate-200">
+                        {/* Campo de filtro DIGITÁVEL */}
+                        <div className="p-2 border-b border-slate-100 sticky top-0 bg-white z-10">
+                          <div className="relative">
+                            <Input
+                              type="text"
+                              value={buscaSubcategoria}
+                              onChange={(e) => setBuscaSubcategoria(e.target.value)}
+                              placeholder="Filtrar subcategoria..."
+                              className="h-8 text-xs bg-slate-50 text-slate-900 border-slate-200"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                        </div>
+
+                        {subcategoriasFiltradas.length === 0 ? (
+                          <div className="p-3 text-center text-xs text-slate-400">
+                            Nenhuma subcategoria encontrada
+                          </div>
+                        ) : (
+                          subcategoriasFiltradas.map((s) => (
+                            <SelectItem
+                              key={s.id}
+                              value={s.id}
+                              className="text-xs cursor-pointer py-2"
+                            >
+                              <div className="flex items-center justify-between w-full gap-2">
+                                <span className="font-semibold text-slate-900">{s.nome}</span>
+                                <span className="text-[11px] text-slate-400 font-normal">
+                                  ({s.categoriaNome})
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {!subcategoriaId && (
+                      <p className="text-[11px] text-rose-500 mt-1">
+                        * Campo obrigatório para categorização do fluxo financeiro
+                      </p>
                     )}
                   </div>
+                )}
 
-                  <Select
-                    value={subcategoriaId}
-                    onValueChange={handleSelecionarSubcategoria}
-                    required
-                  >
-                    <SelectTrigger
-                      id="lan-subcat"
-                      className="mt-1 text-xs bg-white text-slate-900 border-slate-300 font-medium"
-                    >
-                      <SelectValue placeholder="Selecione a subcategoria obrigatória (*)" />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-72 bg-white text-slate-900 border-slate-200">
-                      {/* Campo de filtro DIGITÁVEL */}
-                      <div className="p-2 border-b border-slate-100 sticky top-0 bg-white z-10">
-                        <div className="relative">
-                          <Input
-                            type="text"
-                            value={buscaSubcategoria}
-                            onChange={(e) => setBuscaSubcategoria(e.target.value)}
-                            placeholder="Filtrar subcategoria..."
-                            className="h-8 text-xs bg-slate-50 text-slate-900 border-slate-200"
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => e.stopPropagation()}
-                          />
-                        </div>
+              {/* CAMPOS ADICIONAIS CONFORME MODALIDADE DA SAÍDA (PDF Seções 2, 4.1 e 5.1) */}
+              {tipo === 'despesa' && modalidadeSaida === 'compra_compartilhada' && (
+                <div className="p-3.5 bg-blue-50/70 border border-blue-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-blue-900 uppercase tracking-wide flex items-center gap-1.5">
+                      <span>👥 Divisão da Compra Compartilhada</span>
+                    </span>
+                    <span className="text-[11px] text-blue-700">Total = Próprio + Terceiros</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Valor Total: somente leitura, espelhando o valor principal */}
+                    <div>
+                      <Label className="text-xs font-semibold text-slate-600">Valor Total</Label>
+                      <div className="mt-1 h-9 px-3 py-2 bg-slate-100 border border-slate-200 rounded-md text-xs font-bold text-slate-700 flex items-center">
+                        {valor ? `R$ ${valor}` : 'R$ 0,00'}
                       </div>
+                      <span className="text-[10px] text-slate-400">somente leitura</span>
+                    </div>
 
-                      {subcategoriasFiltradas.length === 0 ? (
-                        <div className="p-3 text-center text-xs text-slate-400">
-                          Nenhuma subcategoria encontrada
-                        </div>
-                      ) : (
-                        subcategoriasFiltradas.map((s) => (
-                          <SelectItem
-                            key={s.id}
-                            value={s.id}
-                            className="text-xs cursor-pointer py-2"
-                          >
-                            <div className="flex items-center justify-between w-full gap-2">
-                              <span className="font-semibold text-slate-900">{s.nome}</span>
-                              <span className="text-[11px] text-slate-400 font-normal">
-                                ({s.categoriaNome})
-                              </span>
-                            </div>
-                          </SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
-                  {!subcategoriaId && (
-                    <p className="text-[11px] text-rose-500 mt-1">
-                      * Campo obrigatório para categorização do fluxo financeiro
-                    </p>
+                    {/* Valor Próprio: editável pelo usuário */}
+                    <div>
+                      <Label
+                        htmlFor="lan-val-proprio"
+                        className="text-xs font-semibold text-blue-900"
+                      >
+                        Valor Próprio * (Minha parte)
+                      </Label>
+                      <div className="mt-1">
+                        <ValorCalculadoraInput
+                          id="lan-val-proprio"
+                          value={valorProprio}
+                          onChange={(v) => {
+                            setValorProprio(v)
+                            setErroValorProprio(null)
+                          }}
+                          placeholder="0,00"
+                          className="border-blue-300 focus:border-blue-500 bg-white"
+                        />
+                      </div>
+                      <span className="text-[10px] text-blue-600">0 &lt; Próprio &lt; Total</span>
+                    </div>
+
+                    {/* Valor de Terceiros: somente leitura, calculado automaticamente = Total - Próprio */}
+                    <div>
+                      <Label className="text-xs font-semibold text-slate-600">
+                        Valor de Terceiros (A receber)
+                      </Label>
+                      {(() => {
+                        const totalNum = parseFloat(valor.replace(/\./g, '').replace(',', '.')) || 0
+                        const proprioNum =
+                          parseFloat(valorProprio.replace(/\./g, '').replace(',', '.')) || 0
+                        const terceirosNum = Math.max(0, totalNum - proprioNum)
+                        return (
+                          <div className="mt-1 h-9 px-3 py-2 bg-slate-100 border border-slate-200 rounded-md text-xs font-bold text-slate-700 flex items-center">
+                            {formatMoneyBRL(terceirosNum)}
+                          </div>
+                        )
+                      })()}
+                      <span className="text-[10px] text-slate-400">calculado: Total − Próprio</span>
+                    </div>
+                  </div>
+
+                  {erroValorProprio && (
+                    <div className="text-xs text-rose-600 font-medium bg-rose-50 border border-rose-200 rounded-md p-2">
+                      ⚠️ {erroValorProprio}
+                    </div>
                   )}
+
+                  <div className="text-[11px] text-blue-800 bg-white/70 p-2 rounded-lg border border-blue-200/60 leading-relaxed">
+                    💡 <strong>Impacto:</strong> Apenas o <strong>Valor Próprio</strong> consumirá o
+                    seu <strong>Orçamento</strong> e o <strong>Resumo do Período</strong>. Se pago
+                    no cartão de crédito, faturas e parcelas utilizam o Valor Total normalmente.
+                  </div>
+                </div>
+              )}
+
+              {tipo === 'despesa' && modalidadeSaida === 'compra_terceiros' && (
+                <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-900 uppercase tracking-wide flex items-center gap-1.5">
+                      <span>👤 Compra para Terceiros</span>
+                    </span>
+                    <span className="text-[11px] text-amber-700 font-semibold">
+                      Não afeta Resultado nem Orçamento
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs font-semibold text-slate-600">Valor Total</Label>
+                      <div className="mt-1 h-9 px-3 py-2 bg-slate-100 border border-slate-200 rounded-md text-xs font-bold text-slate-700 flex items-center">
+                        {valor ? `R$ ${valor}` : 'R$ 0,00'}
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="text-xs font-semibold text-amber-900">
+                        Valor de Terceiros (A receber)
+                      </Label>
+                      <div className="mt-1 h-9 px-3 py-2 bg-amber-100/60 border border-amber-300 rounded-md text-xs font-bold text-amber-900 flex items-center">
+                        {valor ? `R$ ${valor}` : 'R$ 0,00'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-amber-900 bg-white/80 p-2 rounded-lg border border-amber-200/60 leading-relaxed">
+                    💡 Subcategoria dispensada (não constitui despesa própria). Valor Próprio = R$
+                    0,00. Cartão de crédito permitido pelo valor integral.
+                  </div>
+                </div>
+              )}
+
+              {tipo === 'despesa' && modalidadeSaida === 'emprestimo_terceiros' && (
+                <div className="p-3.5 bg-purple-50/70 border border-purple-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-900 uppercase tracking-wide flex items-center gap-1.5">
+                      <span>👤 Empréstimo a Terceiros</span>
+                    </span>
+                    <span className="text-[11px] text-purple-700 font-semibold">
+                      Não afeta Resultado nem Orçamento
+                    </span>
+                  </div>
+                  <p className="text-xs text-purple-900 leading-relaxed">
+                    Representa saída financeira por empréstimo concedido. Cartões e repetição
+                    desabilitados. Subcategoria não exigida. Valor Próprio = R$ 0,00; Valor a
+                    Receber = Valor Total.
+                  </p>
                 </div>
               )}
 

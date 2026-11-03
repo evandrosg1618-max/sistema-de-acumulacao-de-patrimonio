@@ -2790,9 +2790,70 @@ export const lancamentoService = {
     observacao?: string | null
     quantidade_parcelas?: number
     created_by?: string
+    modalidade_saida?:
+      | 'compra_propria'
+      | 'compra_compartilhada'
+      | 'compra_terceiros'
+      | 'emprestimo_terceiros'
+      | string
+    valor_proprio?: number | null
+    valor_terceiros?: number | null
+    afeta_resultado?: boolean | null
+    afeta_orcamento?: boolean | null
   }): Promise<any> {
     const valorNum = Number(dados.valor)
     if (valorNum <= 0) throw new Error('O valor do lançamento deve ser maior que zero')
+
+    // Normalizar dimensões de modalidades para despesas (PDF Seções 1 a 6)
+    let modalidadeFinal = dados.modalidade_saida || 'compra_propria'
+    let valorProprioFinal: number = valorNum
+    let valorTerceirosFinal: number = 0
+    let afetaResultadoFinal = true
+    let afetaOrcamentoFinal = true
+
+    if (dados.tipo === 'despesa') {
+      if (modalidadeFinal === 'compra_compartilhada') {
+        valorProprioFinal =
+          dados.valor_proprio !== undefined && dados.valor_proprio !== null
+            ? Number(dados.valor_proprio)
+            : valorNum
+        if (valorProprioFinal <= 0 || valorProprioFinal >= valorNum) {
+          throw new Error(
+            'Em compra compartilhada, o valor próprio deve ser maior que zero e menor que o valor total.',
+          )
+        }
+        valorTerceirosFinal = Number((valorNum - valorProprioFinal).toFixed(2))
+        afetaResultadoFinal = true
+        afetaOrcamentoFinal = true
+      } else if (modalidadeFinal === 'compra_terceiros') {
+        valorProprioFinal = 0
+        valorTerceirosFinal = valorNum
+        afetaResultadoFinal = false
+        afetaOrcamentoFinal = false
+      } else if (modalidadeFinal === 'emprestimo_terceiros') {
+        if (dados.meio_pagamento_tipo === 'CARTAO') {
+          throw new Error('Não é permitido cartão de crédito para Empréstimo a Terceiros.')
+        }
+        valorProprioFinal = 0
+        valorTerceirosFinal = valorNum
+        afetaResultadoFinal = false
+        afetaOrcamentoFinal = false
+      } else {
+        // compra_propria
+        modalidadeFinal = 'compra_propria'
+        valorProprioFinal = valorNum
+        valorTerceirosFinal = 0
+        afetaResultadoFinal = true
+        afetaOrcamentoFinal = true
+      }
+    } else {
+      modalidadeFinal = 'compra_propria'
+      valorProprioFinal = valorNum
+      valorTerceirosFinal = 0
+      afetaResultadoFinal =
+        dados.afeta_resultado !== undefined ? Boolean(dados.afeta_resultado) : true
+      afetaOrcamentoFinal = false
+    }
 
     const qtdParcelas = Math.max(1, Math.floor(Number(dados.quantidade_parcelas || 1)))
     const ehParcelado =
@@ -2855,6 +2916,11 @@ export const lancamentoService = {
           total_parcelas: 1,
           conciliado: false,
           created_by: dados.created_by,
+          modalidade_saida: modalidadeFinal,
+          valor_proprio: valorProprioFinal,
+          valor_terceiros: valorTerceirosFinal,
+          afeta_resultado: afetaResultadoFinal,
+          afeta_orcamento: afetaOrcamentoFinal,
         })
         .select()
         .single()
@@ -3152,6 +3218,11 @@ export const lancamentoService = {
         total_parcelas: qtdParcelas,
         conciliado: false,
         created_by: dados.created_by,
+        modalidade_saida: modalidadeFinal,
+        valor_proprio: valorProprioFinal,
+        valor_terceiros: valorTerceirosFinal,
+        afeta_resultado: afetaResultadoFinal,
+        afeta_orcamento: afetaOrcamentoFinal,
       })
       .select()
       .single()
@@ -3926,6 +3997,16 @@ export const lancamentoService = {
       observacao?: string | null
       quantidade_parcelas?: number
       created_by?: string
+      modalidade_saida?:
+        | 'compra_propria'
+        | 'compra_compartilhada'
+        | 'compra_terceiros'
+        | 'emprestimo_terceiros'
+        | string
+      valor_proprio?: number | null
+      valor_terceiros?: number | null
+      afeta_resultado?: boolean | null
+      afeta_orcamento?: boolean | null
       fixo?: {
         prazo: 'indeterminado' | 'determinado'
         periodicidade: 'mensal' | 'semestral' | 'anual'
@@ -4086,6 +4167,11 @@ export const lancamentoService = {
       cartao_id?: string | null
       meio_pagamento_tipo?: 'CONTA' | 'CARTAO' | 'DINHEIRO'
       quantidade_parcelas?: number
+      modalidade_saida?: string | null
+      valor_proprio?: number | null
+      valor_terceiros?: number | null
+      afeta_resultado?: boolean | null
+      afeta_orcamento?: boolean | null
     },
     userId?: string,
   ): Promise<any> {
@@ -4119,6 +4205,17 @@ export const lancamentoService = {
       updates.descricao !== undefined ? updates.descricao : anterior.descricao
     ).trim()
 
+    const modalidadePassada =
+      updates.modalidade_saida !== undefined ? updates.modalidade_saida : anterior.modalidade_saida
+    const valorProprioPassado =
+      updates.valor_proprio !== undefined ? updates.valor_proprio : anterior.valor_proprio
+    const valorTerceirosPassado =
+      updates.valor_terceiros !== undefined ? updates.valor_terceiros : anterior.valor_terceiros
+    const afetaResPassado =
+      updates.afeta_resultado !== undefined ? updates.afeta_resultado : anterior.afeta_resultado
+    const afetaOrcPassado =
+      updates.afeta_orcamento !== undefined ? updates.afeta_orcamento : anterior.afeta_orcamento
+
     const { data: resAtomico, error: errAtomico } = await db.rpc('editar_lancamento_atomico_rpc', {
       p_workspace_id: workspaceId,
       p_lancamento_id: id,
@@ -4141,6 +4238,11 @@ export const lancamentoService = {
       p_observacao: updates.observacao !== undefined ? updates.observacao : anterior.observacao,
       p_quantidade_parcelas: updates.quantidade_parcelas || anterior.quantidade_parcelas || 1,
       p_user_id: userId || null,
+      p_modalidade_saida: modalidadePassada || 'compra_propria',
+      p_valor_proprio: valorProprioPassado,
+      p_valor_terceiros: valorTerceirosPassado,
+      p_afeta_resultado: afetaResPassado,
+      p_afeta_orcamento: afetaOrcPassado,
     })
 
     if (errAtomico) {
