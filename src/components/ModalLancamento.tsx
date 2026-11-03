@@ -43,6 +43,7 @@ import {
   TipoLancamento,
   PeriodicidadeFixo,
   PrazoFixo,
+  ModalidadeSaida,
 } from '@/types/sap'
 import { orcamentoService, faturaService, fixoService } from '@/services/sap'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
@@ -992,65 +993,62 @@ export function ModalLancamento({
                   )
                 })()}
 
-              {/* BARRA DE ÍCONES (Conforme OCR OrganiZe):
-                  1. Repetir (Fixo/Parcelado) - Ativo/expansível (exibido na inclusão e edição)
-                  2. Observações - placeholder desabilitado (não configurar agora)
-                  3. Anexar arquivo - placeholder desabilitado (não configurar agora)
-                  4. Tags - placeholder desabilitado (não configurar agora)
-              */}
-              <div className="pt-1">
-                <div className="flex items-center gap-2 border-y border-slate-100 py-2">
-                  <button
-                    type="button"
-                    onClick={() => setMostrarOpcoesRepeticao(!mostrarOpcoesRepeticao)}
-                    className={`p-2 rounded-lg border transition flex items-center gap-1.5 text-xs font-semibold ${
-                      mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum'
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
-                    title="Repetir lançamento: Fixo ou Parcelado"
-                  >
-                    <RotateCw
-                      className={`w-4 h-4 ${mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum' ? 'text-emerald-600' : 'text-slate-500'}`}
-                    />
-                    <span>
-                      Repetir{' '}
-                      {modoRepeticao === 'fixo'
-                        ? '(Fixo)'
-                        : modoRepeticao === 'parcelado'
-                          ? `(${quantidadeParcelas}x)`
-                          : ''}
-                    </span>
-                  </button>
+              {/* Se for Receita, exibe a barra de ícones de repetição aqui (já que despesa tem em Pago com | Repetir) */}
+              {tipo === 'receita' && (
+                <div className="pt-1">
+                  <div className="flex items-center gap-2 border-y border-slate-100 py-2">
+                    <button
+                      type="button"
+                      onClick={() => setMostrarOpcoesRepeticao(!mostrarOpcoesRepeticao)}
+                      className={`p-2 rounded-lg border transition flex items-center gap-1.5 text-xs font-semibold ${
+                        mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum'
+                          ? 'bg-emerald-50 border-emerald-300 text-emerald-800 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
+                      title="Repetir lançamento: Fixo ou Parcelado"
+                    >
+                      <RotateCw
+                        className={`w-4 h-4 ${mostrarOpcoesRepeticao || modoRepeticao !== 'nenhum' ? 'text-emerald-600' : 'text-slate-500'}`}
+                      />
+                      <span>
+                        Repetir{' '}
+                        {modoRepeticao === 'fixo'
+                          ? '(Fixo)'
+                          : modoRepeticao === 'parcelado'
+                            ? `(${quantidadeParcelas}x)`
+                            : ''}
+                      </span>
+                    </button>
 
-                  <button
-                    type="button"
-                    disabled
-                    title="Observações (disponível abaixo)"
-                    className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
-                  >
-                    <FileText className="w-4 h-4" />
-                  </button>
+                    <button
+                      type="button"
+                      disabled
+                      title="Observações (disponível abaixo)"
+                      className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                    >
+                      <FileText className="w-4 h-4" />
+                    </button>
 
-                  <button
-                    type="button"
-                    disabled
-                    title="Anexar arquivo (em breve)"
-                    className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
-                  >
-                    <Paperclip className="w-4 h-4" />
-                  </button>
+                    <button
+                      type="button"
+                      disabled
+                      title="Anexar arquivo (em breve)"
+                      className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                    >
+                      <Paperclip className="w-4 h-4" />
+                    </button>
 
-                  <button
-                    type="button"
-                    disabled
-                    title="Tags (em breve)"
-                    className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
-                  >
-                    <Tag className="w-4 h-4" />
-                  </button>
+                    <button
+                      type="button"
+                      disabled
+                      title="Tags (em breve)"
+                      className="p-2 rounded-lg border border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed"
+                    >
+                      <Tag className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* PAINEL EXPANSÍVEL: REPETIR DESPESA / LANÇAMENTO (OCR OrganiZe Página 2) */}
               {mostrarOpcoesRepeticao && (

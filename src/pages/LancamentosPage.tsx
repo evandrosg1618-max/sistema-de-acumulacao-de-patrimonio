@@ -1667,9 +1667,6 @@ export default function LancamentosPage() {
                                 <span>
                                   A receber {formatMoneyBRL(l.valor_terceiros ?? l.valor)}
                                 </span>
-                                <span className="text-amber-400 text-[10px] ml-1">
-                                  (Não afeta Resultado nem Orçamento)
-                                </span>
                               </div>
                             )}
 
@@ -1680,9 +1677,6 @@ export default function LancamentosPage() {
                                   <span className="text-purple-300">•</span>
                                   <span>
                                     A receber {formatMoneyBRL(l.valor_terceiros ?? l.valor)}
-                                  </span>
-                                  <span className="text-purple-400 text-[10px] ml-1">
-                                    (Não afeta Resultado nem Orçamento)
                                   </span>
                                 </div>
                               )}
