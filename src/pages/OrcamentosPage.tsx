@@ -71,6 +71,13 @@ export default function OrcamentosPage() {
 
   // CARD 6: Lupa de texto
   const [buscaTexto, setBuscaTexto] = useState('')
+  // BLOCO 2: debounce de ~250ms na lupa para digitação fluida mesmo com listas grandes
+  const [buscaTextoDebounced, setBuscaTextoDebounced] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => setBuscaTextoDebounced(buscaTexto), 250)
+    return () => clearTimeout(t)
+  }, [buscaTexto])
 
   // Requisito 9.9: Novos filtros de despesas no card de filtros
   // "Por classificação" (Todas / Essencial / Ajustável / Discricionária / Supérflua)
@@ -410,9 +417,9 @@ export default function OrcamentosPage() {
         .filter(Boolean) as OrcamentoCategoriaItem[]
     }
 
-    // Filtro do Card 6 (lupa de texto)
-    if (buscaTexto.trim()) {
-      const termo = buscaTexto.toLowerCase().trim()
+    // Filtro do Card 6 (lupa de texto) — usa valor com debounce de 250ms
+    if (buscaTextoDebounced.trim()) {
+      const termo = buscaTextoDebounced.toLowerCase().trim()
       list = list
         .map((cat) => {
           const matchCat = cat.nome.toLowerCase().includes(termo)
@@ -436,7 +443,13 @@ export default function OrcamentosPage() {
     }
 
     return list
-  }, [consolidado, categoriaSelecionadaId, buscaTexto, filtroClassificacao, filtroNatureza])
+  }, [
+    consolidado,
+    categoriaSelecionadaId,
+    buscaTextoDebounced,
+    filtroClassificacao,
+    filtroNatureza,
+  ])
 
   // Verificação de tela vazia:
   // Se não tem limites definidos e o usuário NÃO clicou em "Definir limite de gastos"
@@ -720,7 +733,10 @@ export default function OrcamentosPage() {
                 {buscaTexto && (
                   <button
                     type="button"
-                    onClick={() => setBuscaTexto('')}
+                    onClick={() => {
+                      setBuscaTexto('')
+                      setBuscaTextoDebounced('')
+                    }}
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
                     title="Limpar pesquisa"
                   >

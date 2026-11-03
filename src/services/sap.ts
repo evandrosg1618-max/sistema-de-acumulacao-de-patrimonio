@@ -2298,6 +2298,7 @@ export const faturaService = {
           subcategoria_id,
           observacao,
           deleted_at,
+          modalidade_saida,
           categorias (id, nome, cor, icone),
           subcategorias (id, nome)
         )
@@ -2332,6 +2333,7 @@ export const faturaService = {
         quantidade_parcelas: p.total_parcelas,
         status_pagamento: p.status || 'pendente',
         observacao: orig?.observacao,
+        modalidade_saida: orig?.modalidade_saida || 'compra_propria',
         categoria_id: orig?.categoria_id,
         subcategoria_id: orig?.subcategoria_id,
         categorias: orig?.categorias,
@@ -2365,6 +2367,7 @@ export const faturaService = {
         lancamento_pai_id,
         status_pagamento,
         observacao,
+        modalidade_saida,
         categorias (id, nome, cor, icone),
         subcategorias (id, nome),
         parcelas:parcelas(id)
