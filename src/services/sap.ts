@@ -3560,9 +3560,11 @@ export const lancamentoService = {
       cartao_id?: string | null
       valor_proprio?: number | null
       valor_terceiros?: number | null
+      modalidade_saida?: string | null
     },
     userId?: string,
   ): Promise<any> {
+    // Sobrecarga canônica de 13 argumentos no Postgres
     const { data, error } = await db.rpc('regenerar_parcelas_lancamento', {
       p_workspace_id: workspaceId,
       p_lancamento_id: lancamentoId,
@@ -3572,11 +3574,8 @@ export const lancamentoService = {
       p_nova_descricao: dados.descricao,
       p_categoria_id: dados.categoria_id || null,
       p_subcategoria_id: dados.subcategoria_id || null,
-      p_observacao: dados.observacao || null,
       p_novo_cartao_id: dados.cartao_id || null,
-      // BLOCO 3 (20261104000000): Valor Próprio/Terceiros explícitos na edição
-      // de compra compartilhada parcelada — sem reescala proporcional implícita
-      // quando o usuário informou os valores no modal.
+      p_nova_observacao: dados.observacao || null,
       p_novo_valor_proprio:
         dados.valor_proprio !== undefined && dados.valor_proprio !== null
           ? Number(dados.valor_proprio)
@@ -3585,7 +3584,7 @@ export const lancamentoService = {
         dados.valor_terceiros !== undefined && dados.valor_terceiros !== null
           ? Number(dados.valor_terceiros)
           : null,
-      p_user_id: userId || null,
+      p_modalidade_saida: dados.modalidade_saida || null,
     })
 
     if (error) {

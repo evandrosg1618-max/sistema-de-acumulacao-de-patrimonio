@@ -456,6 +456,7 @@ export default function LancamentosPage() {
                   dados.valor_terceiros !== undefined && dados.valor_terceiros !== null
                     ? Number(dados.valor_terceiros)
                     : lancamentoEmEdicao?.valor_terceiros,
+                modalidade_saida: dados.modalidade_saida || lancamentoEmEdicao?.modalidade_saida,
               },
               user?.id,
             )

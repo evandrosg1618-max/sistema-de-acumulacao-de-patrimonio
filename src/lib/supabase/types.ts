@@ -1934,6 +1934,10 @@ export type Database = {
         }
         Returns: Json
       }
+      executar_bateria_testes_e_f_g_h_rpc: {
+        Args: { p_workspace_id?: string }
+        Returns: Json
+      }
       get_invitation_by_token: { Args: { token_input: string }; Returns: Json }
       gravar_limite_subcategoria_rpc: {
         Args: {

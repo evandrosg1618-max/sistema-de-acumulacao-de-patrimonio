@@ -420,6 +420,8 @@ export default function Index() {
                   dados.valor_terceiros !== undefined && dados.valor_terceiros !== null
                     ? Number(dados.valor_terceiros)
                     : lancamentoFaturaEmEdicao?.valor_terceiros,
+                modalidade_saida:
+                  dados.modalidade_saida || lancamentoFaturaEmEdicao?.modalidade_saida,
               },
               user?.id,
             )
