@@ -1063,11 +1063,13 @@ export default function CartoesPage() {
               {formatMoneyBRL(
                 Object.values(resumosFatura).reduce((acc: number, r: any) => {
                   const valorExib =
-                    r?.status === 'paga' || r?.statusExibicao === 'Paga'
-                      ? r?.totalPago && r.totalPago > 0
-                        ? r.totalPago
-                        : (r?.totalCompras ?? 0)
-                      : (r?.totalCompras ?? r?.saldoDevedor ?? 0)
+                    r?.status === 'pago_parcial' || r?.statusExibicao === 'Pago parcial'
+                      ? (r?.totalCompras ?? 0)
+                      : r?.status === 'paga' || r?.statusExibicao === 'Paga'
+                        ? r?.totalPago && r.totalPago > 0
+                          ? r.totalPago
+                          : (r?.totalCompras ?? 0)
+                        : (r?.totalCompras ?? r?.saldoDevedor ?? 0)
                   return acc + Number(valorExib || 0)
                 }, 0),
               )}
@@ -1275,13 +1277,20 @@ export default function CartoesPage() {
                                 className={`text-[10px] py-0 ${
                                   resumo?.statusExibicao === 'Paga' || resumo?.status === 'paga'
                                     ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                    : resumo?.statusExibicao === 'Fechada'
-                                      ? 'bg-slate-200 text-slate-800 border-slate-300'
-                                      : 'bg-amber-100 text-amber-800 border-amber-200'
+                                    : resumo?.statusExibicao === 'Pago parcial' ||
+                                        resumo?.status === 'pago_parcial'
+                                      ? 'bg-orange-100 text-orange-800 border-orange-200'
+                                      : resumo?.statusExibicao === 'Fechada'
+                                        ? 'bg-slate-200 text-slate-800 border-slate-300'
+                                        : 'bg-amber-100 text-amber-800 border-amber-200'
                                 }`}
                               >
                                 {resumo?.statusExibicao ||
-                                  (resumo?.status === 'paga' ? 'Paga' : 'Aberta')}
+                                  (resumo?.status === 'paga'
+                                    ? 'Paga'
+                                    : resumo?.status === 'pago_parcial'
+                                      ? 'Pago parcial'
+                                      : 'Aberta')}
                               </Badge>
                             </div>
 
@@ -1326,7 +1335,9 @@ export default function CartoesPage() {
                                 )}
                               {resumo?.fatura &&
                                 (resumo?.status === 'paga' ||
-                                  resumo?.statusExibicao === 'Paga') && (
+                                  resumo?.statusExibicao === 'Paga' ||
+                                  resumo?.status === 'pago_parcial' ||
+                                  resumo?.statusExibicao === 'Pago parcial') && (
                                   <Button
                                     variant="outline"
                                     size="sm"

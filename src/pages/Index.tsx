@@ -1147,13 +1147,20 @@ export default function Index() {
                                   className={`text-[9px] py-0 px-1.5 ${
                                     resumo?.statusExibicao === 'Paga' || resumo?.status === 'paga'
                                       ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
-                                      : resumo?.statusExibicao === 'Fechada'
-                                        ? 'bg-slate-200 text-slate-800 border-slate-300'
-                                        : 'bg-amber-100 text-amber-800 border-amber-200'
+                                      : resumo?.statusExibicao === 'Pago parcial' ||
+                                          resumo?.status === 'pago_parcial'
+                                        ? 'bg-orange-100 text-orange-800 border-orange-200'
+                                        : resumo?.statusExibicao === 'Fechada'
+                                          ? 'bg-slate-200 text-slate-800 border-slate-300'
+                                          : 'bg-amber-100 text-amber-800 border-amber-200'
                                   }`}
                                 >
                                   {resumo?.statusExibicao ||
-                                    (resumo?.status === 'paga' ? 'Paga' : 'Aberta')}
+                                    (resumo?.status === 'paga'
+                                      ? 'Paga'
+                                      : resumo?.status === 'pago_parcial'
+                                        ? 'Pago parcial'
+                                        : 'Aberta')}
                                 </Badge>
                               </div>
 
@@ -1197,7 +1204,9 @@ export default function Index() {
 
                                 {resumo?.fatura &&
                                   (resumo?.status === 'paga' ||
-                                    resumo?.statusExibicao === 'Paga') && (
+                                    resumo?.statusExibicao === 'Paga' ||
+                                    resumo?.status === 'pago_parcial' ||
+                                    resumo?.statusExibicao === 'Pago parcial') && (
                                     <Button
                                       variant="outline"
                                       size="sm"

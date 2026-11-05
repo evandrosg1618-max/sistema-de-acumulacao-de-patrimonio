@@ -2256,9 +2256,11 @@ export const faturaService = {
     totalCompras: number
     totalPago: number
     saldoDevedor: number
-    status: 'aberta' | 'fechada' | 'paga'
-    statusExibicao: 'Aberta' | 'Fechada' | 'Paga'
+    status: 'aberta' | 'fechada' | 'paga' | 'pago_parcial'
+    statusExibicao: 'Aberta' | 'Fechada' | 'Paga' | 'Pago parcial'
     isAtrasada: boolean
+    saldoAnteriorTransportado: number
+    totalComSaldoAnterior: number
     itens: any[]
   }> {
     // Garante que o valor da fatura esteja sempre sincronizado no banco
@@ -2436,10 +2438,20 @@ export const faturaService = {
     const totalPago = (pags || []).reduce((acc: number, p: any) => acc + Number(p.valor || 0), 0)
     const saldoDevedor = Math.max(0, totalCompras - totalPago)
 
-    // Determina status dinâmico: se pago integralmente, 'paga'; caso contrário, segue fatura.status
-    const statusDinamico =
-      (totalPago >= totalCompras && totalCompras > 0) || fatura.status === 'paga'
-        ? 'paga'
+    // Regra BLOCO 2 (20261104000000): pagamento parcial ≠ quitação.
+    // 'pago_parcial' quando há pagamento efetivado sem cobrir o total da fatura
+    // (fonte da verdade: pagamentos_fatura, espelhado em faturas.valor_pago).
+    const pagoParcial = totalPago > 0 && totalPago < totalCompras
+    const faturaPaga =
+      (totalCompras > 0 && totalPago >= totalCompras) ||
+      (fatura.status === 'paga' && saldoDevedor <= 0)
+
+    // Determina status dinâmico: se pago integralmente, 'paga'; se pago em
+    // parte, 'pago_parcial'; caso contrário, segue fatura.status
+    const statusDinamico: 'aberta' | 'fechada' | 'paga' | 'pago_parcial' = faturaPaga
+      ? 'paga'
+      : pagoParcial
+        ? 'pago_parcial'
         : fatura.status
 
     // Regra Build 5: Exibição deriva de data atual × fechamento/vencimento/pagamento
@@ -2453,11 +2465,19 @@ export const faturaService = {
       month: '2-digit',
       day: '2-digit',
     }).format(new Date())
-    let statusExibicao: 'Aberta' | 'Fechada' | 'Paga' = 'Aberta'
+    let statusExibicao: 'Aberta' | 'Fechada' | 'Paga' | 'Pago parcial' = 'Aberta'
     let isAtrasada = false
 
     if (statusDinamico === 'paga') {
       statusExibicao = 'Paga'
+    } else if (statusDinamico === 'pago_parcial') {
+      // Pagamento parcial não quita: mantém tarifa de fechamento/vencimento
+      statusExibicao = 'Pago parcial'
+      const dataFechParcial = fatura.data_fechamento || `${competencia}-01`
+      const dataVencParcial = fatura.data_vencimento || `${competencia}-28`
+      if (hojeStr >= dataFechParcial && hojeStr > dataVencParcial) {
+        isAtrasada = true
+      }
     } else {
       const dataFech = fatura.data_fechamento || `${competencia}-01`
       const dataVenc = fatura.data_vencimento || `${competencia}-28`
@@ -2472,11 +2492,38 @@ export const faturaService = {
       }
     }
 
+    // Regra BLOCO 2: transporte do saldo — linha informativa com o saldo NÃO
+    // pago da fatura ANTERIOR deste cartão (somada no cartão/faturas; nunca
+    // gera lançamento econômico novo: as compras já foram reconhecidas).
+    let saldoAnterior = 0
+    try {
+      const [anoComp, mesComp] = competencia.split('-').map(Number)
+      const dataAnterior = new Date(Date.UTC(anoComp, mesComp - 2, 1))
+      const compAnterior = `${dataAnterior.getUTCFullYear()}-${String(dataAnterior.getUTCMonth() + 1).padStart(2, '0')}`
+      const { data: faturaAnterior } = await db
+        .from('faturas')
+        .select('valor_total, saldo_pendente')
+        .eq('workspace_id', workspaceId)
+        .eq('cartao_id', cartaoId)
+        .eq('competencia', compAnterior)
+        .maybeSingle()
+      if (faturaAnterior) {
+        saldoAnterior = Math.max(
+          0,
+          Number(faturaAnterior.saldo_pendente ?? Number(faturaAnterior.valor_total || 0)),
+        )
+      }
+    } catch (e) {
+      console.warn('Saldo da fatura anterior não carregado:', e)
+    }
+
     return {
       fatura,
       totalCompras,
       totalPago,
       saldoDevedor,
+      saldoAnteriorTransportado: saldoAnterior,
+      totalComSaldoAnterior: totalCompras + saldoAnterior,
       status: statusDinamico,
       statusExibicao,
       isAtrasada,
@@ -2587,14 +2634,27 @@ export const faturaService = {
     workspaceId: string,
     userId?: string,
   ): Promise<any> {
-    // Verificação prévia no banco: se já não estiver paga, nada a desfazer
+    // Verificação prévia no banco: sem pagamento efetivado, nada a desfazer
+    // (BLOCO 2: estorno coerente com pagamentos parciais — devolve exatamente
+    // o valor pago, sem depender do status da fatura)
     const { data: faturaAtual } = await db
       .from('faturas')
       .select('id, status')
       .eq('id', faturaId)
       .single()
 
-    if (faturaAtual && faturaAtual.status !== 'paga') {
+    if (!faturaAtual) {
+      return { sucesso: true, ja_reaberta: true }
+    }
+
+    const { count: pagsAtivos } = await db
+      .from('pagamentos_fatura')
+      .select('id', { count: 'exact', head: true })
+      .eq('fatura_id', faturaId)
+      .eq('status', 'efetivado')
+      .eq('workspace_id', workspaceId)
+
+    if (!pagsAtivos) {
       return { sucesso: true, ja_reaberta: true }
     }
 
