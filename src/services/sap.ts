@@ -3558,6 +3558,8 @@ export const lancamentoService = {
       subcategoria_id?: string | null
       observacao?: string | null
       cartao_id?: string | null
+      valor_proprio?: number | null
+      valor_terceiros?: number | null
     },
     userId?: string,
   ): Promise<any> {
@@ -3572,6 +3574,17 @@ export const lancamentoService = {
       p_subcategoria_id: dados.subcategoria_id || null,
       p_observacao: dados.observacao || null,
       p_novo_cartao_id: dados.cartao_id || null,
+      // BLOCO 3 (20261104000000): Valor Próprio/Terceiros explícitos na edição
+      // de compra compartilhada parcelada — sem reescala proporcional implícita
+      // quando o usuário informou os valores no modal.
+      p_novo_valor_proprio:
+        dados.valor_proprio !== undefined && dados.valor_proprio !== null
+          ? Number(dados.valor_proprio)
+          : null,
+      p_novo_valor_terceiros:
+        dados.valor_terceiros !== undefined && dados.valor_terceiros !== null
+          ? Number(dados.valor_terceiros)
+          : null,
       p_user_id: userId || null,
     })
 
@@ -3781,6 +3794,16 @@ export const lancamentoService = {
             (novosDados as any).cartao_id !== undefined
               ? (novosDados as any).cartao_id
               : paiObj?.cartao_id,
+          // BLOCO 3 (20261104000000): propaga Valor Próprio/Terceiros da edição
+          // (compartilhada parcelada) para a RPC de regeneração
+          valor_proprio:
+            (novosDados as any).valor_proprio !== undefined
+              ? (novosDados as any).valor_proprio
+              : undefined,
+          valor_terceiros:
+            (novosDados as any).valor_terceiros !== undefined
+              ? (novosDados as any).valor_terceiros
+              : undefined,
         },
         userId,
       )

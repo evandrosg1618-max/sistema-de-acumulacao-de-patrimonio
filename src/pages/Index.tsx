@@ -410,6 +410,16 @@ export default function Index() {
                 categoria_id: dados.categoria_id,
                 subcategoria_id: dados.subcategoria_id,
                 observacao: dados.observacao,
+                // BLOCO 3 (20261104000000): Valor Próprio/Terceiros da edição —
+                // sem reescala proporcional na compra compartilhada parcelada
+                valor_proprio:
+                  dados.valor_proprio !== undefined && dados.valor_proprio !== null
+                    ? Number(dados.valor_proprio)
+                    : lancamentoFaturaEmEdicao?.valor_proprio,
+                valor_terceiros:
+                  dados.valor_terceiros !== undefined && dados.valor_terceiros !== null
+                    ? Number(dados.valor_terceiros)
+                    : lancamentoFaturaEmEdicao?.valor_terceiros,
               },
               user?.id,
             )
