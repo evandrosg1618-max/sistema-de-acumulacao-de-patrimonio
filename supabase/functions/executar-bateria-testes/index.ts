@@ -109,8 +109,8 @@ Deno.serve(async (req: Request) => {
 
     const { data: resultadoPreE } = await supabase.rpc('calcular_regime_competencia_integral_rpc', {
       p_workspace_id: workspaceId,
-      p_mes: 11,
-      p_ano: 2026,
+      p_data_inicio: '2026-11-01',
+      p_data_fim: '2026-11-30',
     })
 
     // Pagar fatura integralmente (valor da fatura = 300 ou v_valor_total)
@@ -151,8 +151,8 @@ Deno.serve(async (req: Request) => {
 
     const { data: resultadoPosE } = await supabase.rpc('calcular_regime_competencia_integral_rpc', {
       p_workspace_id: workspaceId,
-      p_mes: 11,
-      p_ano: 2026,
+      p_data_inicio: '2026-11-01',
+      p_data_fim: '2026-11-30',
     })
 
     resultados.testeE = {
@@ -225,8 +225,8 @@ Deno.serve(async (req: Request) => {
 
     const { data: resultadoPreF } = await supabase.rpc('calcular_regime_competencia_integral_rpc', {
       p_workspace_id: workspaceId,
-      p_mes: 11,
-      p_ano: 2026,
+      p_data_inicio: '2026-11-01',
+      p_data_fim: '2026-11-30',
     })
 
     const { data: orcamentoPreF } = await supabase.rpc('obter_orcamento_consolidado_rpc', {
@@ -265,8 +265,8 @@ Deno.serve(async (req: Request) => {
 
     const { data: resultadoPosF } = await supabase.rpc('calcular_regime_competencia_integral_rpc', {
       p_workspace_id: workspaceId,
-      p_mes: 11,
-      p_ano: 2026,
+      p_data_inicio: '2026-11-01',
+      p_data_fim: '2026-11-30',
     })
 
     const { data: orcamentoPosF } = await supabase.rpc('obter_orcamento_consolidado_rpc', {
@@ -337,8 +337,8 @@ Deno.serve(async (req: Request) => {
 
     const { data: resultadoPosG } = await supabase.rpc('calcular_regime_competencia_integral_rpc', {
       p_workspace_id: workspaceId,
-      p_mes: 11,
-      p_ano: 2026,
+      p_data_inicio: '2026-11-01',
+      p_data_fim: '2026-11-30',
     })
 
     const { data: orcamentoPosG } = await supabase.rpc('obter_orcamento_consolidado_rpc', {
@@ -392,8 +392,8 @@ Deno.serve(async (req: Request) => {
 
     const { data: resultadoPreH } = await supabase.rpc('calcular_regime_competencia_integral_rpc', {
       p_workspace_id: workspaceId,
-      p_mes: 11,
-      p_ano: 2026,
+      p_data_inicio: '2026-11-01',
+      p_data_fim: '2026-11-30',
     })
 
     // Chamar regenerar_parcelas_lancamento com 1080, SEM passar valor_proprio (deve reescalar proporcional)
@@ -440,8 +440,8 @@ Deno.serve(async (req: Request) => {
 
     const { data: resultadoPosH } = await supabase.rpc('calcular_regime_competencia_integral_rpc', {
       p_workspace_id: workspaceId,
-      p_mes: 11,
-      p_ano: 2026,
+      p_data_inicio: '2026-11-01',
+      p_data_fim: '2026-11-30',
     })
 
     resultados.testeH = {
