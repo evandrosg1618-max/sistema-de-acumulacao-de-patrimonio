@@ -159,6 +159,7 @@ export default function CartoesPage() {
   const [limite, setLimite] = useState('5.000,00')
   const [cor, setCor] = useState('#4F46E5')
   const [iconeLogo, setIconeLogo] = useState<string>('')
+  const [pontosPorDolar, setPontosPorDolar] = useState<string>('0')
 
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
@@ -826,6 +827,7 @@ export default function CartoesPage() {
     setLimite('5.000,00')
     setCor('#4F46E5')
     setIconeLogo('')
+    setPontosPorDolar('0')
     setModalOpen(true)
   }
 
@@ -838,6 +840,7 @@ export default function CartoesPage() {
     setLimite(c.limite.toString().replace('.', ','))
     setCor(c.cor || '#4F46E5')
     setIconeLogo((c as any).icone || '')
+    setPontosPorDolar((c.pontos_por_dolar || 0).toString().replace('.', ','))
     setModalOpen(true)
   }
 
@@ -850,6 +853,7 @@ export default function CartoesPage() {
     const formLimite = (formData.get('limite') as string) ?? limite
     const formFechamento = (formData.get('fechamento') as string) ?? diaFechamento
     const formVencimento = (formData.get('vencimento') as string) ?? diaVencimento
+    const formPontos = (formData.get('pontos_por_dolar') as string) ?? pontosPorDolar
 
     if (!formNome) {
       toast.error('Informe o nome do cartão')
@@ -875,6 +879,7 @@ export default function CartoesPage() {
     }
 
     const limiteNum = parseFloat(String(formLimite).replace(/\./g, '').replace(',', '.')) || 0
+    const pontosNum = parseFloat(String(formPontos).replace(',', '.')) || 0
 
     setSaving(true)
     try {
@@ -890,6 +895,7 @@ export default function CartoesPage() {
             limite: limiteNum,
             cor,
             icone: iconeLogo || null,
+            pontos_por_dolar: pontosNum,
           },
           user?.id,
         )
@@ -910,6 +916,7 @@ export default function CartoesPage() {
           limite: limiteNum,
           cor,
           icone: iconeLogo || null,
+          pontos_por_dolar: pontosNum,
           created_by: user?.id,
         })
 
@@ -1860,6 +1867,23 @@ export default function CartoesPage() {
                   />
                   <p className="text-[10px] text-slate-400 mt-0.5">Dia do mês (1 a 31)</p>
                 </div>
+              </div>
+
+              <div>
+                <Label htmlFor="pontos_por_dolar" className="text-xs font-semibold text-slate-700">
+                  Pontuação por Dólar (pts / US$)
+                </Label>
+                <Input
+                  id="pontos_por_dolar"
+                  name="pontos_por_dolar"
+                  placeholder="Ex: 2.0 ou 2,5 (0 se não pontua)"
+                  value={pontosPorDolar}
+                  onChange={(e) => setPontosPorDolar(e.target.value)}
+                  className="mt-1"
+                />
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Pontos ou milhas gerados por dólar gasto (usado na Calculadora Pix × Cartão).
+                </p>
               </div>
 
               {/* Brand/Logo Picker de Instituições Financeiras (Reutilizado com Contas) */}

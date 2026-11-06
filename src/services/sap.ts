@@ -840,6 +840,7 @@ export const cartaoService = {
     return (data || []).map((c: any) => ({
       ...c,
       limite: Number(c.limite || 0),
+      pontos_por_dolar: Number(c.pontos_por_dolar || 0),
       fatura_atual: 0,
       total_comprometido: 0,
     }))
@@ -852,6 +853,7 @@ export const cartaoService = {
     return {
       ...data,
       limite: Number(data.limite || 0),
+      pontos_por_dolar: Number(data.pontos_por_dolar || 0),
     }
   },
 
@@ -864,6 +866,7 @@ export const cartaoService = {
     limite: number
     cor?: string
     icone?: string | null
+    pontos_por_dolar?: number
     created_by?: string
   }): Promise<any> {
     const { data, error } = await db
@@ -877,6 +880,7 @@ export const cartaoService = {
         limite: Number(dados.limite || 0),
         cor: dados.cor || '#4F46E5',
         icone: dados.icone || null,
+        pontos_por_dolar: Number(dados.pontos_por_dolar || 0),
         ativo: true,
         created_by: dados.created_by,
       })
@@ -921,6 +925,7 @@ export const cartaoService = {
       limite?: number
       cor?: string
       icone?: string | null
+      pontos_por_dolar?: number
       ativo?: boolean
     },
     userId?: string,

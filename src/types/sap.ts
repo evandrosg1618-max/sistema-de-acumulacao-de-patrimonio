@@ -153,6 +153,8 @@ export interface Cartao {
   dia_vencimento: number
   limite: number
   cor?: string | null
+  icone?: string | null
+  pontos_por_dolar?: number
   ativo: boolean
   created_by?: string | null
   created_at: string

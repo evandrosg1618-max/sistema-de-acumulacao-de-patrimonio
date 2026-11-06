@@ -16,6 +16,7 @@ import MeiosPagamentoPage from './pages/MeiosPagamentoPage'
 import CategoriasPage from './pages/CategoriasPage'
 import OrcamentosPage from './pages/OrcamentosPage'
 import LancamentosPage from './pages/LancamentosPage'
+import CalculadoraDecisaoPage from './pages/CalculadoraDecisaoPage'
 import PlaceholderPage from './pages/PlaceholderPage'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -120,6 +121,8 @@ const AppRoutes = () => (
 
       {/* Build 2: Lançamentos Financeiros Reais */}
       <Route path="/lancamentos" element={<LancamentosPage />} />
+      {/* Calculadora de Decisão de Pagamento (Pix × Cartão) */}
+      <Route path="/calculadora" element={<CalculadoraDecisaoPage />} />
       <Route
         path="/relatorios"
         element={
