@@ -1,5 +1,2 @@
-import * as pdfjsLib from 'pdfjs-dist'
-
-export async function testPdfImport() {
-  console.log(pdfjsLib.version)
-}
+// Testes de importação de PDF
+export const testPdfImport = true
