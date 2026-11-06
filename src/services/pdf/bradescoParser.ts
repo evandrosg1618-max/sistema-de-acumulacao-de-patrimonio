@@ -94,10 +94,14 @@ export class BradescoParser {
         const isSinalMenos = sinalMenos === '-' || line.endsWith('-')
 
         // Verificar se é pagamento bancário anterior da fatura (ignorar conforme BLOCO F e 9)
+        const descUpper = rawDescricao.toUpperCase()
         if (
-          rawDescricao.toUpperCase().includes('PAGTO. POR DEB') ||
-          rawDescricao.toUpperCase().includes('PAGTO POR DEB') ||
-          rawDescricao.toUpperCase().includes('PAGAMENTO DE FATURA')
+          descUpper.includes('PAGTO. POR DEB') ||
+          descUpper.includes('PAGTO POR DEB') ||
+          descUpper.includes('PAGAMENTO DE FATURA') ||
+          descUpper.includes('PAGTO.POR DEB') ||
+          descUpper.includes('PAGAMENTO FICHA') ||
+          descUpper.includes('OBRIGADO PELO PAGAMENTO')
         ) {
           // Informativo de pagamento — BLOCO 9: não vira lançamento de forma alguma
           continue

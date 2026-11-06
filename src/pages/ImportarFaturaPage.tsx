@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
 import { cartaoService, categoriaService } from '@/services/sap'
+import { Input } from '@/components/ui/input'
 import {
   faturaImportacaoService,
   FaturaImportacaoRegistro,
@@ -45,7 +46,7 @@ import { toast } from 'sonner'
 
 export const ImportarFaturaPage: React.FC = () => {
   const { currentWorkspace, user } = useAuth()
-  const { showLoading, hideLoading } = useGlobalLoading()
+  const { startProcessing, stopProcessing } = useGlobalLoading()
   const navigate = useNavigate()
 
   // Estados principais
@@ -75,18 +76,19 @@ export const ImportarFaturaPage: React.FC = () => {
     if (!wsId) return
     const carregarDados = async () => {
       try {
-        const [cList, cats, subcats] = await Promise.all([
+        const [cList, catsComSubs] = await Promise.all([
           cartaoService.list(wsId),
-          categoriaService.listCategorias(wsId),
-          categoriaService.listSubcategorias(wsId),
+          categoriaService.listComSubcategorias(wsId, false),
         ])
-        const cartoesAtivos = cList.filter((c) => !c.arquivado && !c.deleted_at)
+        const cartoesAtivos = cList.filter((c: any) => !c.arquivado && !c.deleted_at)
         setCartoes(cartoesAtivos)
         if (cartoesAtivos.length > 0 && !cartaoSelecionadoId) {
           setCartaoSelecionadoId(cartoesAtivos[0].id)
         }
-        setCategorias(cats.filter((c) => c.tipo === 'despesa'))
-        setSubcategorias(subcats)
+        const catsDespesa = catsComSubs.filter((c: any) => c.tipo === 'despesa')
+        setCategorias(catsDespesa)
+        const todasSubs: Subcategoria[] = catsDespesa.flatMap((c: any) => c.subcategorias || [])
+        setSubcategorias(todasSubs)
       } catch (err: any) {
         toast.error('Erro ao carregar cartões e categorias: ' + err.message)
       }
@@ -117,7 +119,7 @@ export const ImportarFaturaPage: React.FC = () => {
     }
 
     setProcessandoLeitura(true)
-    showLoading('Lendo e extraindo transações do PDF...')
+    startProcessing('Lendo e extraindo transações do PDF...')
     setErroSenha(null)
 
     try {
@@ -133,7 +135,7 @@ export const ImportarFaturaPage: React.FC = () => {
         const sessao = await faturaImportacaoService.obterSessao(wsId, existente.id)
         setSessaoAtual(sessao.importacao)
         setLinhas(sessao.linhas)
-        hideLoading()
+        stopProcessing()
         setProcessandoLeitura(false)
         return
       }
@@ -179,11 +181,10 @@ export const ImportarFaturaPage: React.FC = () => {
         toast.error('Erro ao processar PDF: ' + (err?.message || 'Arquivo corrompido'))
       }
     } finally {
-      hideLoading()
+      stopProcessing()
       setProcessandoLeitura(false)
     }
   }
-
   // Alteração de linha individual
   const handleAlterarLinha = async (
     linhaId: string,
@@ -208,6 +209,28 @@ export const ImportarFaturaPage: React.FC = () => {
     await faturaImportacaoService.atualizarLinhasEmMassa(idsVisiveis, { selecionado: selecionar })
   }
 
+  // Ação Rápida: Confirmar todos como Compra Própria
+  const handleConfirmarTodasCompraPropria = async () => {
+    const ids = linhasFiltradas.filter((l) => l.status !== 'ignorado').map((l) => l.id)
+    if (ids.length === 0) return
+    setLinhas((prev) =>
+      prev.map((l) =>
+        ids.includes(l.id)
+          ? {
+              ...l,
+              modalidade_saida: 'compra_propria',
+              valor_proprio: l.valor,
+              valor_terceiros: 0,
+            }
+          : l,
+      ),
+    )
+    await faturaImportacaoService.atualizarLinhasEmMassa(ids, {
+      modalidade_saida: 'compra_propria',
+    })
+    toast.success(`${ids.length} itens confirmados como Compra Própria 100%.`)
+  }
+
   // Aplicação da edição em massa
   const handleAplicarEdicaoEmMassa = async (config: {
     categoriaId?: string
@@ -223,7 +246,12 @@ export const ImportarFaturaPage: React.FC = () => {
     const alteracoes: any = {}
     if (config.categoriaId) alteracoes.categoria_id = config.categoriaId
     if (config.subcategoriaId) alteracoes.subcategoria_id = config.subcategoriaId
-    if (config.modalidadeSaida) alteracoes.modalidade_saida = config.modalidadeSaida
+    if (config.modalidadeSaida) {
+      alteracoes.modalidade_saida = config.modalidadeSaida
+      if (config.modalidadeSaida === 'compra_propria') {
+        // atualiza proporções para próprio = total, terceiros = 0
+      }
+    }
     if (config.afetaResultado !== undefined) alteracoes.afeta_resultado = config.afetaResultado
     if (config.afetaOrcamento !== undefined) alteracoes.afeta_orcamento = config.afetaOrcamento
     if (config.marcarIgnorado) {
@@ -234,7 +262,15 @@ export const ImportarFaturaPage: React.FC = () => {
     }
 
     setLinhas((prev) =>
-      prev.map((l) => (selecionados.includes(l.id) ? { ...l, ...alteracoes } : l)),
+      prev.map((l) => {
+        if (!selecionados.includes(l.id)) return l
+        const novo = { ...l, ...alteracoes }
+        if (config.modalidadeSaida === 'compra_propria') {
+          novo.valor_proprio = l.valor
+          novo.valor_terceiros = 0
+        }
+        return novo
+      }),
     )
 
     await faturaImportacaoService.atualizarLinhasEmMassa(selecionados, alteracoes)
@@ -246,7 +282,7 @@ export const ImportarFaturaPage: React.FC = () => {
     if (!wsId || !sessaoAtual || !user) return
 
     setImportandoFinal(true)
-    showLoading('Efetivando lançamentos pelo fluxo normal do SAP...')
+    startProcessing('Efetivando lançamentos pelo fluxo normal do SAP...')
 
     try {
       const resultado = await faturaImportacaoService.efetivarImportacao({
@@ -271,22 +307,62 @@ export const ImportarFaturaPage: React.FC = () => {
     } catch (e: any) {
       toast.error('Erro na efetivação: ' + e.message)
     } finally {
-      hideLoading()
+      stopProcessing()
       setImportandoFinal(false)
     }
   }
 
+  // Filtros avançados por texto, titular e final
+  const [buscaTexto, setBuscaTexto] = useState('')
+  const [filtroTitular, setFiltroTitular] = useState('todos')
+  const [filtroFinal, setFiltroFinal] = useState('todos')
+
+  // Listas únicas de titulares e finais para filtros rápidos
+  const listaTitulares = Array.from(
+    new Set(linhas.map((l) => l.titular).filter(Boolean)),
+  ) as string[]
+  const listaFinais = Array.from(
+    new Set(linhas.map((l) => l.final_cartao).filter(Boolean)),
+  ) as string[]
+
   // Linhas filtradas
   const linhasFiltradas = linhas.filter((l) => {
-    if (filtroAtivo === 'todos') return true
-    if (filtroAtivo === 'compras') return l.tipo_linha === 'compra'
-    if (filtroAtivo === 'parcelados') return l.tipo_linha === 'parcelado'
-    if (filtroAtivo === 'creditos') return l.tipo_linha === 'credito'
-    if (filtroAtivo === 'encargos') return l.tipo_linha === 'encargo'
-    if (filtroAtivo === 'prontos') return l.status === 'pronto' || l.status === 'preenchido_regra'
-    if (filtroAtivo === 'revisar')
-      return l.status === 'requer_revisao' || l.status === 'provavel_duplicado' || !l.categoria_id
-    if (filtroAtivo === 'conciliados') return l.status === 'conciliado'
+    // Filtro por tipo/status
+    let passaTipo = true
+    if (filtroAtivo === 'todos') passaTipo = true
+    else if (filtroAtivo === 'compras') passaTipo = l.tipo_linha === 'compra'
+    else if (filtroAtivo === 'parcelados') passaTipo = l.tipo_linha === 'parcelado'
+    else if (filtroAtivo === 'creditos') passaTipo = l.tipo_linha === 'credito'
+    else if (filtroAtivo === 'encargos') passaTipo = l.tipo_linha === 'encargo'
+    else if (filtroAtivo === 'prontos')
+      passaTipo = (l.status === 'pronto' || l.status === 'preenchido_regra') && !!l.categoria_id
+    else if (filtroAtivo === 'nao_classificados')
+      passaTipo = !l.categoria_id && l.status !== 'ignorado'
+    else if (filtroAtivo === 'revisar')
+      passaTipo =
+        l.status === 'requer_revisao' || l.status === 'provavel_duplicado' || !l.categoria_id
+    else if (filtroAtivo === 'conciliados') passaTipo = l.status === 'conciliado'
+    else if (filtroAtivo === 'duplicados')
+      passaTipo = l.status === 'provavel_duplicado' || l.status === 'duplicado'
+    else if (filtroAtivo === 'ignorados') passaTipo = l.status === 'ignorado'
+
+    if (!passaTipo) return false
+
+    // Filtro por titular
+    if (filtroTitular !== 'todos' && l.titular !== filtroTitular) return false
+
+    // Filtro por final do cartão
+    if (filtroFinal !== 'todos' && l.final_cartao !== filtroFinal) return false
+
+    // Filtro por busca de texto (estabelecimento / descrição original)
+    if (buscaTexto.trim()) {
+      const q = buscaTexto.toLowerCase()
+      const matchDesc = (l.descricao_editavel || '').toLowerCase().includes(q)
+      const matchOrig = (l.descricao_original || '').toLowerCase().includes(q)
+      const matchTit = (l.titular || '').toLowerCase().includes(q)
+      if (!matchDesc && !matchOrig && !matchTit) return false
+    }
+
     return true
   })
 
@@ -427,87 +503,155 @@ export const ImportarFaturaPage: React.FC = () => {
 
               {/* Box de Conferência da Fatura */}
               <div
-                className={`p-3 rounded-lg border text-xs flex flex-col gap-1 min-w-[220px] ${
+                className={`p-3 rounded-lg border text-xs flex flex-col gap-1 min-w-[240px] ${
                   conferenciaOk
                     ? 'bg-teal-950/40 border-teal-800/60 text-teal-200'
                     : 'bg-amber-950/40 border-amber-800/60 text-amber-200'
                 }`}
               >
                 <div className="flex justify-between items-center font-semibold">
-                  <span>Valor Declarado:</span>
+                  <span>Valor Declarado (Fatura):</span>
                   <span className="font-mono">{formatMoneyBRL(totalFatura)}</span>
                 </div>
                 <div className="flex justify-between items-center text-[11px] text-slate-300">
-                  <span>Compras/Encargos:</span>
+                  <span>(+) Compras/Encargos:</span>
                   <span className="font-mono">{formatMoneyBRL(somaComprasEncargos)}</span>
                 </div>
                 {somaCreditos > 0 && (
                   <div className="flex justify-between items-center text-[11px] text-slate-300">
-                    <span>(-) Créditos:</span>
+                    <span>(-) Créditos/Estornos:</span>
                     <span className="font-mono">-{formatMoneyBRL(somaCreditos)}</span>
                   </div>
                 )}
+                {totalFatura > 0 && !conferenciaOk && (
+                  <div className="flex justify-between items-center text-[11px] text-amber-300">
+                    <span>Diferença apurada:</span>
+                    <span className="font-mono">{formatMoneyBRL(diferencaConferencia)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center font-bold pt-1 border-t border-slate-700/60">
-                  <span>Status:</span>
+                  <span>Status da Conferência:</span>
                   <span>{conferenciaOk ? '✓ Conferido' : 'Diferença a revisar'}</span>
                 </div>
               </div>
             </div>
 
             {/* Barra de Filtros e Ações Rápidas */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                {[
-                  { id: 'todos', label: 'Todos' },
-                  { id: 'compras', label: 'Compras à vista' },
-                  { id: 'parcelados', label: 'Parcelados' },
-                  { id: 'creditos', label: 'Estornos/Créditos' },
-                  { id: 'encargos', label: 'Encargos' },
-                  { id: 'prontos', label: 'Prontos' },
-                  { id: 'revisar', label: 'Requer Revisão' },
-                  { id: 'conciliados', label: 'Conciliados' },
-                ].map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => setFiltroAtivo(f.id)}
-                    className={`px-2.5 py-1 rounded text-xs transition-colors ${
-                      filtroAtivo === f.id
-                        ? 'bg-teal-600 text-white font-semibold'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
+            <div className="space-y-3 pt-1">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  {[
+                    { id: 'todos', label: 'Todos' },
+                    { id: 'nao_classificados', label: 'Não classificados' },
+                    { id: 'prontos', label: 'Prontos' },
+                    { id: 'compras', label: 'Compras à vista' },
+                    { id: 'parcelados', label: 'Parcelados' },
+                    { id: 'creditos', label: 'Estornos/Créditos' },
+                    { id: 'encargos', label: 'Encargos' },
+                    { id: 'revisar', label: 'Requer Revisão' },
+                    { id: 'conciliados', label: 'Conciliados' },
+                    { id: 'duplicados', label: 'Prováveis Duplicados' },
+                  ].map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setFiltroAtivo(f.id)}
+                      className={`px-2.5 py-1 rounded text-xs transition-colors ${
+                        filtroAtivo === f.id
+                          ? 'bg-teal-600 text-white font-semibold'
+                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleSelecionarTodosVisiveis(true)}
+                    className="border-slate-700 text-slate-300 text-xs h-8"
                   >
-                    {f.label}
-                  </button>
-                ))}
+                    <CheckSquare className="w-3.5 h-3.5 mr-1" /> Marcar Visíveis
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleSelecionarTodosVisiveis(false)}
+                    className="border-slate-700 text-slate-300 text-xs h-8"
+                  >
+                    <Square className="w-3.5 h-3.5 mr-1" /> Desmarcar
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleConfirmarTodasCompraPropria}
+                    className="border-slate-700 text-slate-300 text-xs h-8"
+                    title="Define Modalidade como Compra Própria 100% para os itens visíveis"
+                  >
+                    Definir Compra Própria
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => setModalMassaAberto(true)}
+                    disabled={totalSelecionados === 0}
+                    className="bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs h-8"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 mr-1 text-teal-400" /> Edição em Massa (
+                    {totalSelecionados})
+                  </Button>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleSelecionarTodosVisiveis(true)}
-                  className="border-slate-700 text-slate-300 text-xs h-8"
-                >
-                  <CheckSquare className="w-3.5 h-3.5 mr-1" /> Marcar Visíveis
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => handleSelecionarTodosVisiveis(false)}
-                  className="border-slate-700 text-slate-300 text-xs h-8"
-                >
-                  <Square className="w-3.5 h-3.5 mr-1" /> Desmarcar
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => setModalMassaAberto(true)}
-                  disabled={totalSelecionados === 0}
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs h-8"
-                >
-                  <Sparkles className="w-3.5 h-3.5 mr-1 text-teal-400" /> Edição em Massa (
-                  {totalSelecionados})
-                </Button>
+              {/* Filtros secundários: Busca, Titular e Final */}
+              <div className="flex flex-wrap items-center gap-3 p-2.5 bg-slate-800/40 border border-slate-800 rounded-lg text-xs">
+                <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+                  <Filter className="w-3.5 h-3.5 text-slate-400" />
+                  <Input
+                    placeholder="Filtrar por estabelecimento ou descrição..."
+                    value={buscaTexto}
+                    onChange={(e) => setBuscaTexto(e.target.value)}
+                    className="bg-slate-800 border-slate-700 text-slate-200 h-7 text-xs"
+                  />
+                </div>
+
+                {listaTitulares.length > 1 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 text-[11px]">Titular:</span>
+                    <select
+                      value={filtroTitular}
+                      onChange={(e) => setFiltroTitular(e.target.value)}
+                      className="bg-slate-800 border border-slate-700 text-slate-200 rounded px-2 py-1 text-xs"
+                    >
+                      <option value="todos">Todos ({listaTitulares.length})</option>
+                      {listaTitulares.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {listaFinais.length > 1 && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-400 text-[11px]">Final:</span>
+                    <select
+                      value={filtroFinal}
+                      onChange={(e) => setFiltroFinal(e.target.value)}
+                      className="bg-slate-800 border border-slate-700 text-slate-200 rounded px-2 py-1 text-xs"
+                    >
+                      <option value="todos">Todos ({listaFinais.length})</option>
+                      {listaFinais.map((f) => (
+                        <option key={f} value={f}>
+                          •••• {f}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
             </div>
           </div>

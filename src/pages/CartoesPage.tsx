@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
 import {
@@ -37,6 +37,7 @@ import {
   ChevronLeft,
   RefreshCw,
   AlertTriangle,
+  Upload,
 } from 'lucide-react'
 import { BrandLogoPicker, BrandLogoDisplay } from '@/components/BrandLogoPicker'
 import { obterInstituicaoPorId } from '@/components/InstituicoesFinanceiras'
@@ -82,6 +83,7 @@ const PALETA_CORES = [
 ]
 
 export default function CartoesPage() {
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { currentWorkspace, user } = useAuth()
   const { isProcessing, runWithLock } = useGlobalLoading()

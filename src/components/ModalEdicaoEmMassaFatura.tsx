@@ -59,7 +59,7 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
       await aoAplicar({
         categoriaId: categoriaId || undefined,
         subcategoriaId: subcategoriaId || undefined,
-        modalidadeSaida: modalidade || undefined,
+        modalidadeSaida: modalidade && modalidade !== 'manter' ? modalidade : undefined,
         afetaResultado:
           afetaResultado === 'sim' ? true : afetaResultado === 'nao' ? false : undefined,
         afetaOrcamento:
@@ -133,6 +133,7 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
                 <SelectValue placeholder="Manter atual ou selecionar..." />
               </SelectTrigger>
               <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
+                <SelectItem value="manter">Manter atual</SelectItem>
                 <SelectItem value="compra_propria">Compra Própria (100% próprio)</SelectItem>
                 <SelectItem value="compra_compartilhada">Compra Compartilhada</SelectItem>
               </SelectContent>

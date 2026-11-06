@@ -237,7 +237,9 @@ export const faturaImportacaoService = {
       status_pagamento: string
     }>
 
-    // Montar linhas temporárias
+    // Montar linhas temporárias com verificação de duplicidade interna na própria fatura (ex: DL*iHerb repetido)
+    const linhasVistasNestaFatura = new Set<string>()
+
     const linhasParaInserir = parsed.linhas.map((l: LinhaFaturaExtraida) => {
       let status: StatusLinhaFatura = 'novo'
       let categoriaId: string | null = null
@@ -283,20 +285,31 @@ export const faturaImportacaoService = {
         }
       }
 
-      // 3. Duplicidade de linha (BLOCO 25)
-      // Se linha repetida na mesma data, valor e descrição similar
-      const matchDuplicado = mapaExistentes.find(
-        (e) =>
-          e.data === l.data &&
-          Math.abs(e.valor - l.valor) < 0.05 &&
-          (e.descricao.toUpperCase().includes(l.descricaoNormalizada.toUpperCase()) ||
-            l.descricaoNormalizada.toUpperCase().includes(e.descricao.toUpperCase())),
-      )
-
-      if (matchDuplicado && status !== 'conciliado') {
+      // 3. Duplicidade de linha (BLOCO 25 e BLOCO K)
+      // Camada 1: Linha repetida exatamente idêntica dentro do mesmo PDF (ex: DL*iHerb)
+      const chaveInterna = `${l.data}_${l.valor}_${l.descricaoOriginal.trim()}_${l.parcelaAtual || 0}`
+      if (linhasVistasNestaFatura.has(chaveInterna)) {
         status = 'provavel_duplicado'
-        correspondenciaId = matchDuplicado.id
-        correspondenciaTipo = 'lancamento'
+        correspondenciaTipo = 'linha_duplicada_no_pdf'
+      } else {
+        linhasVistasNestaFatura.add(chaveInterna)
+      }
+
+      // Camada 2: Comparação com lançamentos já existentes no SAP
+      if (status !== 'conciliado' && status !== 'provavel_duplicado') {
+        const matchDuplicado = mapaExistentes.find(
+          (e) =>
+            e.data === l.data &&
+            Math.abs(e.valor - l.valor) < 0.05 &&
+            (e.descricao.toUpperCase().includes(l.descricaoNormalizada.toUpperCase()) ||
+              l.descricaoNormalizada.toUpperCase().includes(e.descricao.toUpperCase())),
+        )
+
+        if (matchDuplicado) {
+          status = 'provavel_duplicado'
+          correspondenciaId = matchDuplicado.id
+          correspondenciaTipo = 'lancamento'
+        }
       }
 
       // Tratamento especial para linhas de crédito
@@ -601,6 +614,40 @@ export const faturaImportacaoService = {
           await this.atualizarLinha(linha.id, {
             status: 'importado',
             lancamento_criado_id: novoLanc?.id,
+          })
+
+          importados++
+        } else if (linha.tipo_linha === 'credito') {
+          // ESTORNO OU CRÉDITO/AJUSTE (BLOCO H)
+          // Regra do BLOCO H: crédito de fatura NUNCA vira Receita automaticamente.
+          // É lançado como estorno/crédito no cartão de crédito, vinculado ou abatendo a fatura.
+          // Se tiver vínculo com lançamento existente (estorno_vinculado_lancamento_id), atualiza/vincula.
+          // Se for crédito avulso sem original (1ª carga), lança como estorno no cartão (tipo 'estorno'/'estorno_cartao').
+          const novoCredito = await lancamentoService.salvarUnificado(
+            {
+              workspace_id: workspaceId,
+              tipo: 'despesa', // no SAP estornos de despesa abatem despesa ou usam estorno_cartao
+              regime: 'unico',
+              data: linha.data,
+              descricao: `[Estorno/Crédito] ${linha.descricao_editavel}`,
+              valor: -Math.abs(linha.valor), // valor negativo para abater despesa
+              categoria_id: linha.categoria_id,
+              subcategoria_id: linha.subcategoria_id,
+              meio_pagamento_tipo: 'CARTAO',
+              cartao_id: cartaoId,
+              modalidade_saida: linha.modalidade_saida,
+              valor_proprio: -(linha.valor_proprio || linha.valor),
+              valor_terceiros: 0,
+              afeta_resultado: linha.afeta_resultado,
+              afeta_orcamento: linha.afeta_orcamento,
+              observacao: `[Crédito Fatura PDF] Tratamento: ${linha.tratamento || 'estorno'} | Final: ${linha.final_cartao || 'N/D'} | Titular: ${linha.titular || 'N/D'}`,
+            },
+            userId,
+          )
+
+          await this.atualizarLinha(linha.id, {
+            status: 'importado',
+            lancamento_criado_id: novoCredito?.id,
           })
 
           importados++

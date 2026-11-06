@@ -276,6 +276,62 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
             </div>
           )}
 
+          {/* Seção Tratamento de Linha (Compra, Estorno, Crédito/Ajuste, Ignorar) */}
+          <div className="p-2.5 bg-slate-900/90 border border-slate-800 rounded-md flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Label className="text-slate-400 text-[11px] whitespace-nowrap">
+                Tratamento da Linha:
+              </Label>
+              <Select
+                value={linha.tratamento || 'compra'}
+                onValueChange={(val: any) => {
+                  const isIgn = val === 'ignorar'
+                  const isCred = val === 'estorno' || val === 'credito_ajuste'
+                  aoAlterar(linha.id, {
+                    tratamento: val,
+                    tipo_linha: isCred
+                      ? 'credito'
+                      : val === 'ignorar'
+                        ? 'ignorado'
+                        : linha.tipo_linha === 'parcelado'
+                          ? 'parcelado'
+                          : 'compra',
+                    selecionado: !isIgn,
+                    afeta_resultado: isCred || isIgn ? false : linha.afeta_resultado,
+                    afeta_orcamento: isCred || isIgn ? false : linha.afeta_orcamento,
+                    status: isIgn
+                      ? 'ignorado'
+                      : linha.status === 'ignorado'
+                        ? 'novo'
+                        : linha.status,
+                  })
+                }}
+              >
+                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200 h-7 text-xs w-[160px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
+                  <SelectItem value="compra">Compra (Normal)</SelectItem>
+                  <SelectItem value="estorno">Estorno de Compra</SelectItem>
+                  <SelectItem value="credito_ajuste">Crédito / Ajuste</SelectItem>
+                  <SelectItem value="ignorar">Ignorar Linha</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {linha.origem_classificacao === 'regra_aprendida' && (
+              <span className="text-[10px] text-amber-300 font-medium flex items-center gap-1 bg-amber-950/40 border border-amber-800/50 px-2 py-0.5 rounded">
+                <Sparkles className="w-3 h-3" /> Preenchido por regra anterior (editável)
+              </span>
+            )}
+            {linha.status === 'conciliado' && (
+              <span className="text-[10px] text-sky-300 font-medium flex items-center gap-1 bg-sky-950/40 border border-sky-800/50 px-2 py-0.5 rounded">
+                <CheckCircle2 className="w-3 h-3" /> Conciliado com parcela existente (não criará
+                novo)
+              </span>
+            )}
+          </div>
+
           {/* Seção 2: Categoria, Subcategoria e Modalidades de Saída */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <div className="space-y-1">
@@ -366,6 +422,17 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
                 />
               </div>
             )}
+          </div>
+
+          {/* Observações da Linha */}
+          <div className="space-y-1">
+            <Label className="text-slate-400 text-[11px]">Observações / Metadados</Label>
+            <Input
+              value={linha.observacao || ''}
+              placeholder="Observações complementares..."
+              onChange={(e) => aoAlterar(linha.id, { observacao: e.target.value })}
+              className="bg-slate-800 border-slate-700 text-slate-200 h-8 text-xs"
+            />
           </div>
 
           {/* Metadados do Cartão e Rastreabilidade */}

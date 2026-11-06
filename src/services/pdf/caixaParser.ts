@@ -127,9 +127,12 @@ export class CaixaParser {
         const isCredito = tipoDC.toUpperCase() === 'C'
 
         // Ignorar pagamento da fatura (BLOCO F e 9)
+        const descUpperCaixa = rawDescricao.toUpperCase()
         if (
-          rawDescricao.toUpperCase().includes('OBRIGADO PELO PAGAMENTO') ||
-          rawDescricao.toUpperCase().includes('PAGTO')
+          descUpperCaixa.includes('OBRIGADO PELO PAGAMENTO') ||
+          descUpperCaixa.includes('PAGTO') ||
+          descUpperCaixa.includes('PAGAMENTO DE FATURA') ||
+          descUpperCaixa.includes('PAGAMENTO EM C/C')
         ) {
           continue
         }

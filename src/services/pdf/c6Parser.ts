@@ -105,10 +105,13 @@ export class C6Parser {
 
         // Pagamento anterior do C6 a IGNORAR (BLOCO F e 9)
         // Ex: "09 set Inclusao de Pagamento 8.938,16"
+        const c6DescUpper = rawDescricao.toUpperCase()
         if (
-          rawDescricao.toUpperCase().includes('INCLUSAO DE PAGAMENTO') ||
-          rawDescricao.toUpperCase().includes('PAGTO') ||
-          rawDescricao.toUpperCase().includes('PAGAMENTO')
+          c6DescUpper.includes('INCLUSAO DE PAGAMENTO') ||
+          c6DescUpper.includes('PAGTO') ||
+          c6DescUpper.includes('PAGAMENTO DE FATURA') ||
+          c6DescUpper.includes('PAGAMENTO RECEBIDO') ||
+          c6DescUpper.includes('OBRIGADO PELO PAGAMENTO')
         ) {
           continue
         }
