@@ -1045,6 +1045,15 @@ export default function CartoesPage() {
           </Button>
 
           <Button
+            variant="outline"
+            onClick={() => navigate('/importar-fatura')}
+            className="border-teal-600/40 text-teal-700 hover:bg-teal-50 font-medium text-xs sm:text-sm flex items-center gap-2 shadow-sm h-9"
+          >
+            <Upload className="w-4 h-4 text-teal-600" />
+            Importar Fatura PDF
+          </Button>
+
+          <Button
             onClick={abrirNovo}
             className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs sm:text-sm flex items-center gap-2 shadow-sm h-9"
           >

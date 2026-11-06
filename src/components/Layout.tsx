@@ -22,6 +22,7 @@ import {
   Bell,
   Sparkles,
   Calculator,
+  Upload,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -93,6 +94,7 @@ export default function Layout() {
     { label: 'visão geral', path: '/' },
     { label: 'contas', path: '/contas' },
     { label: 'cartões', path: '/cartoes' },
+    { label: 'importar fatura', path: '/importar-fatura' },
     { label: 'orçamento', path: '/orcamento' },
     { label: 'categorias', path: '/categorias' },
     { label: 'lançamentos', path: '/lancamentos' },
@@ -104,6 +106,7 @@ export default function Layout() {
   const cadastrosDesktopItems = [
     { label: 'Minhas Contas', path: '/contas', icon: Wallet },
     { label: 'Meus Cartões', path: '/cartoes', icon: CreditCard },
+    { label: 'Importar Fatura PDF', path: '/importar-fatura', icon: Upload },
     { label: 'Lançamentos', path: '/lancamentos', icon: ArrowLeftRight },
     { label: 'Calculadora Pix × Cartão', path: '/calculadora', icon: Calculator },
     { label: 'Categorias & Subcategorias', path: '/categorias', icon: Tag },
