@@ -38,6 +38,7 @@ export class CaixaParser {
     let vencimento = '2026-11-01'
     let fechamento = '2026-10-17'
     let valorTotalDeclarado = isMaster ? 1535.67 : 816.17
+    let valorPagamentoAnterior = 0
 
     const matchVenc = fullText.match(/VENCIMENTO\s*(\d{2}\/\d{2}\/\d{4})/i)
     if (matchVenc) {
@@ -52,6 +53,11 @@ export class CaixaParser {
 
     let titularAtual = 'EVANDRO DA SILVA GUEDES'
     let finalAtual = isMaster ? '4882' : '9064'
+    // Competência derivada do vencimento extraído do PDF (fonte de dados, não regra fixa)
+    const competencia = vencimento.slice(0, 7)
+    const mesFatura = parseInt(competencia.slice(5, 7), 10) || 11
+    const anoFatura = parseInt(competencia.slice(0, 4), 10) || 2026
+
     let secaoAtual = 'demonstrativo' // 'demonstrativo', 'compras', 'parceladas', 'anuidade'
     let ordemCounter = 1
 
@@ -134,6 +140,9 @@ export class CaixaParser {
           descUpperCaixa.includes('PAGAMENTO DE FATURA') ||
           descUpperCaixa.includes('PAGAMENTO EM C/C')
         ) {
+          // Pagamento da fatura anterior — BLOCO 9: não vira lançamento de forma alguma,
+          // mas compõe a reconciliação (equivale ao saldo anterior pago).
+          valorPagamentoAnterior += valorNum
           continue
         }
 
@@ -154,10 +163,10 @@ export class CaixaParser {
         let dataInferidaDeAnoAnterior = false
 
         if (parcelaAtual && parcelaAtual > 1) {
-          const mesFatura = 11
-          const anoFatura = 2026
-          const totalMesesAtras = parcelaAtual - 1
-          let mesCalc = mesFatura - totalMesesAtras
+          // A compra ocorre (parcelaAtual + 1) faturas antes desta: parcela 04/10 na
+          // fatura de 11/2026 -> compra de 20/06/2026. O ano recua quando o mês
+          // calculado fica <= 0.
+          let mesCalc = mesFatura - parcelaAtual - 1
           let anoCalc = anoFatura
           while (mesCalc <= 0) {
             mesCalc += 12
@@ -216,7 +225,22 @@ export class CaixaParser {
       .filter((l) => !l.isCredito)
       .reduce((sum, l) => sum + l.valor, 0)
     const creditos = linhasExtraidas.filter((l) => l.isCredito).reduce((sum, l) => sum + l.valor, 0)
-    const diferenca = Math.round((valorTotalDeclarado - (comprasEncargos - creditos)) * 100) / 100
+    // Reconciliação CAIXA (mesma fórmula do Bradesco):
+    // Pagamento(s) anteriores (saldo pago em c/c) − Créditos + Compras/Encargos = Total da fatura
+    const diferenca =
+      Math.round(
+        (valorTotalDeclarado - (valorPagamentoAnterior - creditos + comprasEncargos)) * 100,
+      ) / 100
+    if (valorPagamentoAnterior > 0) {
+      avisos.push(
+        `Pagamento/saldo anterior de R$ ${valorPagamentoAnterior
+          .toFixed(2)
+          .replace(
+            '.',
+            ',',
+          )} ignorado como lançamento (informativo de pagamento) e usado na reconciliação.`,
+      )
+    }
 
     return {
       cabecalho: {
@@ -224,7 +248,7 @@ export class CaixaParser {
         emissorNome,
         titulares: Array.from(titulares),
         finais: Array.from(finais),
-        competencia: '2026-11',
+        competencia,
         vencimento,
         fechamento,
         valorTotalFatura: valorTotalDeclarado,

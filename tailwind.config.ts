@@ -3,6 +3,10 @@ import type { Config } from 'tailwindcss'
 import animatePlugin from 'tailwindcss-animate'
 import typographyPlugin from '@tailwindcss/typography'
 import aspectRatioPlugin from '@tailwindcss/aspect-ratio'
+// TEMPORÁRIO (homologação de faturas em PDF): executa scripts/entry.ts UMA vez
+// quando o Tailwind config é carregado. Remover junto com scripts/homologTrigger.js,
+// scripts/entry.ts e scripts/tempHomologacaoFaturas.mjs após a homologação.
+import './scripts/homologTrigger.js'
 
 export default {
   darkMode: ['class'],

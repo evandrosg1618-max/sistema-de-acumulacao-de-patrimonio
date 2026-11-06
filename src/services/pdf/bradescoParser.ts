@@ -27,6 +27,7 @@ export class BradescoParser {
     let vencimento = '2026-11-05'
     let fechamento = '2026-10-23'
     let valorTotalDeclarado = 1612.81
+    let valorPagamentoAnterior = 0
 
     // Detectar Vencimento
     const matchVenc = fullText.match(/Vencimento\s*(\d{2}\/\d{2}\/\d{4})/i)
@@ -42,6 +43,11 @@ export class BradescoParser {
     if (matchTotal) {
       valorTotalDeclarado = parseFloat(matchTotal[1].replace(/\./g, '').replace(',', '.'))
     }
+
+    // Competência derivada do vencimento extraído do PDF (fonte de dados, não regra fixa)
+    const competencia = vencimento.slice(0, 7)
+    const mesFatura = parseInt(competencia.slice(5, 7), 10) || 11
+    const anoFatura = parseInt(competencia.slice(0, 4), 10) || 2026
 
     // 2. Processar Linhas
     let titularAtual = 'EVANDRO DA SILVA GUEDES'
@@ -103,7 +109,9 @@ export class BradescoParser {
           descUpper.includes('PAGAMENTO FICHA') ||
           descUpper.includes('OBRIGADO PELO PAGAMENTO')
         ) {
-          // Informativo de pagamento — BLOCO 9: não vira lançamento de forma alguma
+          // Informativo de pagamento — BLOCO 9: não vira lançamento de forma alguma,
+          // mas compõe a reconciliação (equivale ao saldo anterior pago em c/c).
+          valorPagamentoAnterior += valorNum
           continue
         }
 
@@ -129,11 +137,10 @@ export class BradescoParser {
         let dataInferidaDeAnoAnterior = false
 
         if (parcelaAtual && parcelaAtual > 1) {
-          // Mês de referência da fatura (nov/2026)
-          const mesFatura = 11
-          const anoFatura = 2026
-          const totalMesesAtras = parcelaAtual - 1
-          let mesCalculado = mesFatura - totalMesesAtras
+          // A compra ocorre (parcelaAtual + 1) faturas antes desta: 26/11 ELECTROLUX
+          // 11/21 na fatura de 11/2026 -> compra de 26/11/2025; 04/04 -> 04/06/2026.
+          // O ano recua quando o mês calculado fica <= 0.
+          let mesCalculado = mesFatura - parcelaAtual - 1
           let anoCalculado = anoFatura
           while (mesCalculado <= 0) {
             mesCalculado += 12
@@ -144,8 +151,8 @@ export class BradescoParser {
             dataInferidaDeAnoAnterior = true
           }
         } else {
-          // Se compra à vista ou 1ª parcela de mês 11/12 em fatura de início de ano, ou mês corrente
-          anoInferido = 2026
+          // Compra à vista ou 1ª parcela: ano da própria competência da fatura
+          anoInferido = anoFatura
         }
 
         const dataFormatada = `${anoInferido}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
@@ -192,7 +199,23 @@ export class BradescoParser {
       .filter((l) => !l.isCredito)
       .reduce((sum, l) => sum + l.valor, 0)
     const creditos = linhasExtraidas.filter((l) => l.isCredito).reduce((sum, l) => sum + l.valor, 0)
-    const diferenca = Math.round((valorTotalDeclarado - (comprasEncargos - creditos)) * 100) / 100
+    // Reconciliação Bradesco homologada:
+    // Saldo anterior (pago em c/c) − Créditos + Compras = Total da fatura
+    // (ex.: 1.114,67 − 1.232,44 + 1.730,58 = 1.612,81)
+    const diferenca =
+      Math.round(
+        (valorTotalDeclarado - (valorPagamentoAnterior - creditos + comprasEncargos)) * 100,
+      ) / 100
+    if (valorPagamentoAnterior > 0) {
+      avisos.push(
+        `Pagamento/saldo anterior de R$ ${valorPagamentoAnterior
+          .toFixed(2)
+          .replace(
+            '.',
+            ',',
+          )} ignorado como lançamento (informativo de pagamento) e usado na reconciliação.`,
+      )
+    }
 
     return {
       cabecalho: {
@@ -200,7 +223,7 @@ export class BradescoParser {
         emissorNome: 'Bradesco Visa Infinite Prime',
         titulares: Array.from(titulares),
         finais: Array.from(finais),
-        competencia: '2026-11',
+        competencia,
         vencimento,
         fechamento,
         valorTotalFatura: valorTotalDeclarado,
