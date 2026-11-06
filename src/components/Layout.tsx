@@ -96,7 +96,7 @@ export default function Layout() {
     { label: 'orçamento', path: '/orcamento' },
     { label: 'categorias', path: '/categorias' },
     { label: 'lançamentos', path: '/lancamentos' },
-    { label: 'decisão de pagamento', path: '/calculadora' },
+    { label: 'calculadora pix × cartão', path: '/calculadora' },
     { label: 'relatórios', path: '/relatorios', badge: 'Build 7' },
   ]
 
@@ -105,7 +105,7 @@ export default function Layout() {
     { label: 'Minhas Contas', path: '/contas', icon: Wallet },
     { label: 'Meus Cartões', path: '/cartoes', icon: CreditCard },
     { label: 'Lançamentos', path: '/lancamentos', icon: ArrowLeftRight },
-    { label: 'Decisão de Pagamento', path: '/calculadora', icon: Calculator },
+    { label: 'Calculadora Pix × Cartão', path: '/calculadora', icon: Calculator },
     { label: 'Categorias & Subcategorias', path: '/categorias', icon: Tag },
     { label: 'Orçamento Familiar', path: '/orcamento', icon: Target },
   ]
@@ -115,7 +115,7 @@ export default function Layout() {
     { label: 'Minhas Contas', path: '/contas', icon: Wallet },
     { label: 'Meus Cartões', path: '/cartoes', icon: CreditCard },
     { label: 'Lançamentos', path: '/lancamentos', icon: ArrowLeftRight },
-    { label: 'Decisão de Pagamento', path: '/calculadora', icon: Calculator },
+    { label: 'Calculadora Pix × Cartão', path: '/calculadora', icon: Calculator },
     { label: 'Meios de Pagamento', path: '/meios-pagamento', icon: Banknote },
     { label: 'Categorias & Subcategorias', path: '/categorias', icon: Tag },
     { label: 'Orçamento Familiar', path: '/orcamento', icon: Target },

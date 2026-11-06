@@ -121,7 +121,7 @@ const AppRoutes = () => (
 
       {/* Build 2: Lançamentos Financeiros Reais */}
       <Route path="/lancamentos" element={<LancamentosPage />} />
-      {/* Calculadora de Decisão de Pagamento (Pix × Cartão) */}
+      {/* Calculadora Pix × Cartão */}
       <Route path="/calculadora" element={<CalculadoraDecisaoPage />} />
       <Route
         path="/relatorios"

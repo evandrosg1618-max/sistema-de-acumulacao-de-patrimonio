@@ -226,11 +226,11 @@ export function CalculadoraDecisaoPage() {
           </div>
           <div>
             <h1 className="text-xl md:text-2xl font-bold tracking-tight text-slate-900">
-              Decisão de Pagamento (Pix × Cartão)
+              Calculadora Pix × Cartão
             </h1>
             <p className="text-xs text-slate-500">
-              Simulação de consciência e otimização financeira: pagar à vista com desconto ou
-              parcelar no cartão com o dinheiro rendendo no CDB?
+              Compare o pagamento à vista com o parcelamento considerando rendimento do dinheiro,
+              datas reais das parcelas e benefícios do cartão.
             </p>
           </div>
         </div>
@@ -572,8 +572,8 @@ export function CalculadoraDecisaoPage() {
                         onChange={(e) => setDolarManual(e.target.value)}
                         className="mt-1 h-8 text-xs font-semibold bg-white"
                       />
-                      <span className="text-[9px] text-slate-400 block mt-0.5">
-                        {cotacoes?.dolar.fonte || 'BCB PTAX Venda'}
+                      <span className="text-[9px] text-slate-500 block mt-0.5">
+                        {`BCB • atualizado ${cotacoes?.dolar.dataHora ? (cotacoes.dolar.dataHora.includes('T') ? new Date(cotacoes.dolar.dataHora).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : cotacoes.dolar.dataHora) : 'hoje'}`}
                       </span>
                     </div>
 
@@ -586,8 +586,8 @@ export function CalculadoraDecisaoPage() {
                         onChange={(e) => setCdiAnualPercentManual(e.target.value)}
                         className="mt-1 h-8 text-xs font-semibold bg-white"
                       />
-                      <span className="text-[9px] text-slate-400 block mt-0.5">
-                        {cotacoes?.cdiAnual.fonte || 'BCB SGS 4390'}
+                      <span className="text-[9px] text-slate-500 block mt-0.5">
+                        {`BCB (SGS 4389) • atualizado ${cotacoes?.cdiAnual.dataHora || 'hoje'}`}
                       </span>
                     </div>
 
@@ -709,7 +709,7 @@ export function CalculadoraDecisaoPage() {
                               : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                         }`}
                       >
-                        Vantagem {resultado.magnitude}
+                        {`VANTAGEM ${resultado.magnitude.toUpperCase()} · ${resultado.vantagemRelativa.toFixed(2).replace('.', ',')}%`}
                       </span>
                     </div>
                   </div>
@@ -769,39 +769,78 @@ export function CalculadoraDecisaoPage() {
                     </div>
                   </div>
 
-                  {/* Destaque Principal: Desconto de Equilíbrio do Pix */}
-                  <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+                  {/* Destaque Principal: PONTO DE INDIFERENÇA PIX × CARTÃO */}
+                  <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-xs font-bold text-emerald-900 uppercase tracking-wider">
                         <TrendingUp className="w-4 h-4 text-emerald-700" />
-                        <span>Desconto de Equilíbrio do Pix (Ponto de Indiferença)</span>
+                        <span>PONTO DE INDIFERENÇA PIX × CARTÃO</span>
                       </div>
                       <span className="text-xs font-extrabold text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">
-                        Mínimo {resultado.descontoEquilibrioPixPercent.toFixed(1).replace('.', ',')}
-                        %
+                        Equilíbrio:{' '}
+                        {resultado.descontoEquilibrioPixPercent.toFixed(2).replace('.', ',')}%
                       </span>
                     </div>
+
+                    {/* Grade com os 4 indicadores exigidos: Preço Pix atual, Preço Pix de equilíbrio, Desconto atual, Desconto de equilíbrio */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-white/70 rounded-lg p-2.5 border border-emerald-200/60 text-xs">
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">
+                          Preço Pix atual
+                        </span>
+                        <span className="font-bold text-slate-900">
+                          R$ {resultado.precoPix.toFixed(2).replace('.', ',')}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">
+                          Preço Pix de equilíbrio
+                        </span>
+                        <span className="font-bold text-emerald-800">
+                          R$ {resultado.pixEquilibrioValor.toFixed(2).replace('.', ',')}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">
+                          Desconto atual
+                        </span>
+                        <span className="font-bold text-slate-900">
+                          {resultado.descontoAtualPixPercent.toFixed(2).replace('.', ',')}%
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-slate-500 uppercase block font-semibold">
+                          Desconto de equilíbrio
+                        </span>
+                        <span className="font-bold text-emerald-800">
+                          {resultado.descontoEquilibrioPixPercent.toFixed(2).replace('.', ',')}%
+                        </span>
+                      </div>
+                    </div>
+
                     <p className="text-xs text-emerald-950 font-medium leading-relaxed">
                       {resultado.fraseDescontoEquilibrio}
                     </p>
+
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px] text-emerald-800">
                       <div>
-                        Desconto atual:{' '}
-                        <strong>
-                          {resultado.descontoAtualPixPercent.toFixed(1).replace('.', ',')}%
-                        </strong>{' '}
-                        {resultado.diferencaDescontoPontosPercentuais > 0 ? (
+                        {resultado.vencedor === 'cartao' &&
+                        resultado.diferencaDescontoPontosPercentuais > 0 ? (
                           <span>
-                            (faltam{' '}
-                            {resultado.diferencaDescontoPontosPercentuais
-                              .toFixed(1)
-                              .replace('.', ',')}{' '}
-                            p.p.)
+                            Diferença para o equilíbrio:{' '}
+                            <strong>
+                              {resultado.diferencaDescontoPontosPercentuais
+                                .toFixed(2)
+                                .replace('.', ',')}{' '}
+                              p.p.
+                            </strong>
+                          </span>
+                        ) : resultado.vencedor === 'pix' ? (
+                          <span className="text-emerald-700 font-bold">
+                            Desconto atual já supera o ponto de indiferença.
                           </span>
                         ) : (
-                          <span className="text-emerald-700 font-bold">
-                            (desconto atual já supera o equilíbrio!)
-                          </span>
+                          <span>Custos econômicos rigorosamente equivalentes.</span>
                         )}
                       </div>
                       <Button

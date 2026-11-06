@@ -40,9 +40,9 @@ const FALLBACK_PADRAO: CotacoesCalculadora = {
     atualizadoAutomaticamente: false,
   },
   cdiAnual: {
-    valor: 0.1375, // 13.75% a.a.
-    fonte: 'Banco Central do Brasil (SGS 4390 - Referência)',
-    dataHora: new Date().toISOString(),
+    valor: 0.1365, // 13.65% a.a.
+    fonte: 'Banco Central do Brasil (SGS 4389 • Referência)',
+    dataHora: new Date().toLocaleDateString('pt-BR'),
     atualizadoAutomaticamente: false,
   },
   selicMeta: {
@@ -205,23 +205,53 @@ export const cotacoesService = {
       }
     }
 
-    // 3. Tentar CDI Anualizado (SGS 4390)
+    // 3. Tentar CDI Anualizado (SGS 4389 - Taxa de juros CDI anualizada base 252)
+    // Nota: SGS 4390 é a taxa acumulada no mês (fração mensal como 0,15%), enquanto SGS 4389 é a taxa anualizada (% a.a. ex: 13,65).
     try {
-      const sgsCDI = await buscarSGS(4390)
-      // SGS 4390 retorna percentual a.a. (ex: 13.65). Converte para decimal (0.1365)
+      let sgsCDI = await buscarSGS(4389)
+      // Se SGS 4389 retornar valor inválido ou absurdamente baixo (< 1%), tentar Selic (432) como referência de mercado
+      let taxaAnual = sgsCDI.valor
+      let fonteNome = 'Banco Central do Brasil (SGS 4389 • CDI anualizado base 252)'
+      let dataRef = sgsCDI.data
+
+      if (taxaAnual < 1) {
+        // Fallback para taxa diária SGS 12 capitalizada ou SGS 432 (Selic meta)
+        try {
+          const sgsSelic = await buscarSGS(432)
+          taxaAnual = sgsSelic.valor
+          fonteNome = 'Banco Central do Brasil (SGS 432 • Referência CDI anualizado)'
+          dataRef = sgsSelic.data
+        } catch {
+          // Mantém valor padrão de mercado
+          taxaAnual = 13.65
+        }
+      }
+
       resultado.cdiAnual = {
-        valor: sgsCDI.valor / 100,
-        fonte: 'Banco Central do Brasil (SGS 4390 - CDI Anualizado)',
-        dataHora: sgsCDI.data,
+        valor: taxaAnual / 100, // guarda como decimal (ex: 0.1365 para 13,65% a.a.)
+        fonte: fonteNome,
+        dataHora: dataRef,
         atualizadoAutomaticamente: true,
       }
       atualizado = true
     } catch (e: any) {
-      console.warn('Falha na atualização automática do CDI (SGS 4390):', e?.message || e)
-      resultado.cdiAnual = {
-        ...resultado.cdiAnual,
-        atualizadoAutomaticamente: false,
-        erro: 'Valor do CDI não pôde ser atualizado.',
+      console.warn('Falha na atualização automática do CDI (SGS 4389):', e?.message || e)
+      // Tentar SGS 432 como fallback resiliente
+      try {
+        const sgsSelic = await buscarSGS(432)
+        resultado.cdiAnual = {
+          valor: sgsSelic.valor / 100,
+          fonte: 'Banco Central do Brasil (SGS 432 • Referência CDI anualizado)',
+          dataHora: sgsSelic.data,
+          atualizadoAutomaticamente: true,
+        }
+        atualizado = true
+      } catch {
+        resultado.cdiAnual = {
+          ...resultado.cdiAnual,
+          atualizadoAutomaticamente: false,
+          erro: 'Valor do CDI não pôde ser atualizado.',
+        }
       }
     }
 

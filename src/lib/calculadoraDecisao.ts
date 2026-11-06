@@ -446,7 +446,16 @@ export function calcularSimulacao(params: ParametrosSimulacao): ResultadoSimulac
     Math.max(0, descontoEquilibrioPixPercent - descontoAtualPixPercent),
   )
 
-  const fraseDescontoEquilibrio = `O vendedor precisaria oferecer pelo menos ${descontoEquilibrioPixPercent.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}% de desconto no Pix para que ele se tornasse a melhor opção nas premissas atuais.`
+  let fraseDescontoEquilibrio = ''
+  if (vencedor === 'pix') {
+    fraseDescontoEquilibrio =
+      'O preço atual no Pix já está abaixo do ponto de equilíbrio. Nas premissas atuais, o Pix é mais vantajoso.'
+  } else if (vencedor === 'cartao') {
+    fraseDescontoEquilibrio = `Para o Pix superar o cartão, o preço à vista precisaria ser de no máximo R$ ${pixEquilibrioValor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}, equivalente a um desconto mínimo de ${descontoEquilibrioPixPercent.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}%.`
+  } else {
+    fraseDescontoEquilibrio =
+      'Nas premissas atuais, Pix e cartão apresentam custos econômicos equivalentes.'
+  }
 
   // Frase síntese com magnitude
   const nomeMagnitude =
