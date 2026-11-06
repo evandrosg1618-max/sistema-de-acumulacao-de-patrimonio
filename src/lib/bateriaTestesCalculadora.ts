@@ -50,7 +50,12 @@ export function executarBateriaTestesCalculadora() {
   }
 
   // Teste 1: Pix = Cartão (R$ 5.000), 1x, 0 pontos (impacto somente do prazo até vencimento)
-  const t1 = calcularSimulacao({ ...baseParams, precoPix: 5000, precoCartao: 5000, numeroParcelas: 1 })
+  const t1 = calcularSimulacao({
+    ...baseParams,
+    precoPix: 5000,
+    precoCartao: 5000,
+    numeroParcelas: 1,
+  })
   resultados['Teste 1'] = {
     descricao: 'Pix = Cartão (R$ 5.000), 1x, 0 pontos — impacto somente do prazo até vencimento',
     prazoDias: t1.memoria[0]?.diasPeriodo,
@@ -62,7 +67,12 @@ export function executarBateriaTestesCalculadora() {
   }
 
   // Teste 2: Pix = Cartão (R$ 5.000), 12x, 0 pontos (parcelamento captura benefício do dinheiro aplicado)
-  const t2 = calcularSimulacao({ ...baseParams, precoPix: 5000, precoCartao: 5000, numeroParcelas: 12 })
+  const t2 = calcularSimulacao({
+    ...baseParams,
+    precoPix: 5000,
+    precoCartao: 5000,
+    numeroParcelas: 12,
+  })
   resultados['Teste 2'] = {
     descricao: 'Pix = Cartão (R$ 5.000), 12x, 0 pontos — benefício do dinheiro aplicado',
     rendimentoLiquido: t2.rendimentoLiquidoAcumulado,

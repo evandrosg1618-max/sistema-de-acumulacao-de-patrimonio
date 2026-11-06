@@ -1,2 +1,2 @@
-// Arquivo mantido vazio como placeholder intencional
+// Placeholder para runners e scripts de teste
 export {}

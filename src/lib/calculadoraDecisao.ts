@@ -67,6 +67,9 @@ export interface ResultadoSimulacao {
   numeroParcelas: number
   valorParcela: number
 
+  // Vantagem Líquida Final (saldoFinal + valorEconomicoMilhas)
+  vantagemLiquidaFinal: number
+
   // Saldo e Rendimentos
   saldoFinal: number
   rendimentoLiquidoAcumulado: number
@@ -480,6 +483,7 @@ export function calcularSimulacao(params: ParametrosSimulacao): ResultadoSimulac
     precoCartao,
     numeroParcelas: nParcelas,
     valorParcela,
+    vantagemLiquidaFinal,
     saldoFinal,
     rendimentoLiquidoAcumulado,
     custoAdicionalCartao: diferencaNominal,
@@ -619,6 +623,74 @@ function calcularSimulacaoInterna(params: ParametrosSimulacao): {
  * Compara múltiplos cenários de parcelamento (1x, 3x, 6x, 10x, 12x, etc.)
  * para alimentar a tabela comparativa (Complemento Seção 17 e PDF Principal Seção 17).
  */
+/**
+ * Atalho para a simulação simplificada do Teste 0 (Complemento Seção 2)
+ */
+export function calcularSimulacaoSimplificada(params: {
+  precoPix: number
+  precoCartao: number
+  numeroParcelas: number
+  taxaAnualReferencia?: number
+  irSimplificado?: number
+}) {
+  const taxaAnual = params.taxaAnualReferencia ?? 0.1375
+  const ir = params.irSimplificado ?? 0.225
+  const taxaMensalLiq = Math.pow(1 + taxaAnual * (1 - ir), 1 / 12) - 1
+  const valorParcela = round2(params.precoCartao / params.numeroParcelas)
+
+  let saldo = params.precoPix
+  let rendAcum = 0
+  const periodos: Array<{
+    parcela: number
+    rendimentoPeriodo: number
+    saldoAposParcela: number
+  }> = []
+
+  for (let i = 1; i <= params.numeroParcelas; i++) {
+    const rend = round2(saldo * taxaMensalLiq)
+    rendAcum = round2(rendAcum + rend)
+    saldo = round2(saldo + rend - valorParcela)
+    periodos.push({
+      parcela: i,
+      rendimentoPeriodo: rend,
+      saldoAposParcela: saldo,
+    })
+  }
+
+  return {
+    capitalInicial: params.precoPix,
+    rendimentoLiquidoAcumulado: rendAcum,
+    saldoFinal: saldo,
+    vantagemCartao: saldo,
+    periodos,
+  }
+}
+
+/**
+ * Aliases de compatibilidade para funções utilitárias de datas e projeções
+ */
+export const calcularDataVencimentoPrimeiraParcela = calcularDataVencimentoFatura
+export const encontrarPrecoPixEquilibrio = calcularPrecoPixEquilibrio
+
+export function calcularProjetarVencimentos(
+  dataCompra: string,
+  diaFechamentoCartao: number,
+  diaVencimentoCartao: number,
+  totalParcelas: number,
+): string[] {
+  const compInicial = calcularCompetenciaInicial(
+    dataCompra,
+    diaFechamentoCartao,
+    diaVencimentoCartao,
+  )
+  const vencimentos: string[] = []
+  for (let i = 0; i < totalParcelas; i++) {
+    const comp = adicionarMesesCompetencia(compInicial, i)
+    vencimentos.push(calcularDataVencimentoFatura(comp, diaFechamentoCartao, diaVencimentoCartao))
+  }
+  return vencimentos
+}
+
 export function compararParcelamentos(
   params: ParametrosSimulacao,
   opcoesParcelas: number[] = [1, 3, 6, 10, 12],
