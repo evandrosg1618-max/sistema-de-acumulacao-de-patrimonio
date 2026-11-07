@@ -54,10 +54,7 @@ import {
 import { executarParserFatura } from '@/services/pdf/faturaParserRouter'
 import { ParserResult } from '@/types/faturaPdf'
 import { LinhaRevisaoFaturaItem } from '@/components/LinhaRevisaoFaturaItem'
-import {
-  ModalEdicaoEmMassaFatura,
-  PatchEdicaoEmMassa,
-} from '@/components/ModalEdicaoEmMassaFatura'
+import { ModalEdicaoEmMassaFatura, PatchEdicaoEmMassa } from '@/components/ModalEdicaoEmMassaFatura'
 import { ModalSenhaPdf } from '@/components/ModalSenhaPdf'
 import { ModalSessaoExistenteCartao } from '@/components/ModalSessaoExistenteCartao'
 import { ModalDescarteNavegacao } from '@/components/ModalDescarteNavegacao'
@@ -383,7 +380,9 @@ export function ImportarFaturaPage() {
           setAvisoHashReimportacao(
             `Aviso informativo: Este arquivo já foi importado anteriormente em ${new Date(
               reimportacao.created_at,
-            ).toLocaleDateString('pt-BR')}. Você pode prosseguir normalmente para atualizar os lançamentos.`,
+            ).toLocaleDateString(
+              'pt-BR',
+            )}. Você pode prosseguir normalmente para atualizar os lançamentos.`,
           )
         } else {
           setAvisoHashReimportacao(null)
@@ -432,7 +431,12 @@ export function ImportarFaturaPage() {
       const nomeCartao = cartaoAtual?.nome || 'Cartão'
       const anoPadrao = new Date().getFullYear()
 
-      const imagensInputOcr: { indice: number; nome: string; linhas: string[] }[] = []
+      const imagensInputOcr: Array<{
+        indice: number
+        nome: string
+        lines: string[]
+        linhas: string[]
+      }> = []
 
       // OCR em cada imagem sequencialmente com atualização de progresso
       for (let i = 0; i < imagensCapturadas.length; i++) {
@@ -461,6 +465,7 @@ export function ImportarFaturaPage() {
         imagensInputOcr.push({
           indice: i,
           nome: img.nome,
+          lines: resOcr.lines,
           linhas: resOcr.lines,
         })
       }
@@ -1478,8 +1483,8 @@ export function ImportarFaturaPage() {
                   capturaParcialImagem && totalFatura === 0
                     ? 'bg-blue-50/70 border-blue-200 text-blue-900'
                     : conferenciaOk
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                    : 'bg-amber-50 border-amber-200 text-amber-800'
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-amber-50 border-amber-200 text-amber-800'
                 }`}
               >
                 {capturaParcialImagem && totalFatura === 0 ? (

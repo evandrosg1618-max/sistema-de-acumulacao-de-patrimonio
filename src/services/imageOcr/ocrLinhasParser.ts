@@ -24,6 +24,11 @@ export interface ResultadoOcrImagens {
   capturaParcial: boolean
 }
 
+export interface OpcoesProcessamentoOcr {
+  anoPadrao?: number
+  nomeCartao?: string
+}
+
 export type NivelConfiancaOcr = 'alta' | 'media' | 'baixa'
 
 export interface ItemExtraidoOcr {
@@ -243,8 +248,16 @@ export function interpretarLinhaOcr(
  * C3: Se houver repetição entre imagens consecutivas (ex: Imagem 1 termina DROGASIL, Imagem 2 começa DROGASIL),
  * detecta e sinaliza como duplicado (ou descarta caso seja sobreposição inequívoca).
  */
+export interface ImagemEntradaOcr {
+  indice: number
+  nome: string
+  lines?: string[]
+  linhas?: string[]
+}
+
 export function processarLinhasOcrMultiplasImagens(
-  imagens: Array<{ indice: number; nome: string; lines: string[] }>,
+  imagens: Array<ImagemEntradaOcr>,
+  opcoes?: OpcoesProcessamentoOcr,
 ): ResultadoOcrImagens {
   const itensCandidatos: ItemExtraidoOcr[] = []
   const diagnosticos: ImagemExtraidaDiagnostico[] = []
@@ -255,8 +268,9 @@ export function processarLinhasOcrMultiplasImagens(
   imagens.forEach((img) => {
     let reconhecidasImg = 0
     const naoInterpretadasImg: string[] = []
+    const linhasOriginais = img.lines || img.linhas || []
 
-    img.lines.forEach((linha) => {
+    linhasOriginais.forEach((linha) => {
       const interpretada = interpretarLinhaOcr(linha, img.indice, ordemGlobal)
       if (interpretada) {
         itensCandidatos.push(interpretada)
@@ -273,7 +287,7 @@ export function processarLinhasOcrMultiplasImagens(
     diagnosticos.push({
       indice: img.indice,
       nome: img.nome,
-      linhasBrutas: img.lines,
+      linhasBrutas: linhasOriginais,
       linhasReconhecidas: reconhecidasImg,
       linhasNaoInterpretadas: naoInterpretadasImg,
     })
@@ -337,7 +351,9 @@ export function processarLinhasOcrMultiplasImagens(
   // Monta cabecalho unificado
   const cabecalho: FaturaCabecalhoExtraido = {
     emissor: 'outro',
-    emissorNome: 'Captura por Imagem (OCR)',
+    emissorNome: opcoes?.nomeCartao
+      ? `Captura por Imagem (${opcoes.nomeCartao})`
+      : 'Captura por Imagem (OCR)',
     titulares: [],
     finais: [],
     competencia: undefined,
@@ -366,7 +382,10 @@ export function processarLinhasOcrMultiplasImagens(
     parserResult,
     diagnosticos,
     totalLinhasReconhecidas: linhasFinais.length,
-    totalLinhasBrutas: imagens.reduce((acc, img) => acc + img.lines.length, 0),
+    totalLinhasBrutas: imagens.reduce(
+      (acc, img) => acc + (img.lines || img.linhas || []).length,
+      0,
+    ),
     sobreposicoesDetectadas,
     capturaParcial: true,
   }
