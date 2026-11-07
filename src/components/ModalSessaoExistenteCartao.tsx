@@ -13,11 +13,17 @@ import { formatMoneyBRL } from '@/lib/formatters'
 
 export interface ModalSessaoExistenteCartaoProps {
   aberto: boolean
-  cartaoNome: string
-  sessao: FaturaImportacaoRegistro | null
-  onVisualizar: () => void
-  onImportarNova: () => void
-  onCancelar: () => void
+  cartaoNome?: string
+  sessao?: FaturaImportacaoRegistro | null
+  onVisualizar?: () => void
+  onImportarNova?: () => void
+  onCancelar?: () => void
+  // Aliases suportados para integração flexível
+  nomeCartao?: string
+  sessaoExistente?: FaturaImportacaoRegistro | null
+  aoFechar?: () => void
+  aoVisualizarExistente?: () => void | Promise<void>
+  aoImportarNova?: () => void
 }
 
 export function ModalSessaoExistenteCartao({
@@ -27,11 +33,34 @@ export function ModalSessaoExistenteCartao({
   onVisualizar,
   onImportarNova,
   onCancelar,
+  nomeCartao,
+  sessaoExistente,
+  aoFechar,
+  aoVisualizarExistente,
+  aoImportarNova,
 }: ModalSessaoExistenteCartaoProps) {
-  if (!sessao) return null
+  const sessaoAlvo = sessao || sessaoExistente
+  if (!sessaoAlvo) return null
 
-  const dataFormatada = sessao.created_at
-    ? new Date(sessao.created_at).toLocaleDateString('pt-BR', {
+  const nomeExibicao = nomeCartao || cartaoNome || 'Cartão'
+
+  const fechar = () => {
+    if (aoFechar) aoFechar()
+    else if (onCancelar) onCancelar()
+  }
+
+  const handleVisualizar = () => {
+    if (aoVisualizarExistente) aoVisualizarExistente()
+    else if (onVisualizar) onVisualizar()
+  }
+
+  const handleImportarNova = () => {
+    if (aoImportarNova) aoImportarNova()
+    else if (onImportarNova) onImportarNova()
+  }
+
+  const dataFormatada = sessaoAlvo.created_at
+    ? new Date(sessaoAlvo.created_at).toLocaleDateString('pt-BR', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -41,7 +70,7 @@ export function ModalSessaoExistenteCartao({
     : ''
 
   return (
-    <Dialog open={aberto} onOpenChange={(open) => !open && onCancelar()}>
+    <Dialog open={aberto} onOpenChange={(open) => !open && fechar()}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <div className="flex items-center gap-3 mb-2">
@@ -57,17 +86,17 @@ export function ModalSessaoExistenteCartao({
 
         <div className="my-2 p-3.5 rounded-lg border border-border/70 bg-muted/40 text-sm space-y-1.5">
           <div className="font-semibold text-foreground flex items-center justify-between">
-            <span>{cartaoNome}</span>
+            <span>{nomeExibicao}</span>
             <span className="text-xs px-2 py-0.5 rounded bg-amber-500/15 text-amber-500 font-medium">
               Em revisão
             </span>
           </div>
           <div className="text-xs text-muted-foreground truncate">
-            <span className="font-medium text-foreground">Arquivo:</span> {sessao.arquivo_nome}
+            <span className="font-medium text-foreground">Arquivo:</span> {sessaoAlvo.arquivo_nome}
           </div>
           <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/40">
-            <span>{sessao.quantidade_itens} lançamentos</span>
-            <span>Total: {formatMoneyBRL(sessao.valor_total_fatura || 0)}</span>
+            <span>{sessaoAlvo.quantidade_itens} lançamentos</span>
+            <span>Total: {formatMoneyBRL(sessaoAlvo.valor_total_fatura || 0)}</span>
             <span>{dataFormatada}</span>
           </div>
         </div>
@@ -79,13 +108,18 @@ export function ModalSessaoExistenteCartao({
         </p>
 
         <DialogFooter className="flex-col sm:flex-row gap-2 pt-3">
-          <Button type="button" variant="outline" onClick={onVisualizar} className="flex-1 gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleVisualizar}
+            className="flex-1 gap-2"
+          >
             <FileText className="w-4 h-4" />
             Visualizar fatura em processamento
           </Button>
           <Button
             type="button"
-            onClick={onImportarNova}
+            onClick={handleImportarNova}
             className="flex-1 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
           >
             <UploadCloud className="w-4 h-4" />

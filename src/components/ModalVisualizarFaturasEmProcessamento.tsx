@@ -10,16 +10,20 @@ import { Button } from '@/components/ui/button'
 import { FileText, Trash2, ArrowRight, Clock, CreditCard } from 'lucide-react'
 import { FaturaImportacaoRegistro } from '@/services/faturaImportacaoService'
 import { formatMoneyBRL } from '@/lib/formatters'
-import { CartaoCredito } from '@/types/sap'
+import { Cartao } from '@/types/sap'
 
 export interface ModalVisualizarFaturasEmProcessamentoProps {
   aberto: boolean
   faturas: FaturaImportacaoRegistro[]
-  cartoes: CartaoCredito[]
+  cartoes: Cartao[]
   carregando?: boolean
-  onSelecionar: (fatura: FaturaImportacaoRegistro) => void
-  onDescartar: (faturaId: string) => Promise<void>
-  onFechar: () => void
+  onSelecionar?: (fatura: FaturaImportacaoRegistro) => void
+  onDescartar?: (faturaId: string) => Promise<void>
+  onFechar?: () => void
+  // Aliases suportados para integração flexível
+  aoFechar?: () => void
+  aoRetomarSessao?: (sessaoId: string) => void | Promise<void>
+  aoDescartarSessao?: (sessaoId: string) => void | Promise<void>
 }
 
 export function ModalVisualizarFaturasEmProcessamento({
@@ -30,10 +34,26 @@ export function ModalVisualizarFaturasEmProcessamento({
   onSelecionar,
   onDescartar,
   onFechar,
+  aoFechar,
+  aoRetomarSessao,
+  aoDescartarSessao,
 }: ModalVisualizarFaturasEmProcessamentoProps) {
   const [descartandoId, setDescartandoId] = useState<string | null>(null)
 
   const mapaCartoes = new Map(cartoes.map((c) => [c.id, c.nome]))
+
+  const fechar = () => {
+    if (aoFechar) aoFechar()
+    else if (onFechar) onFechar()
+  }
+
+  const handleSelecionar = (f: FaturaImportacaoRegistro) => {
+    if (aoRetomarSessao) {
+      aoRetomarSessao(f.id)
+    } else if (onSelecionar) {
+      onSelecionar(f)
+    }
+  }
 
   const handleDescartar = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation()
@@ -44,14 +64,18 @@ export function ModalVisualizarFaturasEmProcessamento({
 
     setDescartandoId(id)
     try {
-      await onDescartar(id)
+      if (aoDescartarSessao) {
+        await aoDescartarSessao(id)
+      } else if (onDescartar) {
+        await onDescartar(id)
+      }
     } finally {
       setDescartandoId(null)
     }
   }
 
   return (
-    <Dialog open={aberto} onOpenChange={(open) => !open && !descartandoId && onFechar()}>
+    <Dialog open={aberto} onOpenChange={(open) => !open && !descartandoId && fechar()}>
       <DialogContent className="sm:max-w-[620px] max-h-[85vh] flex flex-col">
         <DialogHeader>
           <div className="flex items-center gap-3 mb-1">
@@ -90,7 +114,7 @@ export function ModalVisualizarFaturasEmProcessamento({
               return (
                 <div
                   key={f.id}
-                  onClick={() => !estaDescartando && !carregando && onSelecionar(f)}
+                  onClick={() => !estaDescartando && !carregando && handleSelecionar(f)}
                   className="p-3.5 rounded-lg border border-border/80 bg-card hover:bg-muted/50 cursor-pointer transition-colors space-y-2"
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -135,7 +159,7 @@ export function ModalVisualizarFaturasEmProcessamento({
                         type="button"
                         size="sm"
                         variant="outline"
-                        onClick={() => onSelecionar(f)}
+                        onClick={() => handleSelecionar(f)}
                         disabled={estaDescartando || carregando}
                         className="h-7 px-2.5 text-xs gap-1 border-emerald-500/40 text-emerald-500 hover:bg-emerald-500/10"
                       >

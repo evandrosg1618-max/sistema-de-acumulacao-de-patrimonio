@@ -464,7 +464,7 @@ export const ImportarFaturaPage: React.FC = () => {
   // Regra C4: Guarda de saída da tela quando há fatura processada com lançamentos não importados
   const temLancamentosNaoImportados =
     !!sessaoAtual &&
-    linhas.some((l) => l.selecionado && l.status !== 'efetivado') &&
+    linhas.some((l) => l.selecionado && l.status !== 'importado') &&
     !salvouContinuarDepois
 
   // Interceptador beforeunload do navegador
