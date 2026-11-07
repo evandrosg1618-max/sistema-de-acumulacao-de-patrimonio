@@ -19,7 +19,7 @@ export interface FaturaImportacaoRegistro {
   pdf_protegido: boolean
   titulares_encontrados: string[]
   finais_encontrados: string[]
-  status: 'em_revisao' | 'concluida' | 'cancelada'
+  status: 'em_revisao' | 'concluida' | 'cancelada' | 'descartada'
   created_at: string
 }
 
@@ -182,6 +182,13 @@ export const faturaImportacaoService = {
     userId?: string
   }): Promise<{ importacaoId: string; linhas: FaturaImportacaoLinhaRegistro[] }> {
     const { workspaceId, cartaoId, arquivoNome, arquivoHash, parsed, userId } = params
+
+    // Inserir registro mestre
+    // REGRA C2: Uma sessão ativa por cartão.
+    // Ao processar nova fatura de um cartão que já possui sessão em processamento,
+    // a sessão anterior daquele cartão é descartada (marcada como descartada sem apagar auditoria).
+    // O que já foi EFETIVADO de sessões anteriores no banco permanece.
+    await this.descartarSessoesEmRevisaoDoCartao(workspaceId, cartaoId)
 
     // Inserir registro mestre
     const { data: impData, error: impError } = await supabase
@@ -421,6 +428,96 @@ export const faturaImportacaoService = {
 
     if (error) {
       throw new Error(`Falha ao atualizar linha: ${error.message}`)
+    }
+  },
+
+  /**
+   * Obtém a sessão ativa ('em_revisao') de um cartão específico, se houver.
+   */
+  async obterSessaoAtivaDoCartao(
+    workspaceId: string,
+    cartaoId: string,
+  ): Promise<FaturaImportacaoRegistro | null> {
+    const { data, error } = await supabase
+      .from('fatura_importacoes' as any)
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('cartao_id', cartaoId)
+      .eq('status', 'em_revisao')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (error) {
+      console.warn('Erro ao obter sessão ativa do cartão:', error)
+      return null
+    }
+    return (data as unknown as FaturaImportacaoRegistro) || null
+  },
+
+  /**
+   * Lista todas as faturas salvas em processamento ('em_revisao') no workspace.
+   */
+  async listarSessoesEmProcessamento(
+    workspaceId: string,
+  ): Promise<
+    Array<FaturaImportacaoRegistro & { linhas_total?: number; linhas_selecionadas?: number }>
+  > {
+    const { data, error } = await supabase
+      .from('fatura_importacoes' as any)
+      .select('*')
+      .eq('workspace_id', workspaceId)
+      .eq('status', 'em_revisao')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.warn('Erro ao listar sessões em processamento:', error)
+      return []
+    }
+    return (data as unknown as FaturaImportacaoRegistro[]) || []
+  },
+
+  /**
+   * Descarta uma sessão de importação específica (marca status como 'descartada').
+   * Auditoria e metadados são mantidos; nada que já foi efetivado é alterado.
+   */
+  async descartarSessao(importacaoId: string, workspaceId?: string): Promise<void> {
+    let query = supabase
+      .from('fatura_importacoes' as any)
+      .update({
+        status: 'descartada',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', importacaoId)
+
+    if (workspaceId) {
+      query = query.eq('workspace_id', workspaceId)
+    }
+
+    const { error } = await query
+    if (error) {
+      console.warn('Erro ao descartar sessão de importação:', error)
+      throw new Error(`Falha ao descartar sessão: ${error.message}`)
+    }
+  },
+
+  /**
+   * Descarta qualquer sessão anterior 'em_revisao' de um cartão específico.
+   * Chamado antes de criar uma nova sessão para o mesmo cartão (regra C2).
+   */
+  async descartarSessoesEmRevisaoDoCartao(workspaceId: string, cartaoId: string): Promise<void> {
+    const { error } = await supabase
+      .from('fatura_importacoes' as any)
+      .update({
+        status: 'descartada',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('workspace_id', workspaceId)
+      .eq('cartao_id', cartaoId)
+      .eq('status', 'em_revisao')
+
+    if (error) {
+      console.warn('Erro ao descartar sessões em revisão do cartão:', error)
     }
   },
 

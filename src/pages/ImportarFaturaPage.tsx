@@ -18,6 +18,9 @@ import {
 import { executarParserFatura } from '@/services/pdf/faturaParserRouter'
 import { ModalSenhaPdf } from '@/components/ModalSenhaPdf'
 import { ModalEdicaoEmMassaFatura } from '@/components/ModalEdicaoEmMassaFatura'
+import { ModalSessaoExistenteCartao } from '@/components/ModalSessaoExistenteCartao'
+import { ModalDescarteNavegacao } from '@/components/ModalDescarteNavegacao'
+import { ModalVisualizarFaturasEmProcessamento } from '@/components/ModalVisualizarFaturasEmProcessamento'
 import { LinhaRevisaoFaturaItem } from '@/components/LinhaRevisaoFaturaItem'
 import { Cartao, Categoria, Subcategoria } from '@/types/sap'
 import { formatMoneyBRL } from '@/lib/formatters'
@@ -40,10 +43,11 @@ import {
   Filter,
   CheckSquare,
   Square,
-  Layers,
   Sparkles,
   RefreshCw,
   CreditCard,
+  Clock,
+  Info,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -74,6 +78,20 @@ export const ImportarFaturaPage: React.FC = () => {
   const [filtroAtivo, setFiltroAtivo] = useState<string>('todos')
   const [modalMassaAberto, setModalMassaAberto] = useState(false)
   const [importandoFinal, setImportandoFinal] = useState(false)
+
+  // Estados C2, C3, C4, C5 (Ciclo de Vida)
+  const [sessaoExistenteCartao, setSessaoExistenteCartao] =
+    useState<FaturaImportacaoRegistro | null>(null)
+  const [modalSessaoCartaoAberto, setModalSessaoCartaoAberto] = useState(false)
+  const [modalDescarteAberto, setModalDescarteAberto] = useState(false)
+  const [caminhoNavegacaoPendente, setCaminhoNavegacaoPendente] = useState<string | null>(null)
+  const [salvouContinuarDepois, setSalvouContinuarDepois] = useState(false)
+  const [modalFaturasProcessamentoAberto, setModalFaturasProcessamentoAberto] = useState(false)
+  const [faturasEmProcessamento, setFaturasEmProcessamento] = useState<FaturaImportacaoRegistro[]>(
+    [],
+  )
+  const [carregandoFaturasProcessamento, setCarregandoFaturasProcessamento] = useState(false)
+  const [avisoHashReimportacao, setAvisoHashReimportacao] = useState<string | null>(null)
 
   // CORREÇÃO 1 (causa raiz): currentWorkspace é a membership — o id do workspace real
   // está em workspace_id (mesmo padrão usado por Cartões/Lançamentos).
@@ -124,6 +142,46 @@ export const ImportarFaturaPage: React.FC = () => {
     carregarCategorias(wsId)
   }
 
+  // Regra C3: Ao selecionar um cartão, verificar se ele já tem sessão ativa em processamento
+  const handleSelecionarCartao = async (novoCartaoId: string) => {
+    setCartaoSelecionadoId(novoCartaoId)
+    if (!wsId || !novoCartaoId) return
+
+    try {
+      const ativa = await faturaImportacaoService.obterSessaoAtivaDoCartao(wsId, novoCartaoId)
+      if (ativa) {
+        setSessaoExistenteCartao(ativa)
+        setModalSessaoCartaoAberto(true)
+      }
+    } catch (err) {
+      console.warn('Erro ao verificar sessão ativa do cartão:', err)
+    }
+  }
+
+  // Ação C3: Usuário escolhe visualizar a fatura em processamento existente do cartão
+  const handleVisualizarSessaoExistente = async () => {
+    if (!wsId || !sessaoExistenteCartao) return
+    try {
+      startProcessing('Carregando fatura em processamento...')
+      const sessao = await faturaImportacaoService.obterSessao(wsId, sessaoExistenteCartao.id)
+      setSessaoAtual(sessao.importacao)
+      setLinhas(sessao.linhas)
+      setModalSessaoCartaoAberto(false)
+      toast.info('Fatura em processamento carregada para revisão.')
+    } catch (err: any) {
+      toast.error('Não foi possível carregar a fatura em processamento: ' + err.message)
+    } finally {
+      stopProcessing()
+    }
+  }
+
+  // Ação C3: Usuário escolhe importar nova fatura (a nova prevalecerá, descartando a anterior)
+  const handleEscolherImportarNova = () => {
+    setModalSessaoCartaoAberto(false)
+    // Mantém o cartão selecionado pronto para upload e novo processamento
+    toast.info('Pronto para importar nova fatura. A nova fatura prevalecerá.')
+  }
+
   // Trata seleção de arquivo
   const handleSelecionarArquivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -134,12 +192,13 @@ export const ImportarFaturaPage: React.FC = () => {
       return
     }
 
+    setAvisoHashReimportacao(null)
     setArquivoSelecionado(file)
     const buffer = await file.arrayBuffer()
     setArquivoBuffer(buffer)
   }
 
-  // Inicia processamento do PDF
+  // Inicia processamento do PDF (Regras C1, C2 e C6)
   const handleIniciarProcessamento = async (senhaFornecida?: string) => {
     if (!arquivoBuffer || !arquivoSelecionado || !wsId || !cartaoSelecionadoId) {
       toast.error(
@@ -162,25 +221,35 @@ export const ImportarFaturaPage: React.FC = () => {
     setErroSenha(null)
 
     try {
-      // 1. Calcular hash do arquivo
+      // 1. Calcular hash do arquivo (mantido como METADADO/auditoria, nunca bloqueante - Regra C1)
       const hash = await calcularHashArquivo(arquivoBuffer)
 
-      // Verificar duplicidade de PDF
       const existente = await faturaImportacaoService.verificarHashExistente(wsId, hash)
-      if (existente && !senhaFornecida) {
-        toast.info(
-          `Esta fatura já foi processada anteriormente em ${new Date(existente.created_at).toLocaleDateString('pt-BR')}. Carregando sessão existente...`,
-        )
-        const sessao = await faturaImportacaoService.obterSessao(wsId, existente.id)
-        setSessaoAtual(sessao.importacao)
-        setLinhas(sessao.linhas)
-        stopProcessing()
-        setProcessandoLeitura(false)
-        return
+      if (existente) {
+        const dataFmt = new Date(existente.created_at).toLocaleDateString('pt-BR')
+        const aviso = `Este PDF já foi importado em ${dataFmt} — a nova fatura prevalece.`
+        setAvisoHashReimportacao(aviso)
+        toast.info(aviso)
       }
 
-      // 2. Extrair texto com pdf.js (suportando senha e bloqueio) com abort signal
-      const extraction = await extrairTextoPdf(arquivoBuffer, senhaFornecida, ac.signal)
+      // 2. Extrair texto com pdf.js (suportando senha e bloqueio) com cópia segura de buffer
+      // REGRA C6: Se foi passada senha mas o arquivo for na verdade desprotegido,
+      // extrairTextoPdf lida graciosamente.
+      let extraction
+      try {
+        extraction = await extrairTextoPdf(arquivoBuffer, senhaFornecida, ac.signal)
+      } catch (tentativaErr: any) {
+        // Se falhou com senha fornecida em um PDF que talvez não seja criptografado com senha padrão
+        if (senhaFornecida && !(tentativaErr instanceof InvalidPasswordError)) {
+          try {
+            extraction = await extrairTextoPdf(arquivoBuffer, undefined, ac.signal)
+          } catch {
+            throw tentativaErr
+          }
+        } else {
+          throw tentativaErr
+        }
+      }
 
       // Se precisava de senha e deu certo, fecha o modal
       if (modalSenhaAberto) {
@@ -216,7 +285,7 @@ export const ImportarFaturaPage: React.FC = () => {
       const allLines = extraction.pages.flatMap((p) => p.lines)
       const parsed = executarParserFatura(extraction.fullText, allLines, emissorForcadoPorCartao)
 
-      // 4. Criar sessão e linhas temporárias
+      // 4. Criar sessão e linhas temporárias (Regra C2: descarta sessão em_revisao anterior do cartão)
       const { importacaoId, linhas: linhasGravadas } =
         await faturaImportacaoService.criarSessaoImportacao({
           workspaceId: wsId,
@@ -230,6 +299,7 @@ export const ImportarFaturaPage: React.FC = () => {
       const sessao = await faturaImportacaoService.obterSessao(wsId, importacaoId)
       setSessaoAtual(sessao.importacao)
       setLinhas(linhasGravadas)
+      setSalvouContinuarDepois(false)
 
       toast.success(
         `Fatura lida com sucesso! ${linhasGravadas.length} itens extraídos para revisão.`,
@@ -240,11 +310,13 @@ export const ImportarFaturaPage: React.FC = () => {
         setErroSenha(null)
       } else if (err instanceof InvalidPasswordError) {
         setModalSenhaAberto(true)
-        setErroSenha('Não foi possível abrir o PDF. Verifique a senha e tente novamente.')
+        setErroSenha('Senha incorreta para abrir este PDF. Verifique e tente novamente.')
       } else if (err?.message?.includes('cancelado pelo usuário')) {
         toast.info('Processamento cancelado.')
       } else {
-        toast.error('Erro ao processar PDF: ' + (err?.message || 'Arquivo corrompido'))
+        // REGRA C6: Erro orientado específico sem engolir detalhes
+        const detalhe = err?.message || 'Arquivo corrompido ou formato não suportado'
+        toast.error(`Falha ao ler o PDF: ${detalhe}`)
       }
     } finally {
       stopProcessing()
@@ -373,6 +445,7 @@ export const ImportarFaturaPage: React.FC = () => {
         toast.success(
           `Importação concluída com sucesso! ${resultado.importados} lançamentos criados no SAP.`,
         )
+        setSalvouContinuarDepois(true)
         navigate('/cartoes')
       } else {
         toast.warning(
@@ -385,6 +458,106 @@ export const ImportarFaturaPage: React.FC = () => {
     } finally {
       stopProcessing()
       setImportandoFinal(false)
+    }
+  }
+
+  // Regra C4: Guarda de saída da tela quando há fatura processada com lançamentos não importados
+  const temLancamentosNaoImportados =
+    !!sessaoAtual &&
+    linhas.some((l) => l.selecionado && l.status !== 'efetivado') &&
+    !salvouContinuarDepois
+
+  // Interceptador beforeunload do navegador
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (temLancamentosNaoImportados) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [temLancamentosNaoImportados])
+
+  // Tentativa de navegação interna interceptada
+  const solicitarNavegacao = (caminho: string) => {
+    if (temLancamentosNaoImportados) {
+      setCaminhoNavegacaoPendente(caminho)
+      setModalDescarteAberto(true)
+    } else {
+      navigate(caminho)
+    }
+  }
+
+  // Ação de Salvar e Continuar Depois do modal de saída ou do botão fixo
+  const handleSalvarEContinuarDepois = () => {
+    setSalvouContinuarDepois(true)
+    setModalDescarteAberto(false)
+    toast.info('Fatura salva para continuar depois. Os lançamentos pendentes foram preservados.')
+    navigate(caminhoNavegacaoPendente || '/cartoes')
+  }
+
+  // Ação de Descartar do modal de saída
+  const handleConfirmarDescarteSessao = async () => {
+    if (sessaoAtual && wsId) {
+      try {
+        await faturaImportacaoService.descartarSessao(wsId, sessaoAtual.id)
+        toast.info('Fatura processada foi descartada. Nenhum lançamento foi criado no SAP.')
+      } catch (err: any) {
+        console.warn('Erro ao marcar descarte:', err)
+      }
+    }
+    setModalDescarteAberto(false)
+    setSessaoAtual(null)
+    setLinhas([])
+    setArquivoSelecionado(null)
+    setArquivoBuffer(null)
+    navigate(caminhoNavegacaoPendente || '/cartoes')
+  }
+
+  // Regra C5: Abertura e manipulação do modal "Visualizar faturas em processamento"
+  const handleAbrirFaturasEmProcessamento = async () => {
+    if (!wsId) return
+    setCarregandoFaturasProcessamento(true)
+    setModalFaturasProcessamentoAberto(true)
+    try {
+      const ativas = await faturaImportacaoService.listarSessoesEmProcessamento(wsId)
+      setFaturasEmProcessamento(ativas)
+    } catch (err: any) {
+      toast.error('Erro ao listar faturas em processamento: ' + err.message)
+    } finally {
+      setCarregandoFaturasProcessamento(false)
+    }
+  }
+
+  const handleRetomarSessao = async (sessaoId: string) => {
+    if (!wsId) return
+    try {
+      startProcessing('Carregando fatura...')
+      const sessao = await faturaImportacaoService.obterSessao(wsId, sessaoId)
+      setSessaoAtual(sessao.importacao)
+      setLinhas(sessao.linhas)
+      if (sessao.importacao.cartao_id) {
+        setCartaoSelecionadoId(sessao.importacao.cartao_id)
+      }
+      setSalvouContinuarDepois(false)
+      setModalFaturasProcessamentoAberto(false)
+      toast.success('Fatura carregada para revisão.')
+    } catch (err: any) {
+      toast.error('Erro ao retomar fatura: ' + err.message)
+    } finally {
+      stopProcessing()
+    }
+  }
+
+  const handleDescartarSessaoDaLista = async (sessaoId: string) => {
+    if (!wsId) return
+    try {
+      await faturaImportacaoService.descartarSessao(wsId, sessaoId)
+      setFaturasEmProcessamento((prev) => prev.filter((s) => s.id !== sessaoId))
+      toast.info('Fatura descartada com sucesso.')
+    } catch (err: any) {
+      toast.error('Erro ao descartar: ' + err.message)
     }
   }
 
@@ -473,18 +646,37 @@ export const ImportarFaturaPage: React.FC = () => {
           </p>
         </div>
 
-        <Button
-          variant="outline"
-          onClick={() => navigate('/cartoes')}
-          className="border-slate-200 text-slate-700 hover:bg-slate-100 text-xs self-start sm:self-auto"
-        >
-          Voltar para Cartões
-        </Button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {!sessaoAtual && (
+            <Button
+              variant="outline"
+              onClick={handleAbrirFaturasEmProcessamento}
+              className="border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 text-xs flex items-center gap-1.5"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              Visualizar faturas em processamento
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            onClick={() => solicitarNavegacao('/cartoes')}
+            className="border-slate-200 text-slate-700 hover:bg-slate-100 text-xs"
+          >
+            Voltar para Cartões
+          </Button>
+        </div>
       </div>
 
       {/* BLOCO DE UPLOAD (se nenhuma sessão carregada) */}
       {!sessaoAtual ? (
         <Card className="bg-white border border-slate-200 shadow-sm rounded-xl p-6 space-y-6">
+          {avisoHashReimportacao && (
+            <div className="bg-blue-50 border border-blue-200 text-blue-900 rounded-lg p-3 text-xs flex items-center gap-2">
+              <Info className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>{avisoHashReimportacao}</span>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Escolha do Cartão do SAP */}
             <div className="space-y-2">
@@ -519,7 +711,7 @@ export const ImportarFaturaPage: React.FC = () => {
                   </Link>
                 </div>
               ) : (
-                <Select value={cartaoSelecionadoId} onValueChange={setCartaoSelecionadoId}>
+                <Select value={cartaoSelecionadoId} onValueChange={handleSelecionarCartao}>
                   <SelectTrigger className="bg-white border-slate-200 text-slate-900">
                     <SelectValue placeholder="Selecione o cartão..." />
                   </SelectTrigger>
@@ -816,10 +1008,7 @@ export const ImportarFaturaPage: React.FC = () => {
             <div className="flex items-center gap-3">
               <Button
                 variant="outline"
-                onClick={() => {
-                  toast.info('Sessão salva. Você pode continuar a revisão a qualquer momento.')
-                  navigate('/cartoes')
-                }}
+                onClick={handleSalvarEContinuarDepois}
                 className="border-slate-200 text-slate-700 hover:bg-slate-100 text-xs"
               >
                 Salvar e Continuar Depois
@@ -855,6 +1044,35 @@ export const ImportarFaturaPage: React.FC = () => {
         categorias={categorias}
         subcategorias={subcategorias}
         aoAplicar={handleAplicarEdicaoEmMassa}
+      />
+
+      {/* Modal C3: Cartão possui fatura processada */}
+      <ModalSessaoExistenteCartao
+        aberto={modalSessaoCartaoAberto}
+        aoFechar={() => setModalSessaoCartaoAberto(false)}
+        nomeCartao={cartoes.find((c) => c.id === cartaoSelecionadoId)?.nome}
+        sessaoExistente={sessaoExistenteCartao}
+        aoVisualizarExistente={handleVisualizarSessaoExistente}
+        aoImportarNova={handleEscolherImportarNova}
+      />
+
+      {/* Modal C4: Descarte de fatura processada ao sair sem salvar */}
+      <ModalDescarteNavegacao
+        aberto={modalDescarteAberto}
+        aoFechar={() => setModalDescarteAberto(false)}
+        aoSalvarEContinuar={handleSalvarEContinuarDepois}
+        aoDescartar={handleConfirmarDescarteSessao}
+      />
+
+      {/* Modal C5: Visualizar faturas salvas em processamento */}
+      <ModalVisualizarFaturasEmProcessamento
+        aberto={modalFaturasProcessamentoAberto}
+        aoFechar={() => setModalFaturasProcessamentoAberto(false)}
+        faturas={faturasEmProcessamento}
+        cartoes={cartoes}
+        carregando={carregandoFaturasProcessamento}
+        aoRetomarSessao={handleRetomarSessao}
+        aoDescartarSessao={handleDescartarSessaoDaLista}
       />
     </div>
   )

@@ -49,10 +49,18 @@ export async function extrairTextoPdf(
   senha?: string,
   signal?: AbortSignal,
 ): Promise<PdfExtractionOutput> {
-  const data = arquivo instanceof Uint8Array ? arquivo : new Uint8Array(arquivo)
+  // CRÍTICO: Sempre clonar o buffer usando slice(0) para evitar que a transferência
+  // para o Web Worker do PDF.js destaque (detach) o buffer original em caso de múltiplas
+  // tentativas (ex: primeira tentativa detecta senha, segunda tentativa envia a senha).
+  let bufferClonado: Uint8Array
+  if (arquivo instanceof Uint8Array) {
+    bufferClonado = new Uint8Array(arquivo.buffer.slice(0), arquivo.byteOffset, arquivo.byteLength)
+  } else {
+    bufferClonado = new Uint8Array(arquivo.slice(0))
+  }
 
   const loadingTask = pdfjsLib.getDocument({
-    data,
+    data: bufferClonado,
     password: senha || undefined,
   })
 
