@@ -39,9 +39,9 @@ export default function CategoriasPage() {
   const { currentWorkspace, user } = useAuth()
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [loading, setLoading] = useState(true)
-  const [filtroTipo, setFiltroTipo] = useState<'todas' | 'despesa' | 'receita' | 'arquivadas'>(
-    'todas',
-  )
+  const [filtroTipo, setFiltroTipo] = useState<
+    'todas' | 'despesa' | 'receita' | 'arquivadas' | 'ajustes'
+  >('todas')
 
   // Modais de Criação / Edição
   const [modalFormOpen, setModalFormOpen] = useState(false)
@@ -401,273 +401,440 @@ export default function CategoriasPage() {
           <Archive className="w-3 h-3 mr-1" />
           Arquivadas ({totalArquivadasCount})
         </Button>
+        <Button
+          variant={filtroTipo === 'ajustes' ? 'default' : 'ghost'}
+          size="sm"
+          onClick={() => setFiltroTipo('ajustes')}
+          className={
+            filtroTipo === 'ajustes'
+              ? 'bg-indigo-600 text-white text-xs'
+              : 'text-xs text-slate-600 hover:text-indigo-700'
+          }
+        >
+          <Scale className="w-3 h-3 mr-1" />
+          Ajustes (2)
+        </Button>
       </div>
 
-      {/* Lista de Categorias e Subcategorias com Badges Discretos */}
-      <div className="space-y-4">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400 text-sm">
-            Carregando taxonomia analítica...
-          </div>
-        ) : categoriasFiltradas.length === 0 ? (
-          <Card className="border-slate-200 p-12 text-center bg-white space-y-3">
-            <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
-              <FolderTree className="w-6 h-6" />
+      {/* Seção Exclusiva da Aba Ajustes (Somente Leitura) */}
+      {filtroTipo === 'ajustes' ? (
+        <div className="space-y-4">
+          <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-4 text-xs text-indigo-900 leading-relaxed">
+            <div className="font-semibold flex items-center gap-2 text-sm text-indigo-950 mb-1">
+              <Scale className="w-4 h-4 text-indigo-700" />
+              Tipos de Lançamento de Ajuste (Invariantes Contábeis do Sistema)
             </div>
-            <h3 className="text-sm font-semibold text-slate-800">
-              {filtroTipo === 'arquivadas'
-                ? 'Nenhum registro arquivado'
-                : 'Nenhuma categoria encontrada'}
-            </h3>
-            <p className="text-xs text-slate-500 max-w-md mx-auto">
-              {filtroTipo === 'arquivadas'
-                ? 'Subcategorias e categorias arquivadas aparecem aqui com a opção de desarquivamento.'
-                : 'Crie suas categorias e subcategorias pelo botão acima para estruturar suas finanças.'}
+            <p>
+              Os lançamentos do tipo <strong>Ajuste</strong> atuam exclusivamente sobre a fatura do
+              cartão de crédito (sem movimentar saldo bancário) e possuem regras fixas invioláveis
+              para garantir a integridade do Resultado e do Orçamento. Esta lista é puramente
+              informativa (somente leitura).
             </p>
-          </Card>
-        ) : (
-          categoriasFiltradas.map((cat) => (
-            <Card key={cat.id} className="border-slate-200 shadow-sm bg-white overflow-hidden">
-              {/* Cabeçalho da Categoria */}
-              <div className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/70 border-b border-slate-100">
-                <div className="flex items-center gap-3">
-                  {/* Círculo do Ícone no padrão visual do SAP */}
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 shadow-xs"
-                    style={{ backgroundColor: cat.cor || '#10B981' }}
-                  >
-                    {renderIconePorId(cat.icone, 'w-4 h-4 stroke-[2]')}
-                  </div>
+          </div>
 
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {/* 2ª Coluna: Nome da Categoria */}
-                      <span className="font-bold text-slate-900 text-sm md:text-base">
-                        {cat.nome}
-                      </span>
-
-                      {/* 3ª Coluna: Tipo de Fluxo (Despesa/Receita) depois do nome */}
-                      <Badge
-                        variant="secondary"
-                        className={
-                          cat.tipo === 'despesa'
-                            ? 'bg-rose-100 text-rose-700 hover:bg-rose-100 text-[11px] font-bold border-rose-200'
-                            : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 text-[11px] font-bold border-emerald-200'
-                        }
-                      >
-                        {cat.tipo === 'despesa' ? 'Despesa' : 'Receita'}
-                      </Badge>
-
-                      {cat.arquivado && (
-                        <Badge
-                          variant="outline"
-                          className="bg-amber-50 text-amber-800 border-amber-300 text-[10px]"
-                        >
-                          Categoria Arquivada
-                        </Badge>
-                      )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Card 1: Ajuste da Fatura do Banco */}
+            <Card className="border-slate-200 shadow-sm bg-white overflow-hidden flex flex-col justify-between">
+              <div>
+                <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold">
+                      <Scale className="w-5 h-5" />
                     </div>
-
-                    <div className="text-xs text-slate-500 mt-0.5">
-                      {cat.subcategorias?.length || 0}{' '}
-                      {cat.subcategorias?.length === 1 ? 'subcategoria' : 'subcategorias'}
-                      {cat.observacao && <span> • {cat.observacao}</span>}
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-sm md:text-base">
+                        Ajuste da Fatura do Banco
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Fato real externo emitido pela instituição financeira
+                      </p>
                     </div>
                   </div>
+                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-semibold">
+                    Ativo
+                  </Badge>
                 </div>
 
-                {/* Ações da Categoria */}
-                <div className="flex items-center gap-1 self-end sm:self-center">
-                  {!cat.arquivado && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => abrirNovaSubcategoria(cat)}
-                      className="text-xs text-emerald-700 border-emerald-200 bg-white hover:bg-emerald-50 flex items-center gap-1 h-7 font-medium"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Subcategoria
-                    </Button>
-                  )}
+                <div className="p-4 space-y-3 text-xs">
+                  <p className="text-slate-600 leading-relaxed">
+                    Representa ocorrências externas reais do emissor do cartão: créditos avulsos,
+                    cashbacks aplicados na fatura, encargos não contratuais ou estornos/correções
+                    promovidas pelo banco.
+                  </p>
 
-                  {cat.arquivado ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleArquivarCategoria(cat, false)}
-                      className="text-xs text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 flex items-center gap-1 h-7"
-                    >
-                      <ArchiveRestore className="w-3 h-3" />
-                      Desarquivar Categoria
-                    </Button>
-                  ) : (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Editar Categoria"
-                        onClick={() => abrirEdicaoCategoria(cat)}
-                        className="h-7 w-7 text-slate-500 hover:text-slate-900"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Arquivar Categoria"
-                        onClick={() => solicitarArquivamentoCat(cat)}
-                        className="h-7 w-7 text-slate-400 hover:text-amber-700"
-                      >
-                        <Archive className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        title="Excluir Categoria"
-                        onClick={() => handleTentarExcluirCategoria(cat)}
-                        className="h-7 w-7 text-slate-400 hover:text-rose-600"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </>
-                  )}
+                  <div className="divide-y divide-slate-100 border border-slate-100 rounded-lg p-3 bg-slate-50/50 space-y-2">
+                    <div className="flex items-center justify-between text-xs pt-1">
+                      <span className="text-slate-500 font-medium">Permite aumentar fatura:</span>
+                      <span className="font-bold text-slate-800">Sim</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-2">
+                      <span className="text-slate-500 font-medium">Permite reduzir fatura:</span>
+                      <span className="font-bold text-slate-800">Sim</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-2">
+                      <span className="text-slate-500 font-medium">Afeta Resultado:</span>
+                      <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                        Sim (impacta o período)
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-2">
+                      <span className="text-slate-500 font-medium">Afeta Orçamento:</span>
+                      <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                        Não
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-2">
+                      <span className="text-slate-500 font-medium">Movimenta Conta Bancária:</span>
+                      <span className="font-bold text-slate-600">Não (apenas fatura)</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              {/* Subcategorias aninhadas */}
-              <div className="divide-y divide-slate-100">
-                {cat.subcategorias && cat.subcategorias.length > 0 ? (
-                  cat.subcategorias.map((sub) => (
-                    <div
-                      key={sub.id}
-                      className="py-2.5 px-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/70 transition"
-                    >
-                      <div className="flex items-center gap-2.5 flex-wrap">
-                        {/* Ícone da subcategoria */}
-                        <div
-                          className="w-6 h-6 rounded-full flex items-center justify-center text-white shrink-0 text-xs shadow-xs"
-                          style={{ backgroundColor: sub.cor || cat.cor || '#10B981' }}
-                        >
-                          {renderIconePorId(sub.icone || cat.icone, 'w-3 h-3 stroke-[2]')}
-                        </div>
+              <div className="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
+                <span>Invariante do Sistema</span>
+                <span className="font-mono text-[10px] text-slate-400">
+                  subtipo: ajuste_fatura_banco
+                </span>
+              </div>
+            </Card>
 
-                        <span className="text-xs md:text-sm font-semibold text-slate-800">
-                          {sub.nome}
+            {/* Card 2: Ajuste Técnico do SAP */}
+            <Card className="border-slate-200 shadow-sm bg-white overflow-hidden flex flex-col justify-between">
+              <div>
+                <div className="p-4 bg-slate-50 border-b border-slate-100 flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                      <Scale className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-slate-900 text-sm md:text-base">
+                        Ajuste Técnico do SAP
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        Reconciliação técnica de divergências de arredondamento
+                      </p>
+                    </div>
+                  </div>
+                  <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-[10px] font-semibold">
+                    Ativo
+                  </Badge>
+                </div>
+
+                <div className="p-4 space-y-3 text-xs">
+                  <p className="text-slate-600 leading-relaxed">
+                    Utilizado para fechar faturas com centavos divergentes (ex.: fechamento banco R$
+                    1.000,00 × SAP R$ 999,98 decorrente de divisão de parcelas ou arredondamento de
+                    IOF).
+                  </p>
+
+                  <div className="divide-y divide-slate-100 border border-slate-100 rounded-lg p-3 bg-slate-50/50 space-y-2">
+                    <div className="flex items-center justify-between text-xs pt-1">
+                      <span className="text-slate-500 font-medium">Permite aumentar fatura:</span>
+                      <span className="font-bold text-slate-800">Sim</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-2">
+                      <span className="text-slate-500 font-medium">Permite reduzir fatura:</span>
+                      <span className="font-bold text-slate-800">Sim</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-2">
+                      <span className="text-slate-500 font-medium">Afeta Resultado:</span>
+                      <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                        Não (neutro no resultado)
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-2">
+                      <span className="text-slate-500 font-medium">Afeta Orçamento:</span>
+                      <span className="font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
+                        Não
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-2">
+                      <span className="text-slate-500 font-medium">Movimenta Conta Bancária:</span>
+                      <span className="font-bold text-slate-600">Não (apenas fatura)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-500 flex items-center justify-between">
+                <span>Invariante do Sistema</span>
+                <span className="font-mono text-[10px] text-slate-400">
+                  subtipo: ajuste_tecnico_sap
+                </span>
+              </div>
+            </Card>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Lista de Categorias e Subcategorias com Badges Discretos */}
+      {filtroTipo !== 'ajustes' && (
+        <div className="space-y-4">
+          {loading ? (
+            <div className="p-12 text-center text-slate-400 text-sm">
+              Carregando taxonomia analítica...
+            </div>
+          ) : categoriasFiltradas.length === 0 ? (
+            <Card className="border-slate-200 p-12 text-center bg-white space-y-3">
+              <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                <FolderTree className="w-6 h-6" />
+              </div>
+              <h3 className="text-sm font-semibold text-slate-800">
+                {filtroTipo === 'arquivadas'
+                  ? 'Nenhum registro arquivado'
+                  : 'Nenhuma categoria encontrada'}
+              </h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto">
+                {filtroTipo === 'arquivadas'
+                  ? 'Subcategorias e categorias arquivadas aparecem aqui com a opção de desarquivamento.'
+                  : 'Crie suas categorias e subcategorias pelo botão acima para estruturar suas finanças.'}
+              </p>
+            </Card>
+          ) : (
+            categoriasFiltradas.map((cat) => (
+              <Card key={cat.id} className="border-slate-200 shadow-sm bg-white overflow-hidden">
+                {/* Cabeçalho da Categoria */}
+                <div className="p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/70 border-b border-slate-100">
+                  <div className="flex items-center gap-3">
+                    {/* Círculo do Ícone no padrão visual do SAP */}
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 shadow-xs"
+                      style={{ backgroundColor: cat.cor || '#10B981' }}
+                    >
+                      {renderIconePorId(cat.icone, 'w-4 h-4 stroke-[2]')}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {/* 2ª Coluna: Nome da Categoria */}
+                        <span className="font-bold text-slate-900 text-sm md:text-base">
+                          {cat.nome}
                         </span>
 
-                        {/* BADGES DISCRETOS:
-                            Despesa: Classificação · Natureza
-                            Receita: Regularidade · Origem Econômica */}
-                        {cat.tipo === 'despesa' ? (
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[11px] font-medium text-slate-600 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md flex items-center gap-1">
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full ${
-                                  sub.classificacao === 'Essencial'
-                                    ? 'bg-emerald-500'
-                                    : sub.classificacao === 'Ajustável'
-                                      ? 'bg-blue-500'
-                                      : sub.classificacao === 'Discricionária'
-                                        ? 'bg-amber-500'
-                                        : 'bg-rose-500'
-                                }`}
-                              />
-                              <strong>{sub.classificacao || 'Essencial'}</strong>
-                              <span className="text-slate-400">·</span>
-                              <span>{sub.natureza || 'Consumo'}</span>
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[11px] font-medium text-slate-600 bg-emerald-50/80 border border-emerald-200/60 px-2 py-0.5 rounded-md flex items-center gap-1">
-                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
-                              <strong>{sub.regularidade || 'Recorrente mensal'}</strong>
-                              <span className="text-slate-400">·</span>
-                              <span>{sub.origem_economica || 'Trabalho'}</span>
-                              {sub.afeta_resultado === false && (
-                                <>
-                                  <span className="text-slate-400">·</span>
-                                  <span className="text-amber-700 font-semibold">
-                                    Neutro no Resultado
-                                  </span>
-                                </>
-                              )}
-                            </span>
-                          </div>
-                        )}
+                        {/* 3ª Coluna: Tipo de Fluxo (Despesa/Receita) depois do nome */}
+                        <Badge
+                          variant="secondary"
+                          className={
+                            cat.tipo === 'despesa'
+                              ? 'bg-rose-100 text-rose-700 hover:bg-rose-100 text-[11px] font-bold border-rose-200'
+                              : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100 text-[11px] font-bold border-emerald-200'
+                          }
+                        >
+                          {cat.tipo === 'despesa' ? 'Despesa' : 'Receita'}
+                        </Badge>
 
-                        {sub.observacao && (
-                          <span className="text-[11px] text-slate-400 italic">
-                            ({sub.observacao})
-                          </span>
-                        )}
-
-                        {sub.arquivado && (
+                        {cat.arquivado && (
                           <Badge
                             variant="outline"
-                            className="text-[10px] bg-amber-50 text-amber-800 border-amber-300"
+                            className="bg-amber-50 text-amber-800 border-amber-300 text-[10px]"
                           >
-                            Arquivada
+                            Categoria Arquivada
                           </Badge>
                         )}
                       </div>
 
-                      {/* Ações da Subcategoria */}
-                      <div className="flex items-center gap-1 self-end sm:self-center">
-                        {sub.arquivado ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleArquivarSub(sub, false)}
-                            className="text-xs text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 flex items-center gap-1 h-6 px-2"
-                          >
-                            <ArchiveRestore className="w-3 h-3" />
-                            <span>Desarquivar</span>
-                          </Button>
-                        ) : (
-                          <>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Editar Subcategoria"
-                              onClick={() => abrirEdicaoSubcategoria(sub, cat)}
-                              className="h-6 w-6 text-slate-400 hover:text-slate-900"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Arquivar Subcategoria"
-                              onClick={() => solicitarArquivamentoSub(sub)}
-                              className="h-6 w-6 text-slate-400 hover:text-amber-700"
-                            >
-                              <Archive className="w-3 h-3" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              title="Excluir Subcategoria"
-                              onClick={() => handleTentarExcluirSubcategoria(sub)}
-                              className="h-6 w-6 text-slate-300 hover:text-rose-600"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </Button>
-                          </>
-                        )}
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {cat.subcategorias?.length || 0}{' '}
+                        {cat.subcategorias?.length === 1 ? 'subcategoria' : 'subcategorias'}
+                        {cat.observacao && <span> • {cat.observacao}</span>}
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <div className="py-3 px-6 text-[11px] text-slate-400 italic">
-                    Nenhuma subcategoria vinculada ainda.
                   </div>
-                )}
-              </div>
-            </Card>
-          ))
-        )}
-      </div>
+
+                  {/* Ações da Categoria */}
+                  <div className="flex items-center gap-1 self-end sm:self-center">
+                    {!cat.arquivado && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => abrirNovaSubcategoria(cat)}
+                        className="text-xs text-emerald-700 border-emerald-200 bg-white hover:bg-emerald-50 flex items-center gap-1 h-7 font-medium"
+                      >
+                        <Plus className="w-3 h-3" />
+                        Subcategoria
+                      </Button>
+                    )}
+
+                    {cat.arquivado ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleArquivarCategoria(cat, false)}
+                        className="text-xs text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 flex items-center gap-1 h-7"
+                      >
+                        <ArchiveRestore className="w-3 h-3" />
+                        Desarquivar Categoria
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Editar Categoria"
+                          onClick={() => abrirEdicaoCategoria(cat)}
+                          className="h-7 w-7 text-slate-500 hover:text-slate-900"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Arquivar Categoria"
+                          onClick={() => solicitarArquivamentoCat(cat)}
+                          className="h-7 w-7 text-slate-400 hover:text-amber-700"
+                        >
+                          <Archive className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Excluir Categoria"
+                          onClick={() => handleTentarExcluirCategoria(cat)}
+                          className="h-7 w-7 text-slate-400 hover:text-rose-600"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Subcategorias aninhadas */}
+                <div className="divide-y divide-slate-100">
+                  {cat.subcategorias && cat.subcategorias.length > 0 ? (
+                    cat.subcategorias.map((sub) => (
+                      <div
+                        key={sub.id}
+                        className="py-2.5 px-4 sm:px-6 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50/70 transition"
+                      >
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          {/* Ícone da subcategoria */}
+                          <div
+                            className="w-6 h-6 rounded-full flex items-center justify-center text-white shrink-0 text-xs shadow-xs"
+                            style={{ backgroundColor: sub.cor || cat.cor || '#10B981' }}
+                          >
+                            {renderIconePorId(sub.icone || cat.icone, 'w-3 h-3 stroke-[2]')}
+                          </div>
+
+                          <span className="text-xs md:text-sm font-semibold text-slate-800">
+                            {sub.nome}
+                          </span>
+
+                          {/* BADGES DISCRETOS:
+                            Despesa: Classificação · Natureza
+                            Receita: Regularidade · Origem Econômica */}
+                          {cat.tipo === 'despesa' ? (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[11px] font-medium text-slate-600 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    sub.classificacao === 'Essencial'
+                                      ? 'bg-emerald-500'
+                                      : sub.classificacao === 'Ajustável'
+                                        ? 'bg-blue-500'
+                                        : sub.classificacao === 'Discricionária'
+                                          ? 'bg-amber-500'
+                                          : 'bg-rose-500'
+                                  }`}
+                                />
+                                <strong>{sub.classificacao || 'Essencial'}</strong>
+                                <span className="text-slate-400">·</span>
+                                <span>{sub.natureza || 'Consumo'}</span>
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[11px] font-medium text-slate-600 bg-emerald-50/80 border border-emerald-200/60 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                                <strong>{sub.regularidade || 'Recorrente mensal'}</strong>
+                                <span className="text-slate-400">·</span>
+                                <span>{sub.origem_economica || 'Trabalho'}</span>
+                                {sub.afeta_resultado === false && (
+                                  <>
+                                    <span className="text-slate-400">·</span>
+                                    <span className="text-amber-700 font-semibold">
+                                      Neutro no Resultado
+                                    </span>
+                                  </>
+                                )}
+                              </span>
+                            </div>
+                          )}
+
+                          {sub.observacao && (
+                            <span className="text-[11px] text-slate-400 italic">
+                              ({sub.observacao})
+                            </span>
+                          )}
+
+                          {sub.arquivado && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] bg-amber-50 text-amber-800 border-amber-300"
+                            >
+                              Arquivada
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* Ações da Subcategoria */}
+                        <div className="flex items-center gap-1 self-end sm:self-center">
+                          {sub.arquivado ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleArquivarSub(sub, false)}
+                              className="text-xs text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 flex items-center gap-1 h-6 px-2"
+                            >
+                              <ArchiveRestore className="w-3 h-3" />
+                              <span>Desarquivar</span>
+                            </Button>
+                          ) : (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Editar Subcategoria"
+                                onClick={() => abrirEdicaoSubcategoria(sub, cat)}
+                                className="h-6 w-6 text-slate-400 hover:text-slate-900"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Arquivar Subcategoria"
+                                onClick={() => solicitarArquivamentoSub(sub)}
+                                className="h-6 w-6 text-slate-400 hover:text-amber-700"
+                              >
+                                <Archive className="w-3 h-3" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Excluir Subcategoria"
+                                onClick={() => handleTentarExcluirSubcategoria(sub)}
+                                className="h-6 w-6 text-slate-300 hover:text-rose-600"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="py-3 px-6 text-[11px] text-slate-400 italic">
+                      Nenhuma subcategoria vinculada ainda.
+                    </div>
+                  )}
+                </div>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
 
       {/* Caixa de diálogo de Categoria / Subcategoria */}
       <ModalCategoriaSubcategoria
