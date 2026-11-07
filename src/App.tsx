@@ -18,6 +18,7 @@ import OrcamentosPage from './pages/OrcamentosPage'
 import LancamentosPage from './pages/LancamentosPage'
 import CalculadoraDecisaoPage from './pages/CalculadoraDecisaoPage'
 import { ImportarFaturaPage } from './pages/ImportarFaturaPage'
+import { ImportarFaturaErrorBoundary } from './components/ImportarFaturaErrorBoundary'
 import PlaceholderPage from './pages/PlaceholderPage'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
@@ -116,7 +117,14 @@ const AppRoutes = () => (
       {/* Build 1: Cadastros Essenciais Reais (CRUDs completos conectados ao Supabase) */}
       <Route path="/contas" element={<ContasPage />} />
       <Route path="/cartoes" element={<CartoesPage />} />
-      <Route path="/importar-fatura" element={<ImportarFaturaPage />} />
+      <Route
+        path="/importar-fatura"
+        element={
+          <ImportarFaturaErrorBoundary>
+            <ImportarFaturaPage />
+          </ImportarFaturaErrorBoundary>
+        }
+      />
       <Route path="/meios-pagamento" element={<MeiosPagamentoPage />} />
       <Route path="/categorias" element={<CategoriasPage />} />
       <Route path="/orcamento" element={<OrcamentosPage />} />

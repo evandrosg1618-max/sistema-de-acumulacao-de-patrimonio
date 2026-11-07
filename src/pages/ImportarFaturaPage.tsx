@@ -150,6 +150,8 @@ export function ImportarFaturaPage() {
   const [filtroTitular, setFiltroTitular] = useState('todos')
   const [filtroFinal, setFiltroFinal] = useState('todos')
 
+  const cartaoSelecionado = cartoes.find((c) => c.id === cartaoSelecionadoId)
+
   const wsId = currentWorkspace?.workspace_id
 
   // Limpeza de URLs de preview ao desmontar
@@ -740,12 +742,11 @@ export function ImportarFaturaPage() {
       if (patch.repetirTipo === 'parcelado') {
         alteracoesDb.parcela_atual = patch.parcelaAtual || 1
         alteracoesDb.total_parcelas = patch.totalParcelas || 1
-        alteracoesDb.tipo_linha =
-          (patch.totalParcelas || 1) > 1 ? 'compra_parcelada' : 'compra_a_vista'
+        alteracoesDb.tipo_linha = (patch.totalParcelas || 1) > 1 ? 'parcelado' : 'compra'
       } else {
         alteracoesDb.parcela_atual = null
         alteracoesDb.total_parcelas = null
-        alteracoesDb.tipo_linha = 'compra_a_vista'
+        alteracoesDb.tipo_linha = 'compra'
       }
     }
     if (patch.marcarIgnorado) {
@@ -795,11 +796,11 @@ export function ImportarFaturaPage() {
           if (patch.repetirTipo === 'parcelado') {
             novo.parcela_atual = patch.parcelaAtual || 1
             novo.total_parcelas = patch.totalParcelas || 1
-            novo.tipo_linha = (patch.totalParcelas || 1) > 1 ? 'compra_parcelada' : 'compra_a_vista'
+            novo.tipo_linha = (patch.totalParcelas || 1) > 1 ? 'parcelado' : 'compra'
           } else {
             novo.parcela_atual = null
             novo.total_parcelas = null
-            novo.tipo_linha = 'compra_a_vista'
+            novo.tipo_linha = 'compra'
           }
         }
         if (patch.marcarIgnorado) {
@@ -1191,9 +1192,45 @@ export function ImportarFaturaPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => {
+                      onClick={async () => {
+                        try {
+                          if (
+                            typeof navigator !== 'undefined' &&
+                            navigator.clipboard &&
+                            typeof navigator.clipboard.read === 'function'
+                          ) {
+                            const clipItems = await navigator.clipboard.read()
+                            const files: File[] = []
+                            for (const item of clipItems) {
+                              const imageType = item.types.find((t) => t.startsWith('image/'))
+                              if (imageType) {
+                                const blob = await item.getType(imageType)
+                                files.push(
+                                  new File(
+                                    [blob],
+                                    `Print-${new Date().toISOString().substring(11, 19).replace(/:/g, '')}.png`,
+                                    { type: blob.type },
+                                  ),
+                                )
+                              }
+                            }
+                            if (files.length > 0) {
+                              adicionarArquivosImagem(files)
+                              toast.success(
+                                `${files.length} imagem(ns) colada(s) da área de transferência!`,
+                              )
+                              return
+                            }
+                          }
+                        } catch (err: any) {
+                          console.warn(
+                            'Leitura direta da área de transferência não suportada ou não permitida:',
+                            err,
+                          )
+                        }
+                        // Fallback seguro e orientativo:
                         toast.info(
-                          'Pressione Ctrl+V no teclado para colar o print copiado da área de transferência.',
+                          'Pressione Ctrl+V no teclado (ou use o botão "Selecionar Imagem" no celular) para adicionar prints.',
                         )
                       }}
                       className="bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-50 text-xs h-9 gap-2 shadow-sm font-medium"
@@ -1489,9 +1526,6 @@ export function ImportarFaturaPage() {
                   {cartaoSelecionado && (
                     <span className="normal-case text-emerald-700 font-bold ml-1">
                       — {cartaoSelecionado.nome}
-                      {cartaoSelecionado.final_cartao
-                        ? ` • final ${cartaoSelecionado.final_cartao}`
-                        : ''}
                     </span>
                   )}
                 </span>

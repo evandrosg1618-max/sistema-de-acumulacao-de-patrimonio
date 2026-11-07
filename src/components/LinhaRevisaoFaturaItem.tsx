@@ -253,7 +253,7 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
                 value={linha.data || ''}
                 onChange={(e) => {
                   const novaData = e.target.value
-                  if (novaData) aoAlterar({ data: novaData })
+                  if (novaData) aoAlterar(linha.id, { data: novaData })
                 }}
                 className="text-[11px] font-medium text-slate-700 bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 rounded px-1.5 py-0.5 cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500"
                 title="Clique para abrir o calendário ou digite a data"

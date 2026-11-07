@@ -91,15 +91,15 @@ export default function Layout() {
 
   // Menus principais da Topbar Organizze
   const topNavTabs = [
-    { label: 'visão geral', path: '/' },
-    { label: 'contas', path: '/contas' },
-    { label: 'cartões', path: '/cartoes' },
-    { label: 'importar fatura', path: '/importar-fatura' },
-    { label: 'orçamento', path: '/orcamento' },
-    { label: 'categorias', path: '/categorias' },
-    { label: 'lançamentos', path: '/lancamentos' },
-    { label: 'calculadora pix × cartão', path: '/calculadora' },
-    { label: 'relatórios', path: '/relatorios', badge: 'Build 7' },
+    { label: 'Visão Geral', path: '/' },
+    { label: 'Contas', path: '/contas' },
+    { label: 'Cartões', path: '/cartoes' },
+    { label: 'Importar Fatura', path: '/importar-fatura' },
+    { label: 'Orçamento', path: '/orcamento' },
+    { label: 'Categorias', path: '/categorias' },
+    { label: 'Lançamentos', path: '/lancamentos' },
+    { label: 'Calculadora Pix × Cartão', path: '/calculadora' },
+    { label: 'Relatórios', path: '/relatorios', badge: 'Build 7' },
   ]
 
   // Subitens / Cadastros desktop: Lançamentos substitui Meios de Pagamento
@@ -162,13 +162,16 @@ export default function Layout() {
                   <NavLink
                     key={tab.path}
                     to={tab.path}
-                    className={`h-full flex items-center px-3.5 text-xs font-semibold lowercase transition relative ${
+                    className={`h-full flex items-center px-3.5 text-xs font-semibold transition relative notranslate ${
                       isActive
                         ? 'text-white font-bold'
                         : 'text-white/80 hover:text-white hover:bg-white/10'
                     }`}
+                    translate="no"
                   >
-                    <span>{tab.label}</span>
+                    <span className="notranslate" translate="no">
+                      {tab.label}
+                    </span>
                     {isActive && (
                       <span className="absolute bottom-0 left-0 right-0 h-1 bg-white rounded-t-sm" />
                     )}
@@ -461,15 +464,21 @@ export default function Layout() {
                   key={tab.path}
                   to={tab.path}
                   onClick={() => setMobileMenuOpen(false)}
+                  translate="no"
                   className={({ isActive }) =>
-                    `flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium ${
+                    `flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium notranslate ${
                       isActive ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-slate-600'
                     }`
                   }
                 >
-                  <span className="capitalize">{tab.label}</span>
+                  <span className="notranslate" translate="no">
+                    {tab.label}
+                  </span>
                   {tab.badge && (
-                    <span className="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                    <span
+                      className="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded notranslate"
+                      translate="no"
+                    >
                       {tab.badge}
                     </span>
                   )}
@@ -484,14 +493,17 @@ export default function Layout() {
                   key={item.path}
                   to={item.path}
                   onClick={() => setMobileMenuOpen(false)}
+                  translate="no"
                   className={({ isActive }) =>
-                    `flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium ${
+                    `flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium notranslate ${
                       isActive ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-slate-600'
                     }`
                   }
                 >
-                  <item.icon className="w-4 h-4 text-emerald-600" />
-                  <span>{item.label}</span>
+                  <item.icon className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="notranslate" translate="no">
+                    {item.label}
+                  </span>
                 </NavLink>
               ))}
 
@@ -534,61 +546,79 @@ export default function Layout() {
       </main>
 
       {/* BOTTOM NAV MOBILE (VIS-01 UX móvel Organizze/SAP) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex items-center justify-around py-2 z-40 shadow-lg">
+      <nav
+        translate="no"
+        className="notranslate md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex items-center justify-around py-2 z-40 shadow-lg"
+      >
         <NavLink
           to="/"
+          translate="no"
           className={({ isActive }) =>
-            `flex flex-col items-center gap-0.5 text-[10px] font-medium ${
+            `flex flex-col items-center gap-0.5 text-[10px] font-medium notranslate ${
               isActive ? 'text-emerald-700 font-bold' : 'text-slate-500'
             }`
           }
         >
-          <LayoutDashboard className="w-5 h-5" />
-          <span>Início</span>
+          <LayoutDashboard className="w-5 h-5 shrink-0" />
+          <span className="notranslate" translate="no">
+            Início
+          </span>
         </NavLink>
         <NavLink
           to="/contas"
+          translate="no"
           className={({ isActive }) =>
-            `flex flex-col items-center gap-0.5 text-[10px] font-medium ${
+            `flex flex-col items-center gap-0.5 text-[10px] font-medium notranslate ${
               isActive ? 'text-emerald-700 font-bold' : 'text-slate-500'
             }`
           }
         >
-          <Wallet className="w-5 h-5" />
-          <span>Contas</span>
+          <Wallet className="w-5 h-5 shrink-0" />
+          <span className="notranslate" translate="no">
+            Contas
+          </span>
         </NavLink>
         <NavLink
           to="/cartoes"
+          translate="no"
           className={({ isActive }) =>
-            `flex flex-col items-center gap-0.5 text-[10px] font-medium ${
+            `flex flex-col items-center gap-0.5 text-[10px] font-medium notranslate ${
               isActive ? 'text-indigo-700 font-bold' : 'text-slate-500'
             }`
           }
         >
-          <CreditCard className="w-5 h-5" />
-          <span>Cartões</span>
+          <CreditCard className="w-5 h-5 shrink-0" />
+          <span className="notranslate" translate="no">
+            Cartões
+          </span>
         </NavLink>
         <NavLink
           to="/orcamento"
+          translate="no"
           className={({ isActive }) =>
-            `flex flex-col items-center gap-0.5 text-[10px] font-medium ${
+            `flex flex-col items-center gap-0.5 text-[10px] font-medium notranslate ${
               isActive ? 'text-emerald-700 font-bold' : 'text-slate-500'
             }`
           }
         >
-          <Target className="w-5 h-5" />
-          <span>Orçamento</span>
+          <Target className="w-5 h-5 shrink-0" />
+          <span className="notranslate" translate="no">
+            Orçamento
+          </span>
         </NavLink>
         <NavLink
           to="/configuracoes"
+          translate="no"
           className={({ isActive }) =>
-            `flex flex-col items-center gap-0.5 text-[10px] font-medium ${
+            `flex flex-col items-center gap-0.5 text-[10px] font-medium notranslate ${
               isActive ? 'text-emerald-700 font-bold' : 'text-slate-500'
             }`
           }
         >
-          <Settings className="w-5 h-5" />
-          <span>Ajustes</span>
+          <Settings className="w-5 h-5 shrink-0" />
+          <span className="notranslate" translate="no">
+            Ajustes
+          </span>
         </NavLink>
       </nav>
 
