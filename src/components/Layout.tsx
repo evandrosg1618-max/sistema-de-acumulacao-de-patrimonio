@@ -106,7 +106,7 @@ export default function Layout() {
   const cadastrosDesktopItems = [
     { label: 'Minhas Contas', path: '/contas', icon: Wallet },
     { label: 'Meus Cartões', path: '/cartoes', icon: CreditCard },
-    { label: 'Importar Fatura PDF', path: '/importar-fatura', icon: Upload },
+    { label: 'Importar Fatura', path: '/importar-fatura', icon: Upload },
     { label: 'Lançamentos', path: '/lancamentos', icon: ArrowLeftRight },
     { label: 'Calculadora Pix × Cartão', path: '/calculadora', icon: Calculator },
     { label: 'Categorias & Subcategorias', path: '/categorias', icon: Tag },

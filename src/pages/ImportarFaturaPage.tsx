@@ -1,35 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { useAuth } from '@/hooks/use-auth'
-import { useGlobalLoading } from '@/contexts/LoadingContext'
-import { cartaoService, categoriaService } from '@/services/sap'
-import { Input } from '@/components/ui/input'
+import { Link, useNavigate } from 'react-router-dom'
 import {
-  faturaImportacaoService,
-  FaturaImportacaoRegistro,
-  FaturaImportacaoLinhaRegistro,
-} from '@/services/faturaImportacaoService'
-import {
-  extrairTextoPdf,
-  calcularHashArquivo,
-  PasswordRequiredError,
-  InvalidPasswordError,
-  PdfExtractionOutput,
-} from '@/services/pdf/pdfReader'
-import { executarParserFatura } from '@/services/pdf/faturaParserRouter'
-import { ModalSenhaPdf } from '@/components/ModalSenhaPdf'
-import { ModalEdicaoEmMassaFatura } from '@/components/ModalEdicaoEmMassaFatura'
-import { ModalSessaoExistenteCartao } from '@/components/ModalSessaoExistenteCartao'
-import { ModalDescarteNavegacao } from '@/components/ModalDescarteNavegacao'
-import { ModalVisualizarFaturasEmProcessamento } from '@/components/ModalVisualizarFaturasEmProcessamento'
-import { LinhaRevisaoFaturaItem } from '@/components/LinhaRevisaoFaturaItem'
-import { PainelTextoExtraido } from '@/components/PainelTextoExtraido'
-import { ParserResult } from '@/types/faturaPdf'
-import { Cartao, Categoria, Subcategoria } from '@/types/sap'
-import { formatMoneyBRL } from '@/lib/formatters'
-import { Button } from '@/components/ui/button'
+  FileText,
+  Upload,
+  AlertTriangle,
+  ArrowRight,
+  Sparkles,
+  Filter,
+  CheckSquare,
+  Square,
+  CreditCard,
+  Clock,
+  RefreshCw,
+  Info,
+  Camera,
+  ClipboardPaste,
+  Image as ImageIcon,
+  Plus,
+  Trash2,
+  MoveUp,
+  MoveDown,
+  Eye,
+  Loader2,
+} from 'lucide-react'
 import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import {
   Select,
   SelectContent,
@@ -37,29 +34,55 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Upload,
-  FileText,
-  CheckCircle2,
-  AlertTriangle,
-  ArrowRight,
-  Filter,
-  CheckSquare,
-  Square,
-  Sparkles,
-  RefreshCw,
-  CreditCard,
-  Clock,
-  Info,
-} from 'lucide-react'
 import { toast } from 'sonner'
+import { useAuth } from '@/hooks/use-auth'
+import { useGlobalLoading } from '@/contexts/LoadingContext'
+import {
+  faturaImportacaoService,
+  FaturaImportacaoRegistro,
+  FaturaImportacaoLinhaRegistro,
+} from '@/services/faturaImportacaoService'
+import { cartaoService, categoriaService } from '@/services/sap'
+import { Cartao, Categoria, Subcategoria } from '@/types/sap'
+import {
+  extrairTextoPdf,
+  PdfExtractionOutput,
+  PasswordRequiredError,
+  InvalidPasswordError,
+  calcularHashArquivo,
+} from '@/services/pdf/pdfReader'
+import { executarParserFatura } from '@/services/pdf/faturaParserRouter'
+import { ParserResult } from '@/types/faturaPdf'
+import { LinhaRevisaoFaturaItem } from '@/components/LinhaRevisaoFaturaItem'
+import {
+  ModalEdicaoEmMassaFatura,
+  PatchEdicaoEmMassa,
+} from '@/components/ModalEdicaoEmMassaFatura'
+import { ModalSenhaPdf } from '@/components/ModalSenhaPdf'
+import { ModalSessaoExistenteCartao } from '@/components/ModalSessaoExistenteCartao'
+import { ModalDescarteNavegacao } from '@/components/ModalDescarteNavegacao'
+import { ModalVisualizarFaturasEmProcessamento } from '@/components/ModalVisualizarFaturasEmProcessamento'
+import { PainelTextoExtraido } from '@/components/PainelTextoExtraido'
+import { formatMoneyBRL } from '@/lib/formatters'
+import { executarOcrImagem } from '@/services/imageOcr/tesseractService'
+import {
+  processarLinhasOcrMultiplasImagens,
+  ImagemExtraidaDiagnostico,
+} from '@/services/imageOcr/ocrLinhasParser'
 
-export const ImportarFaturaPage: React.FC = () => {
-  const { currentWorkspace, user } = useAuth()
-  const { startProcessing, stopProcessing } = useGlobalLoading()
+interface ItemImagemCapturada {
+  id: string
+  file: File
+  previewUrl: string
+  nome: string
+}
+
+export function ImportarFaturaPage() {
   const navigate = useNavigate()
+  const { user, currentWorkspace } = useAuth()
+  const { startProcessing, stopProcessing } = useGlobalLoading()
 
-  // Estados principais
+  // Estados de dados fundamentais
   const [cartoes, setCartoes] = useState<Cartao[]>([])
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
@@ -67,25 +90,51 @@ export const ImportarFaturaPage: React.FC = () => {
   const [erroCargaCartoes, setErroCargaCartoes] = useState<string | null>(null)
   const [erroCargaCategorias, setErroCargaCategorias] = useState<string | null>(null)
 
-  // Upload & Leitura
+  // Fonte de entrada: 'imagem' ou 'pdf'
+  const [metodoEntrada, setMetodoEntrada] = useState<'imagem' | 'pdf'>('imagem')
+
+  // Estado para PDF
   const [arquivoSelecionado, setArquivoSelecionado] = useState<File | null>(null)
   const [arquivoBuffer, setArquivoBuffer] = useState<ArrayBuffer | null>(null)
+
+  // Estado para Imagens múltiplas
+  const [imagensCapturadas, setImagensCapturadas] = useState<ItemImagemCapturada[]>([])
+  const [imagemPreviewAberto, setImagemPreviewAberto] = useState<string | null>(null)
+  const [progressoOcr, setProgressoOcr] = useState<{
+    ativo: boolean
+    mensagem: string
+    imagemAtual: number
+    totalImagens: number
+  }>({ ativo: false, mensagem: '', imagemAtual: 0, totalImagens: 0 })
+
+  // C5 — Senha do PDF (Regra de proteção contra travamento)
   const [modalSenhaAberto, setModalSenhaAberto] = useState(false)
   const [erroSenha, setErroSenha] = useState<string | null>(null)
   const [processandoLeitura, setProcessandoLeitura] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  // Sessão de Revisão
+  // Input refs para acionamento invisível
+  const fileInputPdfRef = useRef<HTMLInputElement>(null)
+  const fileInputImagemRef = useRef<HTMLInputElement>(null)
+  const fileInputCameraRef = useRef<HTMLInputElement>(null)
+
+  // Estados da Sessão / Linhas em Revisão
   const [sessaoAtual, setSessaoAtual] = useState<FaturaImportacaoRegistro | null>(null)
   const [linhas, setLinhas] = useState<FaturaImportacaoLinhaRegistro[]>([])
   const [filtroAtivo, setFiltroAtivo] = useState<string>('todos')
   const [modalMassaAberto, setModalMassaAberto] = useState(false)
   const [importandoFinal, setImportandoFinal] = useState(false)
-  // C4 — Painel "Ver texto extraído" (ferramenta de homologação)
+
+  // C4 / C5 — Diagnóstico ("Ver extração & Diagnóstico")
   const [extracaoAtual, setExtracaoAtual] = useState<PdfExtractionOutput | null>(null)
   const [parsedAtual, setParsedAtual] = useState<ParserResult | null>(null)
+  const [origemTipoAtual, setOrigemTipoAtual] = useState<'pdf' | 'imagem'>('pdf')
+  const [diagnosticosImagem, setDiagnosticosImagem] = useState<ImagemExtraidaDiagnostico[]>([])
 
-  // Estados C2, C3, C4, C5 (Ciclo de Vida)
+  // C4 — Flag de captura parcial em imagem
+  const [capturaParcialImagem, setCapturaParcialImagem] = useState<boolean>(false)
+
+  // Estados do Ciclo de Vida (Sessões anteriores, descarte, etc.)
   const [sessaoExistenteCartao, setSessaoExistenteCartao] =
     useState<FaturaImportacaoRegistro | null>(null)
   const [modalSessaoCartaoAberto, setModalSessaoCartaoAberto] = useState(false)
@@ -99,12 +148,21 @@ export const ImportarFaturaPage: React.FC = () => {
   const [carregandoFaturasProcessamento, setCarregandoFaturasProcessamento] = useState(false)
   const [avisoHashReimportacao, setAvisoHashReimportacao] = useState<string | null>(null)
 
-  // CORREÇÃO 1 (causa raiz): currentWorkspace é a membership — o id do workspace real
-  // está em workspace_id (mesmo padrão usado por Cartões/Lançamentos).
+  // Filtros de revisão
+  const [buscaTexto, setBuscaTexto] = useState('')
+  const [filtroTitular, setFiltroTitular] = useState('todos')
+  const [filtroFinal, setFiltroFinal] = useState('todos')
+
   const wsId = currentWorkspace?.workspace_id
 
-  // Carrega cartões e categorias do workspace em chamadas INDEPENDENTES:
-  // uma falha em categorias não pode zerar a lista de cartões.
+  // Limpeza de URLs de preview ao desmontar
+  useEffect(() => {
+    return () => {
+      imagensCapturadas.forEach((img) => URL.revokeObjectURL(img.previewUrl))
+    }
+  }, [imagensCapturadas])
+
+  // Carga independente de cartões e categorias
   const carregarCartoes = async (idWs: string) => {
     setErroCargaCartoes(null)
     try {
@@ -148,7 +206,7 @@ export const ImportarFaturaPage: React.FC = () => {
     carregarCategorias(wsId)
   }
 
-  // Regra C3: Ao selecionar um cartão, verificar se ele já tem sessão ativa em processamento
+  // Ao selecionar um cartão, verificar se ele já tem sessão ativa em processamento
   const handleSelecionarCartao = async (novoCartaoId: string) => {
     setCartaoSelecionadoId(novoCartaoId)
     if (!wsId || !novoCartaoId) return
@@ -164,7 +222,6 @@ export const ImportarFaturaPage: React.FC = () => {
     }
   }
 
-  // Ação C3: Usuário escolhe visualizar a fatura em processamento existente do cartão
   const handleVisualizarSessaoExistente = async () => {
     if (!wsId || !sessaoExistenteCartao) return
     try {
@@ -172,6 +229,9 @@ export const ImportarFaturaPage: React.FC = () => {
       const sessao = await faturaImportacaoService.obterSessao(wsId, sessaoExistenteCartao.id)
       setSessaoAtual(sessao.importacao)
       setLinhas(sessao.linhas)
+      setOrigemTipoAtual(
+        sessao.importacao.arquivo_nome?.toLowerCase().endsWith('.pdf') ? 'pdf' : 'imagem',
+      )
       setModalSessaoCartaoAberto(false)
       toast.info('Fatura em processamento carregada para revisão.')
     } catch (err: any) {
@@ -181,71 +241,320 @@ export const ImportarFaturaPage: React.FC = () => {
     }
   }
 
-  // Ação C3: Usuário escolhe importar nova fatura (a nova prevalecerá, descartando a anterior)
   const handleEscolherImportarNova = () => {
     setModalSessaoCartaoAberto(false)
-    // Mantém o cartão selecionado pronto para upload e novo processamento
     toast.info('Pronto para importar nova fatura. A nova fatura prevalecerá.')
   }
 
-  // Trata seleção de arquivo
-  const handleSelecionarArquivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  // =====================================================================================
+  // SELEÇÃO / CAPTURA DE IMAGENS (Colar print Ctrl+V, Selecionar, Câmera, Drag & Drop)
+  // =====================================================================================
 
+  const adicionarArquivosImagem = (files: FileList | File[]) => {
+    const lista = Array.from(files)
+    const validas = lista.filter((f) => f.type.startsWith('image/'))
+
+    if (validas.length === 0) {
+      toast.error('Nenhum arquivo de imagem válido encontrado.')
+      return
+    }
+
+    const novosItens: ItemImagemCapturada[] = validas.map((f, idx) => ({
+      id: `${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 6)}`,
+      file: f,
+      previewUrl: URL.createObjectURL(f),
+      nome: f.name || `Captura ${imagensCapturadas.length + idx + 1}`,
+    }))
+
+    setImagensCapturadas((prev) => [...prev, ...novosItens])
+    setMetodoEntrada('imagem')
+    toast.success(
+      `${validas.length} imagem(ns) adicionada(s). Total: ${
+        imagensCapturadas.length + validas.length
+      }.`,
+    )
+  }
+
+  // Suporte a Ctrl+V no navegador
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return
+      }
+      if (sessaoAtual) return // já em revisão
+
+      const items = e.clipboardData?.items
+      if (!items) return
+
+      const files: File[] = []
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const blob = items[i].getAsFile()
+          if (blob) {
+            files.push(
+              new File(
+                [blob],
+                `Print-${new Date().toISOString().substring(11, 19).replace(/:/g, '')}.png`,
+                { type: blob.type },
+              ),
+            )
+          }
+        }
+      }
+
+      if (files.length > 0) {
+        e.preventDefault()
+        adicionarArquivosImagem(files)
+        toast.info('Print colado da área de transferência!')
+      }
+    }
+
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [sessaoAtual, imagensCapturadas.length])
+
+  // Drag and drop para imagens e PDFs
+  const [arrastandoSobre, setArrastandoSobre] = useState(false)
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setArrastandoSobre(true)
+  }
+
+  const handleDragLeave = () => {
+    setArrastandoSobre(false)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setArrastandoSobre(false)
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      const primeiro = e.dataTransfer.files[0]
+      if (primeiro.type === 'application/pdf' || primeiro.name.toLowerCase().endsWith('.pdf')) {
+        carregarArquivoPdf(primeiro)
+      } else {
+        adicionarArquivosImagem(e.dataTransfer.files)
+      }
+    }
+  }
+
+  const handleRemoverImagem = (id: string) => {
+    setImagensCapturadas((prev) => {
+      const item = prev.find((x) => x.id === id)
+      if (item) URL.revokeObjectURL(item.previewUrl)
+      return prev.filter((x) => x.id !== id)
+    })
+  }
+
+  const handleMoverImagem = (idx: number, direcao: -1 | 1) => {
+    setImagensCapturadas((prev) => {
+      const novoIdx = idx + direcao
+      if (novoIdx < 0 || novoIdx >= prev.length) return prev
+      const copia = [...prev]
+      const temp = copia[idx]
+      copia[idx] = copia[novoIdx]
+      copia[novoIdx] = temp
+      return copia
+    })
+  }
+
+  // =====================================================================================
+  // SELEÇÃO DE PDF
+  // =====================================================================================
+
+  const carregarArquivoPdf = async (file: File) => {
     if (!file.name.toLowerCase().endsWith('.pdf')) {
       toast.error('Por favor, selecione um arquivo em formato PDF.')
       return
     }
 
-    setAvisoHashReimportacao(null)
     setArquivoSelecionado(file)
-    const buffer = await file.arrayBuffer()
-    setArquivoBuffer(buffer)
+    setMetodoEntrada('pdf')
+
+    try {
+      const buffer = await file.arrayBuffer()
+      setArquivoBuffer(buffer)
+
+      if (wsId) {
+        const hash = await calcularHashArquivo(buffer)
+        const reimportacao = await faturaImportacaoService.verificarHashExistente(wsId, hash)
+        if (reimportacao) {
+          setAvisoHashReimportacao(
+            `Aviso informativo: Este arquivo já foi importado anteriormente em ${new Date(
+              reimportacao.created_at,
+            ).toLocaleDateString('pt-BR')}. Você pode prosseguir normalmente para atualizar os lançamentos.`,
+          )
+        } else {
+          setAvisoHashReimportacao(null)
+        }
+      }
+    } catch {
+      toast.error('Não foi possível ler o arquivo selecionado.')
+    }
   }
 
-  // Inicia processamento do PDF (Regras C1, C2 e C6)
-  const handleIniciarProcessamento = async (senhaFornecida?: string) => {
-    if (!arquivoBuffer || !arquivoSelecionado || !wsId || !cartaoSelecionadoId) {
-      toast.error(
-        !wsId || !cartaoSelecionadoId
-          ? 'Selecione um cartão cadastrado antes de continuar.'
-          : 'Selecione um arquivo PDF antes de continuar.',
-      )
+  const handleSelecionarArquivoPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    await carregarArquivoPdf(file)
+  }
+
+  // =====================================================================================
+  // PROCESSAMENTO OCR POR IMAGEM
+  // =====================================================================================
+
+  const handleProcessarImagens = async () => {
+    if (!cartaoSelecionadoId) {
+      toast.error('Selecione o cartão cadastrado antes de processar.')
       return
     }
-
-    // Cancela requisição anterior se houver
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
+    if (imagensCapturadas.length === 0) {
+      toast.error('Adicione pelo menos uma imagem ou print para processar.')
+      return
     }
+    if (!wsId) return
+
+    setProcessandoLeitura(true)
+    startProcessing('Iniciando reconhecimento de imagem (OCR pt-BR)...')
+    setProgressoOcr({
+      ativo: true,
+      mensagem: 'Carregando motor OCR...',
+      imagemAtual: 0,
+      totalImagens: imagensCapturadas.length,
+    })
+
     const ac = new AbortController()
     abortControllerRef.current = ac
 
-    setProcessandoLeitura(true)
-    startProcessing('Lendo e extraindo transações do PDF...')
-    setErroSenha(null)
-
     try {
-      // 1. Calcular hash do arquivo (mantido como METADADO/auditoria, nunca bloqueante - Regra C1)
-      const hash = await calcularHashArquivo(arquivoBuffer)
+      const cartaoAtual = cartoes.find((c) => c.id === cartaoSelecionadoId)
+      const nomeCartao = cartaoAtual?.nome || 'Cartão'
+      const anoPadrao = new Date().getFullYear()
 
-      const existente = await faturaImportacaoService.verificarHashExistente(wsId, hash)
-      if (existente) {
-        const dataFmt = new Date(existente.created_at).toLocaleDateString('pt-BR')
-        const aviso = `Este PDF já foi importado em ${dataFmt} — a nova fatura prevalece.`
-        setAvisoHashReimportacao(aviso)
-        toast.info(aviso)
+      const imagensInputOcr: { indice: number; nome: string; linhas: string[] }[] = []
+
+      // OCR em cada imagem sequencialmente com atualização de progresso
+      for (let i = 0; i < imagensCapturadas.length; i++) {
+        if (ac.signal.aborted) throw new Error('Processamento cancelado pelo usuário.')
+
+        const img = imagensCapturadas[i]
+        setProgressoOcr({
+          ativo: true,
+          mensagem: `Reconhecendo Imagem ${i + 1} de ${imagensCapturadas.length} (${img.nome})...`,
+          imagemAtual: i + 1,
+          totalImagens: imagensCapturadas.length,
+        })
+
+        const resOcr = await executarOcrImagem(
+          img.file,
+          (p) => {
+            const pct = Math.round(p.progress * 100)
+            setProgressoOcr((prev) => ({
+              ...prev,
+              mensagem: `Imagem ${i + 1} de ${imagensCapturadas.length} — OCR ${p.status} (${pct}%)`,
+            }))
+          },
+          ac.signal,
+        )
+
+        imagensInputOcr.push({
+          indice: i,
+          nome: img.nome,
+          linhas: resOcr.lines,
+        })
       }
 
-      // 2. Extrair texto com pdf.js (suportando senha e bloqueio) com cópia segura de buffer
-      // REGRA C6: Se foi passada senha mas o arquivo for na verdade desprotegido,
-      // extrairTextoPdf lida graciosamente.
+      setProgressoOcr((prev) => ({
+        ...prev,
+        mensagem: 'Interpretando e normalizando lançamentos...',
+      }))
+
+      // Normaliza para o mesmo formato de ParserResult do PDF
+      const resultadoOcr = processarLinhasOcrMultiplasImagens(imagensInputOcr, {
+        anoPadrao,
+        nomeCartao,
+      })
+
+      const parsed = resultadoOcr.parserResult
+
+      if (parsed.linhas.length === 0) {
+        toast.warning(
+          'Nenhum lançamento foi reconhecido com clareza nas imagens. Verifique se a captura contém data, descrição e valor legíveis.',
+        )
+      }
+
+      // Hash representativo para a sessão
+      const hash = `img-${Date.now()}-${imagensCapturadas.length}`
+
+      // Criar sessão e linhas temporárias usando o MESMO faturaImportacaoService
+      const { importacaoId, linhas: linhasGravadas } =
+        await faturaImportacaoService.criarSessaoImportacao({
+          workspaceId: wsId,
+          cartaoId: cartaoSelecionadoId,
+          arquivoNome: `Captura por Imagem (${imagensCapturadas.length} print${
+            imagensCapturadas.length > 1 ? 's' : ''
+          })`,
+          arquivoHash: hash,
+          parsed,
+          userId: user?.id,
+        })
+
+      const sessao = await faturaImportacaoService.obterSessao(wsId, importacaoId)
+      setSessaoAtual(sessao.importacao)
+      setLinhas(linhasGravadas)
+      setParsedAtual(parsed)
+      setOrigemTipoAtual('imagem')
+      setDiagnosticosImagem(resultadoOcr.diagnosticos)
+      setCapturaParcialImagem(resultadoOcr.capturaParcial)
+      setExtracaoAtual(null)
+      setSalvouContinuarDepois(false)
+
+      toast.success(
+        `OCR concluído! ${linhasGravadas.length} lançamentos candidatos identificados para revisão.`,
+      )
+    } catch (err: any) {
+      if (err?.message?.includes('cancelado pelo usuário')) {
+        toast.info('Processamento de OCR cancelado.')
+      } else {
+        const detalhe = err?.message || 'Falha no reconhecimento da imagem.'
+        toast.error(`Erro ao processar imagem: ${detalhe}`)
+      }
+    } finally {
+      stopProcessing()
+      setProcessandoLeitura(false)
+      setProgressoOcr({ ativo: false, mensagem: '', imagemAtual: 0, totalImagens: 0 })
+    }
+  }
+
+  // =====================================================================================
+  // PROCESSAMENTO DE PDF (mantido 100% fiel e intocado ao homologado)
+  // =====================================================================================
+
+  const handleIniciarProcessamentoPdf = async (senhaFornecida?: string) => {
+    if (!arquivoBuffer || !arquivoSelecionado) {
+      toast.error('Nenhum arquivo PDF carregado.')
+      return
+    }
+    if (!cartaoSelecionadoId) {
+      toast.error('Selecione o cartão cadastrado antes de processar.')
+      return
+    }
+    if (!wsId) return
+
+    setProcessandoLeitura(true)
+    startProcessing('Lendo arquivo PDF...')
+
+    const ac = new AbortController()
+    abortControllerRef.current = ac
+
+    try {
+      const hash = await calcularHashArquivo(arquivoBuffer)
+
       let extraction
       try {
         extraction = await extrairTextoPdf(arquivoBuffer, senhaFornecida, ac.signal)
       } catch (tentativaErr: any) {
-        // Se falhou com senha fornecida em um PDF que talvez não seja criptografado com senha padrão
         if (senhaFornecida && !(tentativaErr instanceof InvalidPasswordError)) {
           try {
             extraction = await extrairTextoPdf(arquivoBuffer, undefined, ac.signal)
@@ -257,12 +566,10 @@ export const ImportarFaturaPage: React.FC = () => {
         }
       }
 
-      // Se precisava de senha e deu certo, fecha o modal
       if (modalSenhaAberto) {
         setModalSenhaAberto(false)
       }
 
-      // 3. Determinar se o cartão selecionado induz um emissor específico
       const cartaoAtual = cartoes.find((c) => c.id === cartaoSelecionadoId)
       let emissorForcadoPorCartao: any = undefined
       if (cartaoAtual) {
@@ -287,11 +594,9 @@ export const ImportarFaturaPage: React.FC = () => {
         }
       }
 
-      // Executar o parser pelo emissor do cartão ou detectado no texto
       const allLines = extraction.pages.flatMap((p) => p.lines)
       const parsed = executarParserFatura(extraction.fullText, allLines, emissorForcadoPorCartao)
 
-      // 4. Criar sessão e linhas temporárias (Regra C2: descarta sessão em_revisao anterior do cartão)
       const { importacaoId, linhas: linhasGravadas } =
         await faturaImportacaoService.criarSessaoImportacao({
           workspaceId: wsId,
@@ -307,6 +612,9 @@ export const ImportarFaturaPage: React.FC = () => {
       setLinhas(linhasGravadas)
       setExtracaoAtual(extraction)
       setParsedAtual(parsed)
+      setOrigemTipoAtual('pdf')
+      setDiagnosticosImagem([])
+      setCapturaParcialImagem(false)
       setSalvouContinuarDepois(false)
 
       toast.success(
@@ -322,7 +630,6 @@ export const ImportarFaturaPage: React.FC = () => {
       } else if (err?.message?.includes('cancelado pelo usuário')) {
         toast.info('Processamento cancelado.')
       } else {
-        // REGRA C6: Erro orientado específico sem engolir detalhes
         const detalhe = err?.message || 'Arquivo corrompido ou formato não suportado'
         toast.error(`Falha ao ler o PDF: ${detalhe}`)
       }
@@ -340,8 +647,13 @@ export const ImportarFaturaPage: React.FC = () => {
     setProcessandoLeitura(false)
     setModalSenhaAberto(false)
     setErroSenha(null)
+    setProgressoOcr({ ativo: false, mensagem: '', imagemAtual: 0, totalImagens: 0 })
   }
-  // Alteração de linha individual
+
+  // =====================================================================================
+  // AÇÕES NA TABELA DE REVISÃO (COMPARTILHADA POR IMAGEM E PDF)
+  // =====================================================================================
+
   const handleAlterarLinha = async (
     linhaId: string,
     dados: Partial<FaturaImportacaoLinhaRegistro>,
@@ -350,31 +662,36 @@ export const ImportarFaturaPage: React.FC = () => {
     await faturaImportacaoService.atualizarLinha(linhaId, dados)
   }
 
-  // Alternar seleção
   const handleAlternarSelecao = async (linhaId: string, selecionado: boolean) => {
     setLinhas((prev) => prev.map((l) => (l.id === linhaId ? { ...l, selecionado } : l)))
     await faturaImportacaoService.atualizarLinha(linhaId, { selecionado })
   }
 
-  // Selecionar todos / desmarcar todos do filtro
   const handleSelecionarTodosVisiveis = async (selecionar: boolean) => {
     const idsVisiveis = linhasFiltradas.map((l) => l.id)
+    if (idsVisiveis.length === 0) return
+
     setLinhas((prev) =>
       prev.map((l) => (idsVisiveis.includes(l.id) ? { ...l, selecionado: selecionar } : l)),
     )
     await faturaImportacaoService.atualizarLinhasEmMassa(idsVisiveis, { selecionado: selecionar })
+    toast.success(
+      selecionar
+        ? `${idsVisiveis.length} itens marcados.`
+        : `${idsVisiveis.length} itens desmarcados.`,
+    )
   }
 
-  // Ação Rápida: Confirmar todos como Compra Própria
   const handleConfirmarTodasCompraPropria = async () => {
-    const ids = linhasFiltradas.filter((l) => l.status !== 'ignorado').map((l) => l.id)
+    const ids = linhasFiltradas.map((l) => l.id)
     if (ids.length === 0) return
+
     setLinhas((prev) =>
       prev.map((l) =>
         ids.includes(l.id)
           ? {
               ...l,
-              modalidade_saida: 'compra_propria',
+              modalidade_saida: 'compra_propria' as const,
               valor_proprio: l.valor,
               valor_terceiros: 0,
             }
@@ -387,50 +704,96 @@ export const ImportarFaturaPage: React.FC = () => {
     toast.success(`${ids.length} itens confirmados como Compra Própria 100%.`)
   }
 
-  // Aplicação da edição em massa
-  const handleAplicarEdicaoEmMassa = async (config: {
-    categoriaId?: string
-    subcategoriaId?: string
-    modalidadeSaida?: string
-    afetaResultado?: boolean
-    afetaOrcamento?: boolean
-    marcarIgnorado?: boolean
-  }) => {
+  // C6 — Aplicação da edição em massa por PATCH de campos seletivos
+  const handleAplicarEdicaoEmMassa = async (patch: PatchEdicaoEmMassa) => {
     const selecionados = linhas.filter((l) => l.selecionado).map((l) => l.id)
     if (selecionados.length === 0) return
 
-    const alteracoes: any = {}
-    if (config.categoriaId) alteracoes.categoria_id = config.categoriaId
-    if (config.subcategoriaId) alteracoes.subcategoria_id = config.subcategoriaId
-    if (config.modalidadeSaida) {
-      alteracoes.modalidade_saida = config.modalidadeSaida
-      if (config.modalidadeSaida === 'compra_propria') {
-        // atualiza proporções para próprio = total, terceiros = 0
-      }
+    const alteracoesDb: Record<string, any> = {}
+
+    if (patch.aplicarDescricao && patch.descricao !== undefined) {
+      alteracoesDb.descricao_editavel = patch.descricao
     }
-    if (config.afetaResultado !== undefined) alteracoes.afeta_resultado = config.afetaResultado
-    if (config.afetaOrcamento !== undefined) alteracoes.afeta_orcamento = config.afetaOrcamento
-    if (config.marcarIgnorado) {
-      alteracoes.status = 'ignorado'
-      alteracoes.selecionado = false
-    } else {
-      alteracoes.status = 'pronto'
+    if (patch.aplicarData && patch.data !== undefined) {
+      alteracoesDb.data = patch.data
+    }
+    if (patch.aplicarCategoria && patch.categoriaId !== undefined) {
+      alteracoesDb.categoria_id = patch.categoriaId
+    }
+    if (patch.aplicarSubcategoria && patch.subcategoriaId !== undefined) {
+      alteracoesDb.subcategoria_id = patch.subcategoriaId
+    }
+    if (patch.aplicarModalidade && patch.modalidadeSaida !== undefined) {
+      alteracoesDb.modalidade_saida = patch.modalidadeSaida
+    }
+    if (patch.aplicarAfetaResultado && patch.afetaResultado !== undefined) {
+      alteracoesDb.afeta_resultado = patch.afetaResultado
+    }
+    if (patch.aplicarAfetaOrcamento && patch.afetaOrcamento !== undefined) {
+      alteracoesDb.afeta_orcamento = patch.afetaOrcamento
+    }
+    if (patch.aplicarObservacao && patch.observacao !== undefined) {
+      alteracoesDb.observacao = patch.observacao
+    }
+    if (patch.marcarIgnorado) {
+      alteracoesDb.status = 'ignorado'
+      alteracoesDb.selecionado = false
     }
 
     setLinhas((prev) =>
       prev.map((l) => {
         if (!selecionados.includes(l.id)) return l
-        const novo = { ...l, ...alteracoes }
-        if (config.modalidadeSaida === 'compra_propria') {
-          novo.valor_proprio = l.valor
-          novo.valor_terceiros = 0
+
+        const novo: FaturaImportacaoLinhaRegistro = { ...l }
+
+        if (patch.aplicarDescricao && patch.descricao !== undefined) {
+          novo.descricao_editavel = patch.descricao
         }
+        if (patch.aplicarData && patch.data !== undefined) {
+          novo.data = patch.data
+        }
+        if (patch.aplicarCategoria && patch.categoriaId !== undefined) {
+          novo.categoria_id = patch.categoriaId
+        }
+        if (patch.aplicarSubcategoria && patch.subcategoriaId !== undefined) {
+          novo.subcategoria_id = patch.subcategoriaId
+        }
+        if (patch.aplicarModalidade && patch.modalidadeSaida !== undefined) {
+          novo.modalidade_saida = patch.modalidadeSaida as any
+          if (patch.modalidadeSaida === 'compra_propria') {
+            novo.valor_proprio = l.valor
+            novo.valor_terceiros = 0
+          }
+        }
+        if (patch.aplicarValorProprio && patch.valorProprio !== undefined) {
+          novo.valor_proprio = patch.valorProprio
+          novo.valor_terceiros = Math.max(0, l.valor - patch.valorProprio)
+        }
+        if (patch.aplicarAfetaResultado && patch.afetaResultado !== undefined) {
+          novo.afeta_resultado = patch.afetaResultado
+        }
+        if (patch.aplicarAfetaOrcamento && patch.afetaOrcamento !== undefined) {
+          novo.afeta_orcamento = patch.afetaOrcamento
+        }
+        if (patch.aplicarObservacao && patch.observacao !== undefined) {
+          novo.observacao = patch.observacao
+        }
+        if (patch.marcarIgnorado) {
+          novo.status = 'ignorado'
+          novo.selecionado = false
+        } else if (novo.status === 'requer_revisao' && novo.categoria_id) {
+          novo.status = 'pronto'
+        }
+
         return novo
       }),
     )
 
-    await faturaImportacaoService.atualizarLinhasEmMassa(selecionados, alteracoes)
-    toast.success(`Edição aplicada a ${selecionados.length} itens.`)
+    if (Object.keys(alteracoesDb).length > 0) {
+      await faturaImportacaoService.atualizarLinhasEmMassa(selecionados, alteracoesDb)
+    }
+
+    toast.success(`Edição aplicada a ${selecionados.length} itens selecionados.`)
   }
 
   // Efetivação dos selecionados pelo fluxo normal do SAP
@@ -469,13 +832,12 @@ export const ImportarFaturaPage: React.FC = () => {
     }
   }
 
-  // Regra C4: Guarda de saída da tela quando há fatura processada com lançamentos não importados
+  // Guarda de saída
   const temLancamentosNaoImportados =
     !!sessaoAtual &&
     linhas.some((l) => l.selecionado && l.status !== 'importado') &&
     !salvouContinuarDepois
 
-  // Interceptador beforeunload do navegador
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (temLancamentosNaoImportados) {
@@ -487,7 +849,6 @@ export const ImportarFaturaPage: React.FC = () => {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [temLancamentosNaoImportados])
 
-  // Tentativa de navegação interna interceptada
   const solicitarNavegacao = (caminho: string) => {
     if (temLancamentosNaoImportados) {
       setCaminhoNavegacaoPendente(caminho)
@@ -497,106 +858,102 @@ export const ImportarFaturaPage: React.FC = () => {
     }
   }
 
-  // Ação de Salvar e Continuar Depois do modal de saída ou do botão fixo
-  const handleSalvarEContinuarDepois = () => {
-    setSalvouContinuarDepois(true)
-    setModalDescarteAberto(false)
-    toast.info('Fatura salva para continuar depois. Os lançamentos pendentes foram preservados.')
-    navigate(caminhoNavegacaoPendente || '/cartoes')
-  }
-
-  // Ação de Descartar do modal de saída
-  const handleConfirmarDescarteSessao = async () => {
-    if (sessaoAtual && wsId) {
-      try {
-        await faturaImportacaoService.descartarSessao(wsId, sessaoAtual.id)
-        toast.info('Fatura processada foi descartada. Nenhum lançamento foi criado no SAP.')
-      } catch (err: any) {
-        console.warn('Erro ao marcar descarte:', err)
-      }
+  const handleSalvarEContinuarDepois = async () => {
+    if (!wsId || !sessaoAtual) return
+    try {
+      setSalvouContinuarDepois(true)
+      toast.success(
+        'Progresso da fatura salvo! Ela continuará listada em "Faturas em processamento".',
+      )
+      navigate('/cartoes')
+    } catch (err: any) {
+      toast.error('Erro ao salvar progresso: ' + err.message)
     }
-    setModalDescarteAberto(false)
-    setSessaoAtual(null)
-    setLinhas([])
-    setExtracaoAtual(null)
-    setParsedAtual(null)
-    setArquivoSelecionado(null)
-    setArquivoBuffer(null)
-    navigate(caminhoNavegacaoPendente || '/cartoes')
   }
 
-  // Regra C5: Abertura e manipulação do modal "Visualizar faturas em processamento"
+  const handleConfirmarDescarteENavegar = async () => {
+    if (!wsId || !sessaoAtual) {
+      setModalDescarteAberto(false)
+      if (caminhoNavegacaoPendente) navigate(caminhoNavegacaoPendente)
+      return
+    }
+
+    try {
+      await faturaImportacaoService.descartarSessao(sessaoAtual.id, wsId)
+      setModalDescarteAberto(false)
+      setSessaoAtual(null)
+      setLinhas([])
+      toast.info('Sessão em processamento descartada.')
+      if (caminhoNavegacaoPendente) navigate(caminhoNavegacaoPendente)
+    } catch (err: any) {
+      toast.error('Erro ao descartar sessão: ' + err.message)
+    }
+  }
+
   const handleAbrirFaturasEmProcessamento = async () => {
     if (!wsId) return
     setCarregandoFaturasProcessamento(true)
     setModalFaturasProcessamentoAberto(true)
     try {
-      const ativas = await faturaImportacaoService.listarSessoesEmProcessamento(wsId)
-      setFaturasEmProcessamento(ativas)
+      const lista = await faturaImportacaoService.listarSessoesEmProcessamento(wsId)
+      setFaturasEmProcessamento(lista)
     } catch (err: any) {
-      toast.error('Erro ao listar faturas em processamento: ' + err.message)
+      toast.error('Erro ao carregar faturas em processamento: ' + err.message)
     } finally {
       setCarregandoFaturasProcessamento(false)
     }
   }
 
-  const handleRetomarSessao = async (sessaoId: string) => {
+  const handleContinuarFaturaEmProcessamento = async (importacaoId: string) => {
     if (!wsId) return
     try {
-      startProcessing('Carregando fatura...')
-      const sessao = await faturaImportacaoService.obterSessao(wsId, sessaoId)
+      startProcessing('Carregando fatura em processamento...')
+      const sessao = await faturaImportacaoService.obterSessao(wsId, importacaoId)
       setSessaoAtual(sessao.importacao)
       setLinhas(sessao.linhas)
-      if (sessao.importacao.cartao_id) {
-        setCartaoSelecionadoId(sessao.importacao.cartao_id)
-      }
-      setSalvouContinuarDepois(false)
+      setCartaoSelecionadoId(sessao.importacao.cartao_id)
+      setOrigemTipoAtual(
+        sessao.importacao.arquivo_nome?.toLowerCase().endsWith('.pdf') ? 'pdf' : 'imagem',
+      )
       setModalFaturasProcessamentoAberto(false)
-      toast.success('Fatura carregada para revisão.')
+      toast.info(`Fatura ${sessao.importacao.arquivo_nome} carregada para revisão.`)
     } catch (err: any) {
-      toast.error('Erro ao retomar fatura: ' + err.message)
+      toast.error('Erro ao carregar sessão: ' + err.message)
     } finally {
       stopProcessing()
     }
   }
 
-  const handleDescartarSessaoDaLista = async (sessaoId: string) => {
+  const handleDescartarFaturaEmProcessamento = async (importacaoId: string) => {
     if (!wsId) return
     try {
-      await faturaImportacaoService.descartarSessao(wsId, sessaoId)
-      setFaturasEmProcessamento((prev) => prev.filter((s) => s.id !== sessaoId))
-      toast.info('Fatura descartada com sucesso.')
+      await faturaImportacaoService.descartarSessao(importacaoId, wsId)
+      setFaturasEmProcessamento((prev) => prev.filter((f) => f.id !== importacaoId))
+      toast.success('Fatura em processamento descartada.')
     } catch (err: any) {
       toast.error('Erro ao descartar: ' + err.message)
     }
   }
 
-  // Filtros avançados por texto, titular e final
-  const [buscaTexto, setBuscaTexto] = useState('')
-  const [filtroTitular, setFiltroTitular] = useState('todos')
-  const [filtroFinal, setFiltroFinal] = useState('todos')
-
-  // Listas únicas de titulares e finais para filtros rápidos
+  // Listas de titulares e finais para filtros
   const listaTitulares = Array.from(
-    new Set(linhas.map((l) => l.titular).filter(Boolean)),
-  ) as string[]
+    new Set(linhas.map((l) => l.titular).filter((t): t is string => !!t)),
+  )
   const listaFinais = Array.from(
-    new Set(linhas.map((l) => l.final_cartao).filter(Boolean)),
-  ) as string[]
+    new Set(linhas.map((l) => l.final_cartao).filter((f): f is string => !!f)),
+  )
 
-  // Linhas filtradas
+  // Filtragem das linhas da fatura
   const linhasFiltradas = linhas.filter((l) => {
-    // Filtro por tipo/status
     let passaTipo = true
     if (filtroAtivo === 'todos') passaTipo = true
-    else if (filtroAtivo === 'compras') passaTipo = l.tipo_linha === 'compra'
-    else if (filtroAtivo === 'parcelados') passaTipo = l.tipo_linha === 'parcelado'
+    else if (filtroAtivo === 'nao_classificados') passaTipo = !l.categoria_id
+    else if (filtroAtivo === 'prontos')
+      passaTipo = l.status === 'pronto' || l.status === 'preenchido_regra'
+    else if (filtroAtivo === 'compras') passaTipo = l.tipo_linha === 'compra_a_vista'
+    else if (filtroAtivo === 'parcelados') passaTipo = l.tipo_linha === 'compra_parcelada'
     else if (filtroAtivo === 'creditos') passaTipo = l.tipo_linha === 'credito'
     else if (filtroAtivo === 'encargos') passaTipo = l.tipo_linha === 'encargo'
-    else if (filtroAtivo === 'prontos')
-      passaTipo = (l.status === 'pronto' || l.status === 'preenchido_regra') && !!l.categoria_id
-    else if (filtroAtivo === 'nao_classificados')
-      passaTipo = !l.categoria_id && l.status !== 'ignorado'
     else if (filtroAtivo === 'revisar')
       passaTipo =
         l.status === 'requer_revisao' || l.status === 'provavel_duplicado' || !l.categoria_id
@@ -607,13 +964,9 @@ export const ImportarFaturaPage: React.FC = () => {
 
     if (!passaTipo) return false
 
-    // Filtro por titular
     if (filtroTitular !== 'todos' && l.titular !== filtroTitular) return false
-
-    // Filtro por final do cartão
     if (filtroFinal !== 'todos' && l.final_cartao !== filtroFinal) return false
 
-    // Filtro por busca de texto (estabelecimento / descrição original)
     if (buscaTexto.trim()) {
       const q = buscaTexto.toLowerCase()
       const matchDesc = (l.descricao_editavel || '').toLowerCase().includes(q)
@@ -625,7 +978,7 @@ export const ImportarFaturaPage: React.FC = () => {
     return true
   })
 
-  // Totais da conferência visual (BLOCO 26)
+  // Totais da conferência visual
   const totalFatura = sessaoAtual?.valor_total_fatura || 0
   const somaComprasEncargos = linhas
     .filter((l) => l.tipo_linha !== 'credito' && l.status !== 'ignorado')
@@ -634,7 +987,7 @@ export const ImportarFaturaPage: React.FC = () => {
     .filter((l) => l.tipo_linha === 'credito' && l.status !== 'ignorado')
     .reduce((acc, l) => acc + l.valor, 0)
   const diferencaConferencia = Math.abs(totalFatura - (somaComprasEncargos - somaCreditos))
-  const conferenciaOk = diferencaConferencia < 0.05
+  const conferenciaOk = totalFatura > 0 ? diferencaConferencia < 0.05 : false
 
   const totalSelecionados = linhas.filter((l) => l.selecionado).length
   const totalProntos = linhas.filter(
@@ -648,11 +1001,10 @@ export const ImportarFaturaPage: React.FC = () => {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2">
             <FileText className="w-6 h-6 text-emerald-600" />
-            Importar Fatura PDF
+            Importar Fatura
           </h1>
           <p className="text-xs text-slate-500 mt-1">
-            Extração, normalização e conciliação de faturas Bradesco, CAIXA e C6 com revisão manual
-            completa.
+            Extração, normalização e conciliação de faturas com revisão manual completa.
           </p>
         </div>
 
@@ -677,7 +1029,32 @@ export const ImportarFaturaPage: React.FC = () => {
         </div>
       </div>
 
-      {/* BLOCO DE UPLOAD (se nenhuma sessão carregada) */}
+      {/* Inputs invisíveis para acionamento nativo */}
+      <input
+        ref={fileInputPdfRef}
+        type="file"
+        accept="application/pdf"
+        onChange={handleSelecionarArquivoPdf}
+        className="hidden"
+      />
+      <input
+        ref={fileInputImagemRef}
+        type="file"
+        accept="image/*"
+        multiple
+        onChange={(e) => e.target.files && adicionarArquivosImagem(e.target.files)}
+        className="hidden"
+      />
+      <input
+        ref={fileInputCameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => e.target.files && adicionarArquivosImagem(e.target.files)}
+        className="hidden"
+      />
+
+      {/* BLOCO DE ENTRADA / UPLOAD (se nenhuma sessão carregada) */}
       {!sessaoAtual ? (
         <Card className="bg-white border border-slate-200 shadow-sm rounded-xl p-6 space-y-6">
           {avisoHashReimportacao && (
@@ -687,96 +1064,342 @@ export const ImportarFaturaPage: React.FC = () => {
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Escolha do Cartão do SAP */}
-            <div className="space-y-2">
-              <Label className="text-slate-700 text-xs font-semibold">
-                1. Selecione o Cartão Cadastrado no SAP *
-              </Label>
-              {erroCargaCartoes ? (
-                <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-2">
-                  <p className="text-xs text-amber-800 flex items-center gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5" /> Não foi possível carregar os cartões.
-                  </p>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={tentarNovamenteCargas}
-                    className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-100"
-                  >
-                    <RefreshCw className="w-3 h-3 mr-1" /> Tentar novamente
-                  </Button>
-                </div>
-              ) : cartoes.length === 0 ? (
-                <div className="border border-slate-200 bg-slate-50 rounded-lg p-3 space-y-2">
-                  <p className="text-xs text-slate-600 flex items-center gap-1.5">
-                    <CreditCard className="w-3.5 h-3.5" /> Nenhum cartão cadastrado — cadastre em
-                    Meus Cartões.
-                  </p>
-                  <Link
-                    to="/cartoes"
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700"
-                  >
-                    Ir para Meus Cartões <ArrowRight className="w-3 h-3" />
-                  </Link>
-                </div>
-              ) : (
-                <Select value={cartaoSelecionadoId} onValueChange={handleSelecionarCartao}>
-                  <SelectTrigger className="bg-white border-slate-200 text-slate-900">
-                    <SelectValue placeholder="Selecione o cartão..." />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border-slate-200 text-slate-900">
-                    {cartoes.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.nome} (fechamento dia {c.dia_fechamento}, vencimento dia{' '}
-                        {c.dia_vencimento})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <p className="text-[11px] text-slate-500">
-                Todos os adicionais, titulares e finais do PDF serão consolidados neste único
-                cartão.
-              </p>
-            </div>
-
-            {/* Seleção do Arquivo PDF */}
-            <div className="space-y-2">
-              <Label className="text-slate-700 text-xs font-semibold">
-                2. Selecione o Arquivo da Fatura (PDF) *
-              </Label>
-              <div className="flex items-center gap-3">
-                <Input
-                  type="file"
-                  accept="application/pdf"
-                  onChange={handleSelecionarArquivo}
-                  className="bg-white border-slate-200 text-slate-900 file:bg-emerald-600 file:text-white file:border-0 file:rounded file:px-2 file:py-1 file:text-xs file:font-medium hover:file:bg-emerald-700 cursor-pointer text-xs"
-                />
+          {/* 1. Seleção do Cartão */}
+          <div className="space-y-2 max-w-xl">
+            <Label className="text-slate-700 text-xs font-semibold">
+              1. Selecione o cartão cadastrado no SAP *
+            </Label>
+            {erroCargaCartoes ? (
+              <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-2">
+                <p className="text-xs text-amber-800 flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" /> Não foi possível carregar os cartões.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={tentarNovamenteCargas}
+                  className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-100"
+                >
+                  <RefreshCw className="w-3 h-3 mr-1" /> Tentar novamente
+                </Button>
               </div>
-              {arquivoSelecionado && (
-                <p className="text-[11px] text-emerald-600 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> {arquivoSelecionado.name} (
-                  {Math.round(arquivoSelecionado.size / 1024)} KB)
+            ) : cartoes.length === 0 ? (
+              <div className="border border-slate-200 bg-slate-50 rounded-lg p-3 space-y-2">
+                <p className="text-xs text-slate-600 flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5" /> Nenhum cartão cadastrado — cadastre em Meus
+                  Cartões.
                 </p>
-              )}
-              {erroCargaCategorias && (
-                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                  As categorias não carregaram ({erroCargaCategorias}). Você pode processar o PDF,
-                  mas a classificação ficará limitada — use “Tentar novamente” no cartão para
-                  recarregar.
-                </p>
-              )}
-            </div>
+                <Link
+                  to="/cartoes"
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700"
+                >
+                  Ir para Meus Cartões <ArrowRight className="w-3 h-3" />
+                </Link>
+              </div>
+            ) : (
+              <Select value={cartaoSelecionadoId} onValueChange={handleSelecionarCartao}>
+                <SelectTrigger className="bg-white border-slate-200 text-slate-900">
+                  <SelectValue placeholder="Selecione o cartão..." />
+                </SelectTrigger>
+                <SelectContent className="bg-white border-slate-200 text-slate-900">
+                  {cartoes.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.nome} (fechamento dia {c.dia_fechamento}, vencimento dia {c.dia_vencimento}
+                      )
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            <p className="text-[11px] text-slate-500">
+              Todos os adicionais, titulares e finais serão consolidados neste único cartão.
+            </p>
           </div>
 
-          <div className="pt-4 border-t border-slate-200 flex flex-wrap justify-between items-center gap-3">
-            {!cartaoSelecionadoId && (
-              <p className="text-xs text-amber-700 flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> Selecione um cartão e um arquivo PDF para
-                habilitar o processamento.
+          {/* 2. Formas de Entrada (Capturar lançamentos) */}
+          <div className="space-y-4 pt-2 border-t border-slate-100">
+            <div>
+              <Label className="text-slate-800 text-sm font-semibold block">
+                2. Como deseja capturar os lançamentos?
+              </Label>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Escolha o método mais prático. Você também pode colar prints com{' '}
+                <kbd className="px-1.5 py-0.5 bg-slate-100 border border-slate-300 rounded text-[11px] font-mono text-slate-700">
+                  Ctrl+V
+                </kbd>{' '}
+                a qualquer momento nesta tela ou arrastar arquivos.
               </p>
+            </div>
+
+            {/* Zona com os 4 botões de entrada */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`p-5 rounded-xl border-2 border-dashed transition-colors ${
+                arrastandoSobre
+                  ? 'border-emerald-500 bg-emerald-50/60'
+                  : 'border-slate-200 bg-slate-50/50 hover:bg-slate-50'
+              }`}
+            >
+              <div className="space-y-4">
+                {/* Método recomendado: [Colar Print] [Abrir Câmera] */}
+                <div className="space-y-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-700 block">
+                    Método recomendado
+                  </span>
+                  <div className="flex flex-wrap gap-2.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        toast.info(
+                          'Pressione Ctrl+V no teclado para colar o print copiado da área de transferência.',
+                        )
+                      }}
+                      className="bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-50 text-xs h-9 gap-2 shadow-sm font-medium"
+                    >
+                      <ClipboardPaste className="w-4 h-4 text-emerald-600" />
+                      Colar Print (Ctrl+V)
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputCameraRef.current?.click()}
+                      className="bg-white border-emerald-300 text-emerald-800 hover:bg-emerald-50 text-xs h-9 gap-2 shadow-sm font-medium"
+                    >
+                      <Camera className="w-4 h-4 text-emerald-600" />
+                      Abrir Câmera
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Outras formas: [Selecionar Imagem] [Importar PDF] */}
+                <div className="space-y-2 pt-2 border-t border-slate-200">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 block">
+                    Outras formas
+                  </span>
+                  <div className="flex flex-wrap gap-2.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputImagemRef.current?.click()}
+                      className="bg-white border-slate-300 text-slate-700 hover:bg-slate-100 text-xs h-9 gap-2"
+                    >
+                      <ImageIcon className="w-4 h-4 text-slate-500" />
+                      Selecionar Imagem
+                    </Button>
+
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputPdfRef.current?.click()}
+                      className="bg-white border-slate-300 text-slate-700 hover:bg-slate-100 text-xs h-9 gap-2"
+                    >
+                      <FileText className="w-4 h-4 text-slate-500" />
+                      Importar PDF
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Visualização de Seleção de PDF */}
+            {metodoEntrada === 'pdf' && arquivoSelecionado && (
+              <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <div>
+                    <span className="font-semibold text-emerald-900 block">
+                      {arquivoSelecionado.name}
+                    </span>
+                    <span className="text-[11px] text-emerald-700">
+                      PDF pronto para leitura ({Math.round(arquivoSelecionado.size / 1024)} KB)
+                    </span>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setArquivoSelecionado(null)
+                    setArquivoBuffer(null)
+                  }}
+                  className="h-7 text-xs text-slate-500 hover:text-red-600"
+                >
+                  Remover
+                </Button>
+              </div>
             )}
+
+            {/* Múltiplas imagens (Lista: Imagem 1..N com visualizar, excluir, reordenar) */}
+            {metodoEntrada === 'imagem' && imagensCapturadas.length > 0 && (
+              <div className="space-y-3 pt-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-800">
+                    Capturas adicionadas ({imagensCapturadas.length}):
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => fileInputImagemRef.current?.click()}
+                      className="h-7 text-xs border-slate-200 text-slate-700 hover:bg-slate-100 gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Adicionar imagem
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => fileInputCameraRef.current?.click()}
+                      className="h-7 text-xs border-slate-200 text-slate-700 hover:bg-slate-100 gap-1"
+                    >
+                      <Camera className="w-3.5 h-3.5" /> Tirar foto
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {imagensCapturadas.map((img, idx) => (
+                    <div
+                      key={img.id}
+                      className="p-2.5 bg-white border border-slate-200 rounded-lg flex items-center justify-between gap-3 text-xs"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <img
+                          src={img.previewUrl}
+                          alt={img.nome}
+                          className="w-10 h-10 object-cover rounded border border-slate-200 shrink-0 cursor-pointer"
+                          onClick={() => setImagemPreviewAberto(img.previewUrl)}
+                          title="Clique para ampliar"
+                        />
+                        <div className="min-w-0">
+                          <span className="font-semibold text-slate-800 block truncate">
+                            Imagem {idx + 1}: {img.nome}
+                          </span>
+                          <span className="text-[11px] text-slate-500">
+                            {Math.round(img.file.size / 1024)} KB
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setImagemPreviewAberto(img.previewUrl)}
+                          className="h-7 w-7 p-0 text-slate-500 hover:text-slate-800"
+                          title="Visualizar"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={idx === 0}
+                          onClick={() => handleMoverImagem(idx, -1)}
+                          className="h-7 w-7 p-0 text-slate-500 hover:text-slate-800 disabled:opacity-30"
+                          title="Mover para cima"
+                        >
+                          <MoveUp className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          disabled={idx === imagensCapturadas.length - 1}
+                          onClick={() => handleMoverImagem(idx, 1)}
+                          className="h-7 w-7 p-0 text-slate-500 hover:text-slate-800 disabled:opacity-30"
+                          title="Mover para baixo"
+                        >
+                          <MoveDown className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleRemoverImagem(img.id)}
+                          className="h-7 w-7 p-0 text-slate-500 hover:text-red-600"
+                          title="Excluir"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-[11px] text-slate-500">
+                  Dica: Para faturas longas, adicione os prints em sequência. Áreas de sobreposição
+                  entre capturas consecutivas serão automaticamente detectadas para evitar
+                  duplicidades.
+                </p>
+              </div>
+            )}
+
+            {/* Modal simples de visualização da imagem ampliada */}
+            {imagemPreviewAberto && (
+              <div
+                className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+                onClick={() => setImagemPreviewAberto(null)}
+              >
+                <div
+                  className="bg-white rounded-xl p-2 max-w-3xl max-h-[85vh] overflow-auto shadow-2xl"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex justify-between items-center p-2 border-b border-slate-100">
+                    <span className="text-xs font-semibold text-slate-800">Visualizar Captura</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setImagemPreviewAberto(null)}
+                      className="h-6 text-xs text-slate-500 hover:text-slate-800"
+                    >
+                      Fechar
+                    </Button>
+                  </div>
+                  <img
+                    src={imagemPreviewAberto}
+                    alt="Preview"
+                    className="max-h-[75vh] w-auto mx-auto object-contain p-2"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Aviso sobre OCR em andamento */}
+            {progressoOcr.ativo && (
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2.5 text-xs text-emerald-800">
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-600 shrink-0" />
+                <span>{progressoOcr.mensagem}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Botões de Ação Final do Upload */}
+          <div className="pt-4 border-t border-slate-200 flex flex-wrap justify-between items-center gap-3">
+            {!cartaoSelecionadoId ? (
+              <p className="text-xs text-amber-700 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" /> Selecione o cartão para habilitar o
+                processamento.
+              </p>
+            ) : metodoEntrada === 'imagem' && imagensCapturadas.length === 0 ? (
+              <p className="text-xs text-slate-500">
+                Cole um print (Ctrl+V), abra a câmera ou selecione uma imagem para processar.
+              </p>
+            ) : metodoEntrada === 'pdf' && !arquivoBuffer ? (
+              <p className="text-xs text-slate-500">
+                Selecione um arquivo PDF para prosseguir com a leitura.
+              </p>
+            ) : (
+              <span />
+            )}
+
             <div className="flex items-center gap-2 ml-auto">
               {processandoLeitura && (
                 <Button
@@ -788,42 +1411,58 @@ export const ImportarFaturaPage: React.FC = () => {
                   Cancelar
                 </Button>
               )}
-              <Button
-                onClick={() => handleIniciarProcessamento()}
-                disabled={!arquivoBuffer || !cartaoSelecionadoId || processandoLeitura}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-6 py-2.5 flex items-center gap-2"
-              >
-                <Upload className="w-4 h-4" />
-                {processandoLeitura ? 'Processando PDF...' : 'Ler e Processar Fatura'}
-              </Button>
+
+              {metodoEntrada === 'imagem' ? (
+                <Button
+                  onClick={handleProcessarImagens}
+                  disabled={
+                    imagensCapturadas.length === 0 || !cartaoSelecionadoId || processandoLeitura
+                  }
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-6 py-2.5 flex items-center gap-2 shadow-sm"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {processandoLeitura
+                    ? 'Reconhecendo lançamentos...'
+                    : `Processar ${imagensCapturadas.length} Imagem(ns)`}
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => handleIniciarProcessamentoPdf()}
+                  disabled={!arquivoBuffer || !cartaoSelecionadoId || processandoLeitura}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-6 py-2.5 flex items-center gap-2 shadow-sm"
+                >
+                  <Upload className="w-4 h-4" />
+                  {processandoLeitura ? 'Processando PDF...' : 'Ler e Processar PDF'}
+                </Button>
+              )}
             </div>
           </div>
         </Card>
       ) : (
-        /* ÁREA DE REVISÃO E CONFERÊNCIA */
+        /* ÁREA DE REVISÃO E CONFERÊNCIA (MESMA tela para Imagem e PDF) */
         <div className="space-y-6">
           {/* Card Resumo do Cabeçalho e Reconciliação Visual */}
           <Card className="bg-white border border-slate-200 shadow-sm rounded-xl p-5 space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
               <div>
                 <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
-                  Fatura Processada
+                  Fatura em Revisão
                 </span>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   {sessaoAtual.emissor_detectado?.toUpperCase()} • {sessaoAtual.arquivo_nome}
                 </h3>
                 <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
                   <span>
-                    Vencimento:{' '}
+                    Origem:{' '}
                     <strong className="text-slate-700">
-                      {sessaoAtual.data_vencimento?.split('-').reverse().join('/') || 'N/D'}
+                      {origemTipoAtual === 'imagem' ? 'Captura por Imagem (OCR)' : 'PDF'}
                     </strong>
                   </span>
                   <span>•</span>
                   <span>
-                    Fechamento:{' '}
+                    Vencimento:{' '}
                     <strong className="text-slate-700">
-                      {sessaoAtual.data_fechamento?.split('-').reverse().join('/') || 'N/D'}
+                      {sessaoAtual.data_vencimento?.split('-').reverse().join('/') || 'N/D'}
                     </strong>
                   </span>
                   <span>•</span>
@@ -835,36 +1474,58 @@ export const ImportarFaturaPage: React.FC = () => {
 
               {/* Box de Conferência da Fatura */}
               <div
-                className={`p-3 rounded-lg border text-xs flex flex-col gap-1 min-w-[240px] ${
-                  conferenciaOk
+                className={`p-3 rounded-lg border text-xs flex flex-col gap-1 min-w-[260px] ${
+                  capturaParcialImagem && totalFatura === 0
+                    ? 'bg-blue-50/70 border-blue-200 text-blue-900'
+                    : conferenciaOk
                     ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
                     : 'bg-amber-50 border-amber-200 text-amber-800'
                 }`}
               >
-                <div className="flex justify-between items-center font-semibold">
-                  <span>Valor Declarado (Fatura):</span>
-                  <span className="font-mono">{formatMoneyBRL(totalFatura)}</span>
-                </div>
-                <div className="flex justify-between items-center text-[11px] text-slate-600">
-                  <span>(+) Compras/Encargos:</span>
-                  <span className="font-mono">{formatMoneyBRL(somaComprasEncargos)}</span>
-                </div>
-                {somaCreditos > 0 && (
-                  <div className="flex justify-between items-center text-[11px] text-slate-600">
-                    <span>(-) Créditos/Estornos:</span>
-                    <span className="font-mono">-{formatMoneyBRL(somaCreditos)}</span>
-                  </div>
+                {capturaParcialImagem && totalFatura === 0 ? (
+                  <>
+                    <div className="font-semibold flex items-center gap-1.5 text-blue-900">
+                      <Info className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      <span>Captura parcial por imagem</span>
+                    </div>
+                    <p className="text-[11px] text-blue-800 leading-tight">
+                      Captura parcial: conferência com o total integral da fatura não disponível.
+                    </p>
+                    <div className="flex justify-between items-center text-[11px] pt-1 border-t border-blue-200">
+                      <span>Somatório capturado:</span>
+                      <span className="font-mono font-semibold">
+                        {formatMoneyBRL(somaComprasEncargos - somaCreditos)}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-between items-center font-semibold">
+                      <span>Valor Declarado (Fatura):</span>
+                      <span className="font-mono">{formatMoneyBRL(totalFatura)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-[11px] text-slate-600">
+                      <span>(+) Compras/Encargos:</span>
+                      <span className="font-mono">{formatMoneyBRL(somaComprasEncargos)}</span>
+                    </div>
+                    {somaCreditos > 0 && (
+                      <div className="flex justify-between items-center text-[11px] text-slate-600">
+                        <span>(-) Créditos/Estornos:</span>
+                        <span className="font-mono">-{formatMoneyBRL(somaCreditos)}</span>
+                      </div>
+                    )}
+                    {totalFatura > 0 && !conferenciaOk && (
+                      <div className="flex justify-between items-center text-[11px] text-amber-700">
+                        <span>Diferença apurada:</span>
+                        <span className="font-mono">{formatMoneyBRL(diferencaConferencia)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between items-center font-bold pt-1 border-t border-slate-200">
+                      <span>Status da Conferência:</span>
+                      <span>{conferenciaOk ? '✓ Conferido' : 'Diferença a revisar'}</span>
+                    </div>
+                  </>
                 )}
-                {totalFatura > 0 && !conferenciaOk && (
-                  <div className="flex justify-between items-center text-[11px] text-amber-700">
-                    <span>Diferença apurada:</span>
-                    <span className="font-mono">{formatMoneyBRL(diferencaConferencia)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between items-center font-bold pt-1 border-t border-slate-200">
-                  <span>Status da Conferência:</span>
-                  <span>{conferenciaOk ? '✓ Conferido' : 'Diferença a revisar'}</span>
-                </div>
               </div>
             </div>
 
@@ -988,8 +1649,13 @@ export const ImportarFaturaPage: React.FC = () => {
             </div>
           </Card>
 
-          {/* C4 — Painel de Homologação / Diagnóstico: Ver texto extraído */}
-          <PainelTextoExtraido extraction={extracaoAtual} parsed={parsedAtual} />
+          {/* C5 — Diagnóstico Unificado: Ver extração & Diagnóstico */}
+          <PainelTextoExtraido
+            extraction={extracaoAtual}
+            parsed={parsedAtual}
+            origemTipo={origemTipoAtual}
+            diagnosticosImagem={diagnosticosImagem}
+          />
 
           {/* Lista de Linhas Temporárias */}
           <div className="space-y-2">
@@ -1040,52 +1706,47 @@ export const ImportarFaturaPage: React.FC = () => {
         </div>
       )}
 
-      {/* Modal de Senha do PDF (BLOCO C) */}
-      <ModalSenhaPdf
-        aberto={modalSenhaAberto}
-        aoFechar={handleCancelarProcessamento}
-        aoConfirmar={(senha) => handleIniciarProcessamento(senha)}
-        carregando={processandoLeitura}
-        erroMensagem={erroSenha}
-      />
-
-      {/* Modal de Edição em Massa */}
+      {/* Modais existentes preservados */}
       <ModalEdicaoEmMassaFatura
         aberto={modalMassaAberto}
-        aoFechar={() => setModalMassaAberto(false)}
         totalSelecionados={totalSelecionados}
         categorias={categorias}
         subcategorias={subcategorias}
+        cartoes={cartoes}
+        aoFechar={() => setModalMassaAberto(false)}
         aoAplicar={handleAplicarEdicaoEmMassa}
       />
 
-      {/* Modal C3: Cartão possui fatura processada */}
+      <ModalSenhaPdf
+        aberto={modalSenhaAberto}
+        erroMensagem={erroSenha}
+        aoConfirmar={(senha) => handleIniciarProcessamentoPdf(senha)}
+        aoFechar={handleCancelarProcessamento}
+      />
+
       <ModalSessaoExistenteCartao
         aberto={modalSessaoCartaoAberto}
-        aoFechar={() => setModalSessaoCartaoAberto(false)}
-        nomeCartao={cartoes.find((c) => c.id === cartaoSelecionadoId)?.nome}
         sessaoExistente={sessaoExistenteCartao}
+        aoFechar={() => setModalSessaoCartaoAberto(false)}
         aoVisualizarExistente={handleVisualizarSessaoExistente}
         aoImportarNova={handleEscolherImportarNova}
       />
 
-      {/* Modal C4: Descarte de fatura processada ao sair sem salvar */}
       <ModalDescarteNavegacao
         aberto={modalDescarteAberto}
-        aoFechar={() => setModalDescarteAberto(false)}
+        onCancelar={() => setModalDescarteAberto(false)}
         aoSalvarEContinuar={handleSalvarEContinuarDepois}
-        aoDescartar={handleConfirmarDescarteSessao}
+        aoDescartar={handleConfirmarDescarteENavegar}
       />
 
-      {/* Modal C5: Visualizar faturas salvas em processamento */}
       <ModalVisualizarFaturasEmProcessamento
         aberto={modalFaturasProcessamentoAberto}
-        aoFechar={() => setModalFaturasProcessamentoAberto(false)}
         faturas={faturasEmProcessamento}
         cartoes={cartoes}
         carregando={carregandoFaturasProcessamento}
-        aoRetomarSessao={handleRetomarSessao}
-        aoDescartarSessao={handleDescartarSessaoDaLista}
+        aoFechar={() => setModalFaturasProcessamentoAberto(false)}
+        aoRetomarSessao={handleContinuarFaturaEmProcessamento}
+        aoDescartarSessao={handleDescartarFaturaEmProcessamento}
       />
     </div>
   )
