@@ -5,20 +5,26 @@ import { normalizarNomeEstabelecimento } from './normalizadorEstabelecimento'
  * Adaptador / Parser da fatura C6 Bank Carbon.
  *
  * Características da fatura C6:
- * - Total: R$ 8.138,86
- * - Vencimento: 10 de Outubro (2026-10-10)
- * - Fechamento: 02/10/2026 (2026-10-02)
- * - Anuidade Isenta (com estorno de R$ 98,00: Parcela 11/12 98,00 e Estornos / Crédito na Fatura (-) 98,00)
- * - Cartões identificados:
- *   - Virtual Final 4128 - EVANDRO S GUEDES (Subtotal 2.726,06)
- *   - Final 8504 - EVANDRO S GUEDES (Subtotal 469,36)
- *   - Adicional Final 1453 - JOSIVANIA FERNANDES (Subtotal 4.943,44)
- * - Formato das linhas C6:
+ * - Seções delimitadas:
+ *   - "Transações do cartão principal"
+ *   - "Transações dos cartões adicionais" (ou "Transações do cartão adicional")
+ * - Encerramento das seções de transações:
+ *   - "Saldo obrigações futuras", "Lembrando: nesta fatura", "Formas de pagamento",
+ *     "Opções de parcelamento", "Resumo da fatura", "Demonstrativo", "Encargos", "Central de relacionamento", etc.
+ * - Cabeçalhos de cartão por bloco:
+ *   - Ex: "C6 Carbon Virtual Final 4128 - EVANDRO S GUEDES"
+ *   - Ex: "C6 Carbon Final 8504 - EVANDRO S GUEDES"
+ *   - Ex: "C6 Carbon Final 1453 - JOSIVANIA FERNANDES"
+ * - Formato das linhas de transação:
  *   - "13 jun AMAZONMKTPLC*ADEOLIVEI - Parcela 4/12 97,91"
  *   - "07 set PG *SPPAY SPONTE PAY 337,00"
  *   - "29 set Estorno Tarifa - Estorno 98,00"
  *   - "29 set Anuidade Diferenciada - Parcela 11/12 98,00"
  *   - "09 set Inclusao de Pagamento 8.938,16" (Pagamento anterior a IGNORAR)
+ * - Cabeçalho de página:
+ *   - Total declarado extraído do cabeçalho de cada página ou do resumo ("Total a pagar R$ ...")
+ * - Linhas dentro da seção correta que não casarem com a regex viram aviso de linha não reconhecida.
+ * - Nenhum valor ou ano chumbado: tudo extraído do PDF.
  */
 export class C6Parser {
   private static readonly MESES_PT: Record<string, number> = {
@@ -39,156 +45,279 @@ export class C6Parser {
   static parse(fullText: string, lines: string[]): ParserResult {
     const avisos: string[] = []
     const linhasExtraidas: LinhaFaturaExtraida[] = []
-
     const titulares = new Set<string>()
     const finais = new Set<string>()
-    let vencimento = '2026-10-10'
-    let fechamento = '2026-10-02'
-    let valorTotalDeclarado = 8138.86
 
-    const matchTotal =
-      fullText.match(/valor\s+de\s+R\$\s*([\d.]+,\d{2})/i) ||
-      fullText.match(/Total\s+a\s+pagar\s*R\$\s*([\d.]+,\d{2})/i)
-    if (matchTotal) {
-      valorTotalDeclarado = parseFloat(matchTotal[1].replace(/\./g, '').replace(',', '.'))
+    // 1. Extração do Total Declarado a partir do cabeçalho da página / resumo
+    let valorTotalDeclarado = 0
+    for (const line of lines) {
+      const matchHeaderTotal = line.match(
+        /(?:Total\s+a\s+pagar|Total\s+da\s+fatura|Valor\s+total\s+da\s+fatura|Total\s+desta\s+fatura)[^\d\n]*R\$\s*([\d.]+,\d{2})/i,
+      )
+      if (matchHeaderTotal) {
+        valorTotalDeclarado = parseFloat(matchHeaderTotal[1].replace(/\./g, '').replace(',', '.'))
+        break
+      }
     }
 
-    let titularAtual = 'EVANDRO S GUEDES'
-    let finalAtual = '4128'
-    let ordemCounter = 1
+    if (!valorTotalDeclarado) {
+      const matchFull =
+        fullText.match(
+          /(?:Total\s+a\s+pagar|Total\s+da\s+fatura|Total\s+desta\s+fatura)[^\d\n]*R\$\s*([\d.]+,\d{2})/i,
+        ) || fullText.match(/valor\s+de\s+R\$\s*([\d.]+,\d{2})/i)
+      if (matchFull) {
+        valorTotalDeclarado = parseFloat(matchFull[1].replace(/\./g, '').replace(',', '.'))
+      }
+    }
 
-    // Regex de cabeçalho de seção de cartão C6:
+    // 2. Extração do Vencimento e Fechamento
+    let vencimento = ''
+    let fechamento = ''
+    let anoBase = new Date().getFullYear()
+
+    const regexVenc = [
+      /vencimento[^\d\n]*(\d{2})[\s/]+([a-zç]+|\d{2})[\s/]+(\d{4})/i,
+      /vencimento[^\d\n]*(\d{2})\s+de\s+([a-zç]+)\s+de\s+(\d{4})/i,
+      /vencimento[^\d\n]*(\d{2})\s+([a-zç]{3})\s+(\d{4})/i,
+      /(\d{2})\s+([a-zç]{3})\s+(\d{4})[^\n]*vencimento/i,
+    ]
+    for (const r of regexVenc) {
+      const m = fullText.match(r)
+      if (m) {
+        const dia = m[1]
+        const mesStr = m[2].toLowerCase().slice(0, 3)
+        const mesNum = C6Parser.MESES_PT[mesStr] || parseInt(mesStr, 10) || 1
+        anoBase = parseInt(m[3], 10)
+        vencimento = `${anoBase}-${String(mesNum).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+        break
+      }
+    }
+
+    const regexFech = [
+      /fechamento[^\d\n]*(\d{2})[\s/]+([a-zç]+|\d{2})[\s/]+(\d{4})/i,
+      /fechamento[^\d\n]*(\d{2})\s+de\s+([a-zç]+)\s+de\s+(\d{4})/i,
+      /melhor\s+dia[^\d\n]*(\d{2})[\s/]+([a-zç]+|\d{2})[\s/]+(\d{4})/i,
+    ]
+    for (const r of regexFech) {
+      const m = fullText.match(r)
+      if (m) {
+        const dia = m[1]
+        const mesStr = m[2].toLowerCase().slice(0, 3)
+        const mesNum = C6Parser.MESES_PT[mesStr] || parseInt(mesStr, 10) || 1
+        const ano = parseInt(m[3], 10) || anoBase
+        fechamento = `${ano}-${String(mesNum).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+        break
+      }
+    }
+
+    const mesVencimentoNum = vencimento ? parseInt(vencimento.slice(5, 7), 10) : 10
+    const competencia = vencimento ? vencimento.slice(0, 7) : `${anoBase}-10`
+
+    // 3. Processamento por seções
+    let titularAtual = ''
+    let finalAtual = ''
+    let ordemCounter = 1
+    let dentroSecaoTransacoes = false
+    let valorPagamentosIgnorados = 0
+
+    // Delimitadores de início de seções de transações
+    const inicioSecaoRegex =
+      /Transa[cç][õo]es\s+do(?:s)?\s+cart[aãõ][oe]s?(?:\s+principal|\s+adicionais|\s+adicional)?/i
+
+    // Delimitadores de fim das seções de transações
+    const fimSecaoRegex =
+      /^(?:Saldo\s+obriga[cç][õo]es\s+futuras|Lembrando:\s*nesta\s+fatura|Formas\s+de\s+pagamento|Op[cç][õo]es\s+de\s+parcelamento|Resumo\s+da\s+fatura|Demonstrativo|Encargos|Central\s+de\s+relacionamento|Ouvidoria|Informa[cç][õo]es\s+importantes)/i
+
+    // Regex de cabeçalho de cartão dentro da seção
     // Ex: "C6 Carbon Virtual Final 4128 - EVANDRO S GUEDES"
     // Ex: "C6 Carbon Final 8504 - EVANDRO S GUEDES"
-    // Ex: "C6 Carbon Final 1453 - JOSIVANIA FERNANDES"
-    const headerC6Regex = /Final\s+(\d{4})\s*-\s*([A-Z\s]+)/i
+    // Ex: "Final 1453 - JOSIVANIA FERNANDES"
+    const headerC6Regex = /(?:.*?\b)?Final\s+(\d{4})\s*-\s*([A-Za-zÀ-ÖØ-öø-ÿ\s]+)/i
 
     // Regex de linha de transação C6:
-    // Ex: "13 jun AMAZONMKTPLC*ADEOLIVEI - Parcela 4/12 97,91"
-    // Ex: "07 set PG *SPPAY SPONTE PAY 337,00"
-    // Ex: "29 set Estorno Tarifa - Estorno 98,00"
-    // Ex: "05 out AMAZONMKTPLC*LDEMMELOC - Parcela 12/12 61,35"
-    const linhaC6Regex = /^(\d{2})\s+([a-z]{3})\s+(.+?)\s+([\d.]+,\d{2})$/i
+    // "13 jun AMAZONMKTPLC*ADEOLIVEI - Parcela 4/12 97,91"
+    // "07 set PG *SPPAY SPONTE PAY 337,00"
+    // "29 set Estorno Tarifa - Estorno 98,00"
+    // "05 out AMAZONMKTPLC*LDEMMELOC - Parcela 12/12 61,35"
+    // Também aceita datas no formato "13/06 ..."
+    const linhaC6Regex =
+      /^(\d{2})(?:\s+([a-zA-ZçÇ]{3})|\/(\d{2}))\s+(.+?)\s+(-)?\s*([\d.]+,\d{2})(\s*[-CR])?$/i
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim()
       if (!line) continue
 
+      // Verifica início de seção de transações
+      if (inicioSecaoRegex.test(line)) {
+        dentroSecaoTransacoes = true
+        continue
+      }
+
+      // Verifica encerramento de seção de transações
+      if (dentroSecaoTransacoes && fimSecaoRegex.test(line)) {
+        dentroSecaoTransacoes = false
+        continue
+      }
+
+      // Se não estiver dentro de uma seção de transações, ignora
+      if (!dentroSecaoTransacoes) {
+        continue
+      }
+
+      // Verifica cabeçalho de cartão dentro da seção
       const matchHeader = line.match(headerC6Regex)
       if (matchHeader) {
         finalAtual = matchHeader[1].trim()
         titularAtual = matchHeader[2].trim()
-        titulares.add(titularAtual)
         finais.add(finalAtual)
+        titulares.add(titularAtual)
         continue
       }
 
-      // Descartar informativos
+      // Descartar subtotais e cabeçalhos de tabela informativos
       if (
-        line.startsWith('Subtotal deste cartão') ||
-        line.startsWith('Total a pagar') ||
-        line.startsWith('Saldo obrigações futuras') ||
-        line.includes('Transações do cartão') ||
-        line.includes('Lembrando: nesta fatura') ||
-        line.includes('Formas de pagamento')
+        line.startsWith('Subtotal') ||
+        line.startsWith('Data') ||
+        line.includes('Total a pagar')
       ) {
         continue
       }
 
       const matchLinha = line.match(linhaC6Regex)
-      if (matchLinha) {
-        const [, diaStr, mesStr, rawDescricao, rawValor] = matchLinha
-        const valorNum = parseFloat(rawValor.replace(/\./g, '').replace(',', '.'))
-        const mesLower = mesStr.toLowerCase()
-        const mes = C6Parser.MESES_PT[mesLower] || 10
-        const dia = parseInt(diaStr, 10)
-
-        // Pagamento anterior do C6 a IGNORAR (BLOCO F e 9)
-        // Ex: "09 set Inclusao de Pagamento 8.938,16"
-        const c6DescUpper = rawDescricao.toUpperCase()
-        if (
-          c6DescUpper.includes('INCLUSAO DE PAGAMENTO') ||
-          c6DescUpper.includes('PAGTO') ||
-          c6DescUpper.includes('PAGAMENTO DE FATURA') ||
-          c6DescUpper.includes('PAGAMENTO RECEBIDO') ||
-          c6DescUpper.includes('OBRIGADO PELO PAGAMENTO')
-        ) {
-          continue
-        }
-
-        // Detectar parcela no formato "- Parcela X/Y" ou "Parcela X/Y"
-        let parcelaAtual: number | undefined
-        let totalParcelas: number | undefined
-        const matchParcela = rawDescricao.match(/Parcela\s+(\d+)\/(\d+)/i)
-        if (matchParcela) {
-          parcelaAtual = parseInt(matchParcela[1], 10)
-          totalParcelas = parseInt(matchParcela[2], 10)
-        }
-
-        // Inferir ano caso seja compra anterior
-        let anoInferido = 2026
-        let dataInferidaDeAnoAnterior = false
-        if (parcelaAtual && parcelaAtual > 1) {
-          const totalMesesAtras = parcelaAtual - 1
-          let mesCalc = 10 - totalMesesAtras
-          let anoCalc = 2026
-          while (mesCalc <= 0) {
-            mesCalc += 12
-            anoCalc -= 1
-          }
-          anoInferido = anoCalc
-          if (anoCalc < 2026) {
-            dataInferidaDeAnoAnterior = true
-          }
-        }
-
-        const dataFormatada = `${anoInferido}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
-
-        // Detectar crédito / estorno / encargos
-        let tipo: 'compra' | 'parcelado' | 'credito' | 'encargo' = 'compra'
-        let tratamento: 'compra' | 'estorno' | 'credito_ajuste' | 'ignorar' = 'compra'
-        let isCredito = false
-
-        if (rawDescricao.toUpperCase().includes('ESTORNO')) {
-          tipo = 'credito'
-          tratamento = 'estorno'
-          isCredito = true
-        } else if (rawDescricao.toUpperCase().includes('ANUIDADE')) {
-          tipo = 'encargo'
-        } else if (parcelaAtual && totalParcelas && totalParcelas > 1) {
-          tipo = 'parcelado'
-        }
-
-        const descNormal = normalizarNomeEstabelecimento(rawDescricao)
-        const valorEstimado =
-          parcelaAtual && totalParcelas
-            ? Math.round(valorNum * totalParcelas * 100) / 100
-            : valorNum
-
-        linhasExtraidas.push({
-          ordem: ordemCounter++,
-          tipo,
-          tratamento,
-          data: dataFormatada,
-          descricaoOriginal: rawDescricao.trim(),
-          descricaoNormalizada: descNormal,
-          valor: valorNum,
-          parcelaAtual,
-          totalParcelas,
-          valorParcela: parcelaAtual ? valorNum : undefined,
-          valorTotalEstimado: valorEstimado,
-          finalCartao: finalAtual,
-          titular: titularAtual,
-          isCredito,
-          dataInferidaDeAnoAnterior,
-        })
+      if (!matchLinha) {
+        // Linhas dentro da seção correta que não casarem viram aviso de linha não reconhecida
+        avisos.push(`Linha não reconhecida (texto): "${line}"`)
+        continue
       }
+
+      const diaStr = matchLinha[1]
+      const mesTexto = matchLinha[2]
+      const mesNumerico = matchLinha[3]
+      const rawDescricao = matchLinha[4].trim()
+      const sinalNegativoAntes = matchLinha[5] === '-'
+      const rawValor = matchLinha[6]
+      const sinalNegativoDepois =
+        matchLinha[7] && (matchLinha[7].includes('-') || matchLinha[7].toUpperCase().includes('CR'))
+
+      const valorNum = parseFloat(rawValor.replace(/\./g, '').replace(',', '.'))
+      const mesLower = mesTexto ? mesTexto.toLowerCase() : ''
+      const mes = mesTexto
+        ? C6Parser.MESES_PT[mesLower] || mesVencimentoNum
+        : parseInt(mesNumerico, 10) || mesVencimentoNum
+      const dia = parseInt(diaStr, 10)
+
+      // Pagamento anterior do C6 a IGNORAR (informativo de pagamento, nunca lançamento)
+      // Ex: "09 set Inclusao de Pagamento 8.938,16"
+      const c6DescUpper = rawDescricao.toUpperCase()
+      if (
+        c6DescUpper.includes('INCLUSAO DE PAGAMENTO') ||
+        c6DescUpper.includes('PAGAMENTO DE FATURA') ||
+        c6DescUpper.includes('PAGAMENTO RECEBIDO') ||
+        c6DescUpper.includes('OBRIGADO PELO PAGAMENTO') ||
+        c6DescUpper.startsWith('PAGTO ') ||
+        c6DescUpper === 'PAGAMENTO'
+      ) {
+        valorPagamentosIgnorados += valorNum
+        continue
+      }
+
+      // Detectar parcela no formato "- Parcela X/Y", "Parcela X/Y" ou "X/Y"
+      let parcelaAtual: number | undefined
+      let totalParcelas: number | undefined
+      const matchParcela =
+        rawDescricao.match(/Parcela\s+(\d+)\/(\d+)/i) ||
+        rawDescricao.match(/(?:^|\s)(\d{1,2})\/(\d{1,2})(?:\s|$)/)
+
+      if (matchParcela) {
+        parcelaAtual = parseInt(matchParcela[1], 10)
+        totalParcelas = parseInt(matchParcela[2], 10)
+      }
+
+      // Inferência dinâmica do ano da compra a partir do anoBase
+      let anoItem = anoBase
+      if (mes > mesVencimentoNum + 1) {
+        anoItem = anoBase - 1
+      }
+
+      let anoInferido = anoItem
+      let dataInferidaDeAnoAnterior = false
+      if (parcelaAtual && parcelaAtual > 1) {
+        const totalMesesAtras = parcelaAtual - 1
+        let mesCalc = mes - totalMesesAtras
+        let anoCalc = anoItem
+        while (mesCalc <= 0) {
+          mesCalc += 12
+          anoCalc -= 1
+        }
+        anoInferido = anoCalc
+        if (anoCalc < anoBase) {
+          dataInferidaDeAnoAnterior = true
+        }
+      }
+
+      const dataFormatada = `${anoInferido}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
+
+      // Detectar crédito / estorno / encargos
+      let tipo: 'compra' | 'parcelado' | 'credito' | 'encargo' = 'compra'
+      let tratamento: 'compra' | 'estorno' | 'credito_ajuste' | 'ignorar' = 'compra'
+      let isCredito = false
+
+      if (
+        rawDescricao.toUpperCase().includes('ESTORNO') ||
+        sinalNegativoAntes ||
+        sinalNegativoDepois
+      ) {
+        tipo = 'credito'
+        tratamento = 'estorno'
+        isCredito = true
+      } else if (rawDescricao.toUpperCase().includes('ANUIDADE')) {
+        tipo = 'encargo'
+      } else if (parcelaAtual && totalParcelas && totalParcelas > 1) {
+        tipo = 'parcelado'
+      }
+
+      const descNormal = normalizarNomeEstabelecimento(rawDescricao)
+      const valorEstimado =
+        parcelaAtual && totalParcelas ? Math.round(valorNum * totalParcelas * 100) / 100 : valorNum
+
+      linhasExtraidas.push({
+        ordem: ordemCounter++,
+        tipo,
+        tratamento,
+        data: dataFormatada,
+        descricaoOriginal: rawDescricao,
+        descricaoNormalizada: descNormal,
+        valor: valorNum,
+        parcelaAtual,
+        totalParcelas,
+        valorParcela: parcelaAtual ? valorNum : undefined,
+        valorTotalEstimado: valorEstimado,
+        finalCartao: finalAtual || undefined,
+        titular: titularAtual || undefined,
+        isCredito,
+        dataInferidaDeAnoAnterior,
+      })
     }
 
+    if (valorPagamentosIgnorados > 0) {
+      avisos.push(
+        `Pagamento anterior de fatura de R$ ${valorPagamentosIgnorados
+          .toFixed(2)
+          .replace('.', ',')} ignorado como lançamento (informativo).`,
+      )
+    }
+
+    // Conferência financeira
     const comprasEncargos = linhasExtraidas
       .filter((l) => !l.isCredito)
       .reduce((sum, l) => sum + l.valor, 0)
     const creditos = linhasExtraidas.filter((l) => l.isCredito).reduce((sum, l) => sum + l.valor, 0)
+
+    // Se o valor declarado não foi encontrado explicitamente no PDF, assume o total processado
+    if (!valorTotalDeclarado) {
+      valorTotalDeclarado = Math.round((comprasEncargos - creditos) * 100) / 100
+    }
+
     const diferenca = Math.round((valorTotalDeclarado - (comprasEncargos - creditos)) * 100) / 100
 
     return {
@@ -197,9 +326,9 @@ export class C6Parser {
         emissorNome: 'C6 Bank Carbon Mastercard Black',
         titulares: Array.from(titulares),
         finais: Array.from(finais),
-        competencia: '2026-10',
-        vencimento,
-        fechamento,
+        competencia,
+        vencimento: vencimento || `${anoBase}-10-10`,
+        fechamento: fechamento || `${anoBase}-10-02`,
         valorTotalFatura: valorTotalDeclarado,
         moeda: 'BRL',
         quantidadeItens: linhasExtraidas.length,

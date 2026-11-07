@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
@@ -66,6 +66,7 @@ export const ImportarFaturaPage: React.FC = () => {
   const [modalSenhaAberto, setModalSenhaAberto] = useState(false)
   const [erroSenha, setErroSenha] = useState<string | null>(null)
   const [processandoLeitura, setProcessandoLeitura] = useState(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   // Sessão de Revisão
   const [sessaoAtual, setSessaoAtual] = useState<FaturaImportacaoRegistro | null>(null)
@@ -149,6 +150,13 @@ export const ImportarFaturaPage: React.FC = () => {
       return
     }
 
+    // Cancela requisição anterior se houver
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    const ac = new AbortController()
+    abortControllerRef.current = ac
+
     setProcessandoLeitura(true)
     startProcessing('Lendo e extraindo transações do PDF...')
     setErroSenha(null)
@@ -171,17 +179,42 @@ export const ImportarFaturaPage: React.FC = () => {
         return
       }
 
-      // 2. Extrair texto com pdf.js (suportando senha e bloqueio)
-      const extraction = await extrairTextoPdf(arquivoBuffer, senhaFornecida)
+      // 2. Extrair texto com pdf.js (suportando senha e bloqueio) com abort signal
+      const extraction = await extrairTextoPdf(arquivoBuffer, senhaFornecida, ac.signal)
 
       // Se precisava de senha e deu certo, fecha o modal
       if (modalSenhaAberto) {
         setModalSenhaAberto(false)
       }
 
-      // 3. Executar o parser pelo emissor
+      // 3. Determinar se o cartão selecionado induz um emissor específico
+      const cartaoAtual = cartoes.find((c) => c.id === cartaoSelecionadoId)
+      let emissorForcadoPorCartao: any = undefined
+      if (cartaoAtual) {
+        const iconeCartao = ((cartaoAtual as any).icone || '').toLowerCase()
+        const nomeCartao = (cartaoAtual.nome || '').toLowerCase()
+        const bandeiraCartao = ((cartaoAtual as any).bandeira || '').toLowerCase()
+
+        if (iconeCartao.includes('c6') || nomeCartao.includes('c6')) {
+          emissorForcadoPorCartao = 'c6'
+        } else if (iconeCartao.includes('bradesco') || nomeCartao.includes('bradesco')) {
+          emissorForcadoPorCartao = 'bradesco'
+        } else if (
+          iconeCartao.includes('caixa') ||
+          nomeCartao.includes('caixa') ||
+          iconeCartao.includes('cef')
+        ) {
+          if (bandeiraCartao.includes('master') || nomeCartao.includes('master')) {
+            emissorForcadoPorCartao = 'caixa_master'
+          } else {
+            emissorForcadoPorCartao = 'caixa_visa'
+          }
+        }
+      }
+
+      // Executar o parser pelo emissor do cartão ou detectado no texto
       const allLines = extraction.pages.flatMap((p) => p.lines)
-      const parsed = executarParserFatura(extraction.fullText, allLines)
+      const parsed = executarParserFatura(extraction.fullText, allLines, emissorForcadoPorCartao)
 
       // 4. Criar sessão e linhas temporárias
       const { importacaoId, linhas: linhasGravadas } =
@@ -208,6 +241,8 @@ export const ImportarFaturaPage: React.FC = () => {
       } else if (err instanceof InvalidPasswordError) {
         setModalSenhaAberto(true)
         setErroSenha('Não foi possível abrir o PDF. Verifique a senha e tente novamente.')
+      } else if (err?.message?.includes('cancelado pelo usuário')) {
+        toast.info('Processamento cancelado.')
       } else {
         toast.error('Erro ao processar PDF: ' + (err?.message || 'Arquivo corrompido'))
       }
@@ -215,6 +250,16 @@ export const ImportarFaturaPage: React.FC = () => {
       stopProcessing()
       setProcessandoLeitura(false)
     }
+  }
+
+  const handleCancelarProcessamento = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+    }
+    stopProcessing()
+    setProcessandoLeitura(false)
+    setModalSenhaAberto(false)
+    setErroSenha(null)
   }
   // Alteração de linha individual
   const handleAlterarLinha = async (
@@ -530,14 +575,26 @@ export const ImportarFaturaPage: React.FC = () => {
                 habilitar o processamento.
               </p>
             )}
-            <Button
-              onClick={() => handleIniciarProcessamento()}
-              disabled={!arquivoBuffer || !cartaoSelecionadoId || processandoLeitura}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-6 py-2.5 flex items-center gap-2 ml-auto"
-            >
-              <Upload className="w-4 h-4" />
-              {processandoLeitura ? 'Processando PDF...' : 'Ler e Processar Fatura'}
-            </Button>
+            <div className="flex items-center gap-2 ml-auto">
+              {processandoLeitura && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleCancelarProcessamento}
+                  className="border-slate-300 text-slate-700 hover:bg-slate-100 text-xs px-4 py-2.5"
+                >
+                  Cancelar
+                </Button>
+              )}
+              <Button
+                onClick={() => handleIniciarProcessamento()}
+                disabled={!arquivoBuffer || !cartaoSelecionadoId || processandoLeitura}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-6 py-2.5 flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                {processandoLeitura ? 'Processando PDF...' : 'Ler e Processar Fatura'}
+              </Button>
+            </div>
           </div>
         </Card>
       ) : (
@@ -784,7 +841,7 @@ export const ImportarFaturaPage: React.FC = () => {
       {/* Modal de Senha do PDF (BLOCO C) */}
       <ModalSenhaPdf
         aberto={modalSenhaAberto}
-        aoFechar={() => setModalSenhaAberto(false)}
+        aoFechar={handleCancelarProcessamento}
         aoConfirmar={(senha) => handleIniciarProcessamento(senha)}
         carregando={processandoLeitura}
         erroMensagem={erroSenha}

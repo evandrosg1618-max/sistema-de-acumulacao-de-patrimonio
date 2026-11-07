@@ -47,6 +47,7 @@ export class InvalidPasswordError extends Error {
 export async function extrairTextoPdf(
   arquivo: ArrayBuffer | Uint8Array,
   senha?: string,
+  signal?: AbortSignal,
 ): Promise<PdfExtractionOutput> {
   const data = arquivo instanceof Uint8Array ? arquivo : new Uint8Array(arquivo)
 
@@ -62,14 +63,48 @@ export async function extrairTextoPdf(
     if (senha) {
       callback(senha)
     } else {
-      // Interrompe sem travar
+      // Interrompe imediatamente sem travar
+      try {
+        loadingTask.destroy()
+      } catch {
+        // noop
+      }
       callback('')
     }
   }
 
+  if (signal) {
+    signal.addEventListener('abort', () => {
+      try {
+        loadingTask.destroy()
+      } catch {
+        // noop
+      }
+    })
+  }
+
   let pdfDoc: pdfjsLib.PDFDocumentProxy
   try {
-    pdfDoc = await loadingTask.promise
+    // Timeout de segurança de 20s para nunca travar em loop infinito
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => {
+        try {
+          loadingTask.destroy()
+        } catch {
+          // noop
+        }
+        reject(new Error('Tempo limite excedido ao ler o arquivo PDF. Tente novamente.'))
+      }, 20000)
+
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          clearTimeout(timer)
+          reject(new Error('Processamento cancelado pelo usuário.'))
+        })
+      }
+    })
+
+    pdfDoc = await Promise.race([loadingTask.promise, timeoutPromise])
   } catch (err: any) {
     if (err?.name === 'PasswordException' || passwordRequired) {
       if (!senha) {

@@ -73,6 +73,10 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
   const [descricaoTemp, setDescricaoTemp] = useState(linha.descricao_editavel || '')
   const [editandoValor, setEditandoValor] = useState(false)
   const [valorTemp, setValorTemp] = useState(String(linha.valor || ''))
+  const [editandoParcelado, setEditandoParcelado] = useState(false)
+  const [totalParcelasTemp, setTotalParcelasTemp] = useState(
+    linha.total_parcelas ? String(linha.total_parcelas) : '',
+  )
 
   const categoriaSelecionada = categorias.find((c) => c.id === linha.categoria_id)
   const subcategoriasFiltradas = subcategorias.filter((s) => s.categoria_id === linha.categoria_id)
@@ -95,6 +99,32 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
       await aoAlterar(linha.id, { valor: novoValor })
     }
     setEditandoValor(false)
+  }
+
+  const salvarParcelas = async (novaQtdStr: string) => {
+    const qtdNum = parseInt(novaQtdStr, 10)
+    if (!isNaN(qtdNum) && qtdNum > 1) {
+      const parcelaAtual = linha.parcela_atual || 1
+      const valorEstimado = Math.round(linha.valor * qtdNum * 100) / 100
+      await aoAlterar(linha.id, {
+        tipo_linha: 'parcelado',
+        parcela_atual: Math.min(parcelaAtual, qtdNum),
+        total_parcelas: qtdNum,
+        valor_parcela: linha.valor,
+        valor_total_estimado: valorEstimado,
+      })
+    } else if (qtdNum === 1 || novaQtdStr.trim() === '') {
+      // Volta para compra à vista
+      await aoAlterar(linha.id, {
+        tipo_linha: 'compra',
+        parcela_atual: null,
+        total_parcelas: null,
+        valor_parcela: null,
+        valor_total_estimado: linha.valor,
+      })
+      setTotalParcelasTemp('')
+    }
+    setEditandoParcelado(false)
   }
 
   const handleModalidade = async (val: string) => {
@@ -220,10 +250,56 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
               {linha.data?.split('-').reverse().join('/')} •{' '}
               {linha.final_cartao ? `•••• ${linha.final_cartao}` : ''}
               {linha.titular && linha.titular.trim() ? ` • ${linha.titular}` : ''}
-              {linha.total_parcelas && linha.total_parcelas > 1
-                ? ` • ${linha.parcela_atual}/${linha.total_parcelas}`
-                : ''}
             </span>
+
+            {/* Opção (Repetir parcelado) pré-preenchida com a quantidade de parcelas da fatura, editável */}
+            {editandoParcelado ? (
+              <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-900 border border-amber-300 rounded px-1.5 py-0.5 text-[11px]">
+                <span>Repetir parcelado:</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="120"
+                  autoFocus
+                  placeholder="ex: 10"
+                  value={totalParcelasTemp}
+                  onChange={(e) => setTotalParcelasTemp(e.target.value)}
+                  onBlur={() => salvarParcelas(totalParcelasTemp)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') salvarParcelas(totalParcelasTemp)
+                    if (e.key === 'Escape') {
+                      setTotalParcelasTemp(linha.total_parcelas ? String(linha.total_parcelas) : '')
+                      setEditandoParcelado(false)
+                    }
+                  }}
+                  className="w-12 border border-slate-300 rounded px-1 text-center bg-white text-slate-900 font-semibold"
+                />
+                <span>x</span>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setTotalParcelasTemp(linha.total_parcelas ? String(linha.total_parcelas) : '')
+                  setEditandoParcelado(true)
+                }}
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border transition-colors ${
+                  linha.total_parcelas && linha.total_parcelas > 1
+                    ? 'bg-amber-50 border-amber-200 text-amber-800 font-medium hover:bg-amber-100'
+                    : 'bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                }`}
+                title="Clique para editar a repetição parcelada"
+              >
+                {linha.total_parcelas && linha.total_parcelas > 1 ? (
+                  <span>
+                    (Repetir parcelado: {linha.parcela_atual || 1}/{linha.total_parcelas}x)
+                  </span>
+                ) : (
+                  <span>+ (Repetir parcelado)</span>
+                )}
+              </button>
+            )}
+
             {(linha.descricao_original || '') !== (linha.descricao_editavel || '') && (
               <span className="text-slate-400 italic truncate max-w-[240px]">
                 original: {linha.descricao_original}
@@ -282,9 +358,15 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
           <div className="flex gap-1.5">
             <Select
               value={linha.categoria_id || ''}
-              onValueChange={(val) =>
-                aoAlterar(linha.id, { categoria_id: val, subcategoria_id: '' })
-              }
+              onValueChange={(val) => {
+                // Ao trocar categoria, limpa subcategoria se não pertencer a ela
+                const subsValidas = subcategorias.filter((s) => s.categoria_id === val)
+                const subAindaValida = subsValidas.some((s) => s.id === linha.subcategoria_id)
+                aoAlterar(linha.id, {
+                  categoria_id: val,
+                  subcategoria_id: subAindaValida ? linha.subcategoria_id : '',
+                })
+              }}
             >
               <SelectTrigger className="bg-white border-slate-200 text-slate-900 h-7 text-[11px] flex-1">
                 <SelectValue placeholder="Categoria..." />
@@ -300,14 +382,24 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
 
             <Select
               value={linha.subcategoria_id || ''}
-              onValueChange={(val) => aoAlterar(linha.id, { subcategoria_id: val })}
-              disabled={!linha.categoria_id}
+              onValueChange={(val) => {
+                // Reativa a subcategoria: escolher a subcategoria marca automaticamente a categoria vinculada
+                const subObj = subcategorias.find((s) => s.id === val)
+                if (subObj) {
+                  aoAlterar(linha.id, {
+                    categoria_id: subObj.categoria_id,
+                    subcategoria_id: val,
+                  })
+                } else {
+                  aoAlterar(linha.id, { subcategoria_id: val })
+                }
+              }}
             >
               <SelectTrigger className="bg-white border-slate-200 text-slate-900 h-7 text-[11px] flex-1">
                 <SelectValue placeholder="Subcat..." />
               </SelectTrigger>
               <SelectContent className="bg-white border-slate-200 text-slate-900">
-                {subcategoriasFiltradas.map((s) => (
+                {(linha.categoria_id ? subcategoriasFiltradas : subcategorias).map((s) => (
                   <SelectItem key={s.id} value={s.id} className="text-[11px]">
                     {s.nome}
                   </SelectItem>
