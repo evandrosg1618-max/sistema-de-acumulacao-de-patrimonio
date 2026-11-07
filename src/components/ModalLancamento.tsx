@@ -1554,8 +1554,10 @@ export function ModalLancamento({
               )}
 
               {/* REQUISITO: Somente SUBCATEGORIA no modal (Categoria oculta e vinculada automaticamente) */}
+              {/* C1: Ocultar completamente Subcategoria quando Tipo = 'transferencia' OU Tipo = 'ajuste' */}
               {/* PDF Seções 5.3 e 6.5: Subcategoria OCULTADA/DESABILITADA para Compra para Terceiros e Empréstimo a Terceiros */}
               {tipo !== 'transferencia' &&
+                tipo !== 'ajuste' &&
                 (tipo !== 'despesa' ||
                   (modalidadeSaida !== 'compra_terceiros' &&
                     modalidadeSaida !== 'emprestimo_terceiros')) && (
@@ -1574,11 +1576,7 @@ export function ModalLancamento({
                       )}
                     </div>
 
-                    <Select
-                      value={subcategoriaId}
-                      onValueChange={handleSelecionarSubcategoria}
-                      required
-                    >
+                    <Select value={subcategoriaId} onValueChange={handleSelecionarSubcategoria}>
                       <SelectTrigger
                         id="lan-subcat"
                         className="mt-1 text-xs bg-white text-slate-900 border-slate-300 font-medium"

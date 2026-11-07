@@ -420,8 +420,8 @@ export default function CategoriasPage() {
       {/* Seção Exclusiva da Aba Ajustes (Somente Leitura) */}
       {filtroTipo === 'ajustes' ? (
         <div className="space-y-4">
-          <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-4 text-xs text-indigo-900 leading-relaxed">
-            <div className="font-semibold flex items-center gap-2 text-sm text-indigo-950 mb-1">
+          <div className="bg-indigo-50/70 border border-indigo-200/80 rounded-xl p-4 text-xs text-indigo-900 leading-relaxed space-y-2">
+            <div className="font-semibold flex items-center gap-2 text-sm text-indigo-950">
               <Scale className="w-4 h-4 text-indigo-700" />
               Tipos de Lançamento de Ajuste (Invariantes Contábeis do Sistema)
             </div>
@@ -430,6 +430,10 @@ export default function CategoriasPage() {
               cartão de crédito (sem movimentar saldo bancário) e possuem regras fixas invioláveis
               para garantir a integridade do Resultado e do Orçamento. Esta lista é puramente
               informativa (somente leitura).
+            </p>
+            <p className="font-medium text-indigo-950 bg-white/70 border border-indigo-100 rounded-lg p-2.5">
+              Tipos de Ajuste: configurações estruturais do sistema. Não são
+              Categorias/Subcategorias e não exigem classificação analítica.
             </p>
           </div>
 
