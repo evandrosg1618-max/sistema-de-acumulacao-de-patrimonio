@@ -74,9 +74,9 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
 
   return (
     <Dialog open={aberto} onOpenChange={(open) => !open && aoFechar()}>
-      <DialogContent className="sm:max-w-lg bg-slate-900 border-slate-700 text-slate-100">
+      <DialogContent className="sm:max-w-lg bg-white border-slate-200 text-slate-900">
         <DialogHeader>
-          <DialogTitle className="text-base font-bold text-slate-100">
+          <DialogTitle className="text-base font-bold text-slate-900">
             Edição em Massa ({totalSelecionados} itens selecionados)
           </DialogTitle>
         </DialogHeader>
@@ -84,7 +84,7 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
         <div className="space-y-4 py-2 text-xs">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-slate-300">Categoria</Label>
+              <Label className="text-slate-600">Categoria</Label>
               <Select
                 value={categoriaId}
                 onValueChange={(val) => {
@@ -92,10 +92,10 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
                   setSubcategoriaId('')
                 }}
               >
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200">
+                <SelectTrigger className="bg-white border-slate-200 text-slate-900">
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
+                <SelectContent className="bg-white border-slate-200 text-slate-900">
                   {categorias.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.nome}
@@ -106,16 +106,16 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-slate-300">Subcategoria</Label>
+              <Label className="text-slate-600">Subcategoria</Label>
               <Select
                 value={subcategoriaId}
                 onValueChange={setSubcategoriaId}
                 disabled={!categoriaId}
               >
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200">
+                <SelectTrigger className="bg-white border-slate-200 text-slate-900">
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
+                <SelectContent className="bg-white border-slate-200 text-slate-900">
                   {subcategoriasFiltradas.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
                       {s.nome}
@@ -127,12 +127,12 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-slate-300">Modalidade de Saída</Label>
+            <Label className="text-slate-600">Modalidade de Saída</Label>
             <Select value={modalidade} onValueChange={setModalidade}>
-              <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200">
+              <SelectTrigger className="bg-white border-slate-200 text-slate-900">
                 <SelectValue placeholder="Manter atual ou selecionar..." />
               </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
+              <SelectContent className="bg-white border-slate-200 text-slate-900">
                 <SelectItem value="manter">Manter atual</SelectItem>
                 <SelectItem value="compra_propria">Compra Própria (100% próprio)</SelectItem>
                 <SelectItem value="compra_compartilhada">Compra Compartilhada</SelectItem>
@@ -142,12 +142,12 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-slate-300">Afeta Resultado?</Label>
+              <Label className="text-slate-600">Afeta Resultado?</Label>
               <Select value={afetaResultado} onValueChange={setAfetaResultado}>
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200">
+                <SelectTrigger className="bg-white border-slate-200 text-slate-900">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
+                <SelectContent className="bg-white border-slate-200 text-slate-900">
                   <SelectItem value="manter">Manter atual</SelectItem>
                   <SelectItem value="sim">Sim</SelectItem>
                   <SelectItem value="nao">Não</SelectItem>
@@ -156,12 +156,12 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
             </div>
 
             <div className="space-y-1.5">
-              <Label className="text-slate-300">Afeta Orçamento?</Label>
+              <Label className="text-slate-600">Afeta Orçamento?</Label>
               <Select value={afetaOrcamento} onValueChange={setAfetaOrcamento}>
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200">
+                <SelectTrigger className="bg-white border-slate-200 text-slate-900">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
+                <SelectContent className="bg-white border-slate-200 text-slate-900">
                   <SelectItem value="manter">Manter atual</SelectItem>
                   <SelectItem value="sim">Sim</SelectItem>
                   <SelectItem value="nao">Não</SelectItem>
@@ -170,13 +170,13 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
             </div>
           </div>
 
-          <div className="space-y-1.5 pt-2 border-t border-slate-800">
-            <Label className="text-slate-300">Ação Rápida</Label>
+          <div className="space-y-1.5 pt-2 border-t border-slate-200">
+            <Label className="text-slate-600">Ação Rápida</Label>
             <Select value={acaoEspecial} onValueChange={setAcaoEspecial}>
-              <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200">
+              <SelectTrigger className="bg-white border-slate-200 text-slate-900">
                 <SelectValue placeholder="Nenhuma ação especial..." />
               </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
+              <SelectContent className="bg-white border-slate-200 text-slate-900">
                 <SelectItem value="nenhuma">Nenhuma</SelectItem>
                 <SelectItem value="ignorar">Marcar itens como Ignorados</SelectItem>
               </SelectContent>
@@ -189,7 +189,7 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
             type="button"
             variant="outline"
             onClick={aoFechar}
-            className="border-slate-700 text-slate-300"
+            className="border-slate-200 text-slate-700 hover:bg-slate-100"
           >
             Cancelar
           </Button>
@@ -197,7 +197,7 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
             type="button"
             onClick={handleSalvar}
             disabled={salvando}
-            className="bg-teal-600 hover:bg-teal-500 text-white"
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
           >
             {salvando ? 'Aplicando...' : 'Aplicar a Todos'}
           </Button>

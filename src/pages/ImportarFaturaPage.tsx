@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
 import { cartaoService, categoriaService } from '@/services/sap'
@@ -22,6 +22,7 @@ import { LinhaRevisaoFaturaItem } from '@/components/LinhaRevisaoFaturaItem'
 import { Cartao, Categoria, Subcategoria } from '@/types/sap'
 import { formatMoneyBRL } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -41,6 +42,8 @@ import {
   Square,
   Layers,
   Sparkles,
+  RefreshCw,
+  CreditCard,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -54,6 +57,8 @@ export const ImportarFaturaPage: React.FC = () => {
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
   const [cartaoSelecionadoId, setCartaoSelecionadoId] = useState<string>('')
+  const [erroCargaCartoes, setErroCargaCartoes] = useState<string | null>(null)
+  const [erroCargaCategorias, setErroCargaCategorias] = useState<string | null>(null)
 
   // Upload & Leitura
   const [arquivoSelecionado, setArquivoSelecionado] = useState<File | null>(null)
@@ -69,32 +74,54 @@ export const ImportarFaturaPage: React.FC = () => {
   const [modalMassaAberto, setModalMassaAberto] = useState(false)
   const [importandoFinal, setImportandoFinal] = useState(false)
 
-  const wsId = currentWorkspace?.id
+  // CORREÇÃO 1 (causa raiz): currentWorkspace é a membership — o id do workspace real
+  // está em workspace_id (mesmo padrão usado por Cartões/Lançamentos).
+  const wsId = currentWorkspace?.workspace_id
 
-  // Carrega cartões e categorias do workspace
+  // Carrega cartões e categorias do workspace em chamadas INDEPENDENTES:
+  // uma falha em categorias não pode zerar a lista de cartões.
+  const carregarCartoes = async (idWs: string) => {
+    setErroCargaCartoes(null)
+    try {
+      const cList = await cartaoService.list(idWs)
+      const cartoesAtivos = cList.filter((c: any) => !c.arquivado && !c.deleted_at)
+      setCartoes(cartoesAtivos)
+      if (cartoesAtivos.length > 0) {
+        setCartaoSelecionadoId((atual) =>
+          cartoesAtivos.some((c: Cartao) => c.id === atual) ? atual : cartoesAtivos[0].id,
+        )
+      }
+    } catch (err: any) {
+      setCartoes([])
+      setErroCargaCartoes(err?.message || 'Falha ao carregar os cartões.')
+    }
+  }
+
+  const carregarCategorias = async (idWs: string) => {
+    setErroCargaCategorias(null)
+    try {
+      const catsComSubs = await categoriaService.listComSubcategorias(idWs, false)
+      const catsDespesa = catsComSubs.filter((c: any) => c.tipo === 'despesa')
+      setCategorias(catsDespesa)
+      setSubcategorias(catsDespesa.flatMap((c: any) => c.subcategorias || []))
+    } catch (err: any) {
+      setCategorias([])
+      setSubcategorias([])
+      setErroCargaCategorias(err?.message || 'Falha ao carregar as categorias.')
+    }
+  }
+
   useEffect(() => {
     if (!wsId) return
-    const carregarDados = async () => {
-      try {
-        const [cList, catsComSubs] = await Promise.all([
-          cartaoService.list(wsId),
-          categoriaService.listComSubcategorias(wsId, false),
-        ])
-        const cartoesAtivos = cList.filter((c: any) => !c.arquivado && !c.deleted_at)
-        setCartoes(cartoesAtivos)
-        if (cartoesAtivos.length > 0 && !cartaoSelecionadoId) {
-          setCartaoSelecionadoId(cartoesAtivos[0].id)
-        }
-        const catsDespesa = catsComSubs.filter((c: any) => c.tipo === 'despesa')
-        setCategorias(catsDespesa)
-        const todasSubs: Subcategoria[] = catsDespesa.flatMap((c: any) => c.subcategorias || [])
-        setSubcategorias(todasSubs)
-      } catch (err: any) {
-        toast.error('Erro ao carregar cartões e categorias: ' + err.message)
-      }
-    }
-    carregarDados()
+    carregarCartoes(wsId)
+    carregarCategorias(wsId)
   }, [wsId])
+
+  const tentarNovamenteCargas = () => {
+    if (!wsId) return
+    carregarCartoes(wsId)
+    carregarCategorias(wsId)
+  }
 
   // Trata seleção de arquivo
   const handleSelecionarArquivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -114,7 +141,11 @@ export const ImportarFaturaPage: React.FC = () => {
   // Inicia processamento do PDF
   const handleIniciarProcessamento = async (senhaFornecida?: string) => {
     if (!arquivoBuffer || !arquivoSelecionado || !wsId || !cartaoSelecionadoId) {
-      toast.error('Selecione um cartão e um arquivo PDF antes de continuar.')
+      toast.error(
+        !wsId || !cartaoSelecionadoId
+          ? 'Selecione um cartão cadastrado antes de continuar.'
+          : 'Selecione um arquivo PDF antes de continuar.',
+      )
       return
     }
 
@@ -383,15 +414,15 @@ export const ImportarFaturaPage: React.FC = () => {
   ).length
 
   return (
-    <div className="space-y-6 pb-12 max-w-6xl mx-auto px-4">
+    <div className="space-y-6 pb-12 max-w-6xl mx-auto px-4 text-slate-900">
       {/* Cabeçalho */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-100 flex items-center gap-2">
-            <FileText className="w-6 h-6 text-teal-400" />
+          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 flex items-center gap-2">
+            <FileText className="w-6 h-6 text-emerald-600" />
             Importar Fatura PDF
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-xs text-slate-500 mt-1">
             Extração, normalização e conciliação de faturas Bradesco, CAIXA e C6 com revisão manual
             completa.
           </p>
@@ -400,7 +431,7 @@ export const ImportarFaturaPage: React.FC = () => {
         <Button
           variant="outline"
           onClick={() => navigate('/cartoes')}
-          className="border-slate-700 text-slate-300 text-xs self-start sm:self-auto"
+          className="border-slate-200 text-slate-700 hover:bg-slate-100 text-xs self-start sm:self-auto"
         >
           Voltar para Cartões
         </Button>
@@ -408,27 +439,56 @@ export const ImportarFaturaPage: React.FC = () => {
 
       {/* BLOCO DE UPLOAD (se nenhuma sessão carregada) */}
       {!sessaoAtual ? (
-        <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-6 space-y-6">
+        <Card className="bg-white border border-slate-200 shadow-sm rounded-xl p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Escolha do Cartão do SAP */}
             <div className="space-y-2">
-              <Label className="text-slate-200 text-xs font-semibold">
+              <Label className="text-slate-700 text-xs font-semibold">
                 1. Selecione o Cartão Cadastrado no SAP *
               </Label>
-              <Select value={cartaoSelecionadoId} onValueChange={setCartaoSelecionadoId}>
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-100">
-                  <SelectValue placeholder="Selecione o cartão..." />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 text-slate-100">
-                  {cartoes.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome} (fechamento dia {c.dia_fechamento}, vencimento dia {c.dia_vencimento}
-                      )
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-slate-400">
+              {erroCargaCartoes ? (
+                <div className="border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-2">
+                  <p className="text-xs text-amber-800 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5" /> Não foi possível carregar os cartões.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={tentarNovamenteCargas}
+                    className="h-7 text-xs border-amber-300 text-amber-800 hover:bg-amber-100"
+                  >
+                    <RefreshCw className="w-3 h-3 mr-1" /> Tentar novamente
+                  </Button>
+                </div>
+              ) : cartoes.length === 0 ? (
+                <div className="border border-slate-200 bg-slate-50 rounded-lg p-3 space-y-2">
+                  <p className="text-xs text-slate-600 flex items-center gap-1.5">
+                    <CreditCard className="w-3.5 h-3.5" /> Nenhum cartão cadastrado — cadastre em
+                    Meus Cartões.
+                  </p>
+                  <Link
+                    to="/cartoes"
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700"
+                  >
+                    Ir para Meus Cartões <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </div>
+              ) : (
+                <Select value={cartaoSelecionadoId} onValueChange={setCartaoSelecionadoId}>
+                  <SelectTrigger className="bg-white border-slate-200 text-slate-900">
+                    <SelectValue placeholder="Selecione o cartão..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white border-slate-200 text-slate-900">
+                    {cartoes.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.nome} (fechamento dia {c.dia_fechamento}, vencimento dia{' '}
+                        {c.dia_vencimento})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <p className="text-[11px] text-slate-500">
                 Todos os adicionais, titulares e finais do PDF serão consolidados neste único
                 cartão.
               </p>
@@ -436,7 +496,7 @@ export const ImportarFaturaPage: React.FC = () => {
 
             {/* Seleção do Arquivo PDF */}
             <div className="space-y-2">
-              <Label className="text-slate-200 text-xs font-semibold">
+              <Label className="text-slate-700 text-xs font-semibold">
                 2. Selecione o Arquivo da Fatura (PDF) *
               </Label>
               <div className="flex items-center gap-3">
@@ -444,59 +504,72 @@ export const ImportarFaturaPage: React.FC = () => {
                   type="file"
                   accept="application/pdf"
                   onChange={handleSelecionarArquivo}
-                  className="bg-slate-800 border-slate-700 text-slate-200 file:bg-teal-600 file:text-white file:border-0 file:rounded file:px-2 file:py-1 file:text-xs file:font-medium hover:file:bg-teal-500 cursor-pointer text-xs"
+                  className="bg-white border-slate-200 text-slate-900 file:bg-emerald-600 file:text-white file:border-0 file:rounded file:px-2 file:py-1 file:text-xs file:font-medium hover:file:bg-emerald-700 cursor-pointer text-xs"
                 />
               </div>
               {arquivoSelecionado && (
-                <p className="text-[11px] text-teal-400 flex items-center gap-1">
+                <p className="text-[11px] text-emerald-600 flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5" /> {arquivoSelecionado.name} (
                   {Math.round(arquivoSelecionado.size / 1024)} KB)
+                </p>
+              )}
+              {erroCargaCategorias && (
+                <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                  As categorias não carregaram ({erroCargaCategorias}). Você pode processar o PDF,
+                  mas a classificação ficará limitada — use “Tentar novamente” no cartão para
+                  recarregar.
                 </p>
               )}
             </div>
           </div>
 
-          <div className="pt-4 border-t border-slate-800 flex justify-end">
+          <div className="pt-4 border-t border-slate-200 flex flex-wrap justify-between items-center gap-3">
+            {!cartaoSelecionadoId && (
+              <p className="text-xs text-amber-700 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5" /> Selecione um cartão e um arquivo PDF para
+                habilitar o processamento.
+              </p>
+            )}
             <Button
               onClick={() => handleIniciarProcessamento()}
               disabled={!arquivoBuffer || !cartaoSelecionadoId || processandoLeitura}
-              className="bg-teal-600 hover:bg-teal-500 text-white font-semibold text-xs px-6 py-2.5 flex items-center gap-2"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-6 py-2.5 flex items-center gap-2 ml-auto"
             >
               <Upload className="w-4 h-4" />
               {processandoLeitura ? 'Processando PDF...' : 'Ler e Processar Fatura'}
             </Button>
           </div>
-        </div>
+        </Card>
       ) : (
         /* ÁREA DE REVISÃO E CONFERÊNCIA */
         <div className="space-y-6">
           {/* Card Resumo do Cabeçalho e Reconciliação Visual */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+          <Card className="bg-white border border-slate-200 shadow-sm rounded-xl p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-4">
               <div>
-                <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
                   Fatura Processada
                 </span>
-                <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   {sessaoAtual.emissor_detectado?.toUpperCase()} • {sessaoAtual.arquivo_nome}
                 </h3>
-                <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                <div className="flex items-center gap-3 text-xs text-slate-500 mt-1">
                   <span>
                     Vencimento:{' '}
-                    <strong className="text-slate-300">
+                    <strong className="text-slate-700">
                       {sessaoAtual.data_vencimento?.split('-').reverse().join('/') || 'N/D'}
                     </strong>
                   </span>
                   <span>•</span>
                   <span>
                     Fechamento:{' '}
-                    <strong className="text-slate-300">
+                    <strong className="text-slate-700">
                       {sessaoAtual.data_fechamento?.split('-').reverse().join('/') || 'N/D'}
                     </strong>
                   </span>
                   <span>•</span>
                   <span>
-                    Itens: <strong className="text-slate-300">{linhas.length}</strong>
+                    Itens: <strong className="text-slate-700">{linhas.length}</strong>
                   </span>
                 </div>
               </div>
@@ -505,31 +578,31 @@ export const ImportarFaturaPage: React.FC = () => {
               <div
                 className={`p-3 rounded-lg border text-xs flex flex-col gap-1 min-w-[240px] ${
                   conferenciaOk
-                    ? 'bg-teal-950/40 border-teal-800/60 text-teal-200'
-                    : 'bg-amber-950/40 border-amber-800/60 text-amber-200'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-amber-50 border-amber-200 text-amber-800'
                 }`}
               >
                 <div className="flex justify-between items-center font-semibold">
                   <span>Valor Declarado (Fatura):</span>
                   <span className="font-mono">{formatMoneyBRL(totalFatura)}</span>
                 </div>
-                <div className="flex justify-between items-center text-[11px] text-slate-300">
+                <div className="flex justify-between items-center text-[11px] text-slate-600">
                   <span>(+) Compras/Encargos:</span>
                   <span className="font-mono">{formatMoneyBRL(somaComprasEncargos)}</span>
                 </div>
                 {somaCreditos > 0 && (
-                  <div className="flex justify-between items-center text-[11px] text-slate-300">
+                  <div className="flex justify-between items-center text-[11px] text-slate-600">
                     <span>(-) Créditos/Estornos:</span>
                     <span className="font-mono">-{formatMoneyBRL(somaCreditos)}</span>
                   </div>
                 )}
                 {totalFatura > 0 && !conferenciaOk && (
-                  <div className="flex justify-between items-center text-[11px] text-amber-300">
+                  <div className="flex justify-between items-center text-[11px] text-amber-700">
                     <span>Diferença apurada:</span>
                     <span className="font-mono">{formatMoneyBRL(diferencaConferencia)}</span>
                   </div>
                 )}
-                <div className="flex justify-between items-center font-bold pt-1 border-t border-slate-700/60">
+                <div className="flex justify-between items-center font-bold pt-1 border-t border-slate-200">
                   <span>Status da Conferência:</span>
                   <span>{conferenciaOk ? '✓ Conferido' : 'Diferença a revisar'}</span>
                 </div>
@@ -558,8 +631,8 @@ export const ImportarFaturaPage: React.FC = () => {
                       onClick={() => setFiltroAtivo(f.id)}
                       className={`px-2.5 py-1 rounded text-xs transition-colors ${
                         filtroAtivo === f.id
-                          ? 'bg-teal-600 text-white font-semibold'
-                          : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                          ? 'bg-emerald-600 text-white font-semibold'
+                          : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                       }`}
                     >
                       {f.label}
@@ -572,7 +645,7 @@ export const ImportarFaturaPage: React.FC = () => {
                     size="sm"
                     variant="outline"
                     onClick={() => handleSelecionarTodosVisiveis(true)}
-                    className="border-slate-700 text-slate-300 text-xs h-8"
+                    className="border-slate-200 text-slate-700 hover:bg-slate-100 text-xs h-8"
                   >
                     <CheckSquare className="w-3.5 h-3.5 mr-1" /> Marcar Visíveis
                   </Button>
@@ -580,7 +653,7 @@ export const ImportarFaturaPage: React.FC = () => {
                     size="sm"
                     variant="outline"
                     onClick={() => handleSelecionarTodosVisiveis(false)}
-                    className="border-slate-700 text-slate-300 text-xs h-8"
+                    className="border-slate-200 text-slate-700 hover:bg-slate-100 text-xs h-8"
                   >
                     <Square className="w-3.5 h-3.5 mr-1" /> Desmarcar
                   </Button>
@@ -588,7 +661,7 @@ export const ImportarFaturaPage: React.FC = () => {
                     size="sm"
                     variant="outline"
                     onClick={handleConfirmarTodasCompraPropria}
-                    className="border-slate-700 text-slate-300 text-xs h-8"
+                    className="border-slate-200 text-slate-700 hover:bg-slate-100 text-xs h-8"
                     title="Define Modalidade como Compra Própria 100% para os itens visíveis"
                   >
                     Definir Compra Própria
@@ -597,33 +670,33 @@ export const ImportarFaturaPage: React.FC = () => {
                     size="sm"
                     onClick={() => setModalMassaAberto(true)}
                     disabled={totalSelecionados === 0}
-                    className="bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs h-8"
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200 text-xs h-8"
                   >
-                    <Sparkles className="w-3.5 h-3.5 mr-1 text-teal-400" /> Edição em Massa (
+                    <Sparkles className="w-3.5 h-3.5 mr-1 text-emerald-600" /> Edição em Massa (
                     {totalSelecionados})
                   </Button>
                 </div>
               </div>
 
               {/* Filtros secundários: Busca, Titular e Final */}
-              <div className="flex flex-wrap items-center gap-3 p-2.5 bg-slate-800/40 border border-slate-800 rounded-lg text-xs">
+              <div className="flex flex-wrap items-center gap-3 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
                 <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
                   <Filter className="w-3.5 h-3.5 text-slate-400" />
                   <Input
                     placeholder="Filtrar por estabelecimento ou descrição..."
                     value={buscaTexto}
                     onChange={(e) => setBuscaTexto(e.target.value)}
-                    className="bg-slate-800 border-slate-700 text-slate-200 h-7 text-xs"
+                    className="bg-white border-slate-200 text-slate-900 h-7 text-xs"
                   />
                 </div>
 
                 {listaTitulares.length > 1 && (
                   <div className="flex items-center gap-1.5">
-                    <span className="text-slate-400 text-[11px]">Titular:</span>
+                    <span className="text-slate-500 text-[11px]">Titular:</span>
                     <select
                       value={filtroTitular}
                       onChange={(e) => setFiltroTitular(e.target.value)}
-                      className="bg-slate-800 border border-slate-700 text-slate-200 rounded px-2 py-1 text-xs"
+                      className="bg-white border border-slate-200 text-slate-900 rounded px-2 py-1 text-xs"
                     >
                       <option value="todos">Todos ({listaTitulares.length})</option>
                       {listaTitulares.map((t) => (
@@ -637,11 +710,11 @@ export const ImportarFaturaPage: React.FC = () => {
 
                 {listaFinais.length > 1 && (
                   <div className="flex items-center gap-1.5">
-                    <span className="text-slate-400 text-[11px]">Final:</span>
+                    <span className="text-slate-500 text-[11px]">Final:</span>
                     <select
                       value={filtroFinal}
                       onChange={(e) => setFiltroFinal(e.target.value)}
-                      className="bg-slate-800 border border-slate-700 text-slate-200 rounded px-2 py-1 text-xs"
+                      className="bg-white border border-slate-200 text-slate-900 rounded px-2 py-1 text-xs"
                     >
                       <option value="todos">Todos ({listaFinais.length})</option>
                       {listaFinais.map((f) => (
@@ -654,12 +727,12 @@ export const ImportarFaturaPage: React.FC = () => {
                 )}
               </div>
             </div>
-          </div>
+          </Card>
 
           {/* Lista de Linhas Temporárias */}
           <div className="space-y-2">
             {linhasFiltradas.length === 0 ? (
-              <div className="text-center py-12 bg-slate-900/40 border border-slate-800 rounded-xl text-slate-400 text-xs">
+              <div className="text-center py-12 bg-white border border-slate-200 rounded-xl text-slate-500 text-xs">
                 Nenhuma linha encontrada para este filtro.
               </div>
             ) : (
@@ -677,10 +750,10 @@ export const ImportarFaturaPage: React.FC = () => {
           </div>
 
           {/* Rodapé Fixo de Ação */}
-          <div className="sticky bottom-4 bg-slate-900/95 backdrop-blur border border-slate-700 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4 shadow-2xl">
-            <div className="text-xs text-slate-300">
-              <strong className="text-slate-100">{totalSelecionados}</strong> selecionados para
-              importação (<strong className="text-teal-400">{totalProntos}</strong> prontos).
+          <div className="sticky bottom-4 bg-white/95 backdrop-blur border border-slate-200 p-4 rounded-xl flex flex-wrap items-center justify-between gap-4 shadow-lg">
+            <div className="text-xs text-slate-600">
+              <strong className="text-slate-900">{totalSelecionados}</strong> selecionados para
+              importação (<strong className="text-emerald-600">{totalProntos}</strong> prontos).
             </div>
 
             <div className="flex items-center gap-3">
@@ -690,7 +763,7 @@ export const ImportarFaturaPage: React.FC = () => {
                   toast.info('Sessão salva. Você pode continuar a revisão a qualquer momento.')
                   navigate('/cartoes')
                 }}
-                className="border-slate-700 text-slate-300 text-xs"
+                className="border-slate-200 text-slate-700 hover:bg-slate-100 text-xs"
               >
                 Salvar e Continuar Depois
               </Button>
@@ -698,7 +771,7 @@ export const ImportarFaturaPage: React.FC = () => {
               <Button
                 onClick={handleImportarConfirmados}
                 disabled={totalSelecionados === 0 || importandoFinal}
-                className="bg-teal-600 hover:bg-teal-500 text-white font-semibold text-xs px-6 py-2.5 flex items-center gap-2"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs px-6 py-2.5 flex items-center gap-2"
               >
                 <span>Importar Selecionados ({totalSelecionados})</span>
                 <ArrowRight className="w-4 h-4" />

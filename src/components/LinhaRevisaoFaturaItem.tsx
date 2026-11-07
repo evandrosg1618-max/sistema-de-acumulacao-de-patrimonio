@@ -1,9 +1,7 @@
 import React, { useState } from 'react'
 import { FaturaImportacaoLinhaRegistro } from '@/services/faturaImportacaoService'
 import { Categoria, Subcategoria } from '@/types/sap'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
+import { formatMoneyBRL } from '@/lib/formatters'
 import {
   Select,
   SelectContent,
@@ -11,23 +9,57 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { formatMoneyBRL } from '@/lib/formatters'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Badge } from '@/components/ui/badge'
 import {
-  ChevronDown,
-  ChevronUp,
-  AlertCircle,
+  AlertTriangle,
   Sparkles,
+  Repeat,
+  PlusCircle,
+  Gift,
+  Percent,
+  ShieldAlert,
   CheckCircle2,
-  HelpCircle,
-  Layers,
 } from 'lucide-react'
 
 export interface LinhaRevisaoFaturaItemProps {
   linha: FaturaImportacaoLinhaRegistro
   categorias: Categoria[]
   subcategorias: Subcategoria[]
-  aoAlterar: (linhaId: string, dados: Partial<FaturaImportacaoLinhaRegistro>) => void
-  aoAlternarSelecao: (linhaId: string, selecionado: boolean) => void
+  aoAlterar: (id: string, dados: Partial<FaturaImportacaoLinhaRegistro>) => Promise<void>
+  aoAlternarSelecao: (id: string, selecionado: boolean) => Promise<void>
+}
+
+// Metadados de tipo de linha
+const TIPO_META: Record<
+  string,
+  { label: string; badgeClass: string; icon: React.ReactNode | null }
+> = {
+  compra: {
+    label: 'Compra',
+    badgeClass: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    icon: null,
+  },
+  parcelado: {
+    label: 'Parcelado',
+    badgeClass: 'bg-blue-50 text-blue-700 border-blue-200',
+    icon: <Repeat className="w-3 h-3 mr-1" />,
+  },
+  credito: {
+    label: 'Crédito/Estorno',
+    badgeClass: 'bg-slate-100 text-slate-600 border-slate-200',
+    icon: <Gift className="w-3 h-3 mr-1" />,
+  },
+  encargo: {
+    label: 'Encargo',
+    badgeClass: 'bg-rose-50 text-rose-700 border-rose-200',
+    icon: <Percent className="w-3 h-3 mr-1" />,
+  },
+  ajuste: {
+    label: 'Ajuste',
+    badgeClass: 'bg-amber-50 text-amber-700 border-amber-200',
+    icon: <ShieldAlert className="w-3 h-3 mr-1" />,
+  },
 }
 
 export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
@@ -37,432 +69,316 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
   aoAlterar,
   aoAlternarSelecao,
 }) => {
-  const [expandido, setExpandido] = useState(false)
+  const [editandoDescricao, setEditandoDescricao] = useState(false)
+  const [descricaoTemp, setDescricaoTemp] = useState(linha.descricao_editavel || '')
+  const [editandoValor, setEditandoValor] = useState(false)
+  const [valorTemp, setValorTemp] = useState(String(linha.valor || ''))
 
-  const subcategoriasDaCategoria = subcategorias.filter(
-    (s) => s.categoria_id === linha.categoria_id,
-  )
+  const categoriaSelecionada = categorias.find((c) => c.id === linha.categoria_id)
+  const subcategoriasFiltradas = subcategorias.filter((s) => s.categoria_id === linha.categoria_id)
+  const subcategoriaSelecionada = subcategoriasFiltradas.find((s) => s.id === linha.subcategoria_id)
 
-  const renderBadgeStatus = () => {
-    switch (linha.status) {
-      case 'preenchido_regra':
-        return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-300 bg-amber-950/50 border border-amber-800/60 px-2 py-0.5 rounded">
-            <Sparkles className="w-3 h-3" /> Preenchido por regra
-          </span>
-        )
-      case 'conciliado':
-        return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-sky-300 bg-sky-950/50 border border-sky-800/60 px-2 py-0.5 rounded">
-            <CheckCircle2 className="w-3 h-3" /> Conciliado
-          </span>
-        )
-      case 'provavel_duplicado':
-      case 'duplicado':
-        return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-rose-300 bg-rose-950/50 border border-rose-800/60 px-2 py-0.5 rounded">
-            <AlertCircle className="w-3 h-3" /> Provável duplicado
-          </span>
-        )
-      case 'requer_revisao':
-        return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-950/40 border border-amber-700/60 px-2 py-0.5 rounded">
-            <HelpCircle className="w-3 h-3" /> Requer revisão
-          </span>
-        )
-      case 'pronto':
-      case 'importado':
-        return (
-          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-teal-300 bg-teal-950/50 border border-teal-800/60 px-2 py-0.5 rounded">
-            <CheckCircle2 className="w-3 h-3" /> Pronto
-          </span>
-        )
-      case 'ignorado':
-        return (
-          <span className="text-[10px] text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700">
-            Ignorado
-          </span>
-        )
-      default:
-        return (
-          <span className="text-[10px] text-slate-300 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
-            Novo
-          </span>
-        )
+  const classificado = !!linha.categoria_id
+  const ignorado = linha.status === 'ignorado'
+  const provavelDuplicado = linha.status === 'provavel_duplicado' || linha.status === 'duplicado'
+
+  const salvarDescricao = async () => {
+    if (descricaoTemp !== (linha.descricao_editavel || '')) {
+      await aoAlterar(linha.id, { descricao_editavel: descricaoTemp })
     }
+    setEditandoDescricao(false)
+  }
+
+  const salvarValor = async () => {
+    const novoValor = parseFloat(valorTemp.replace(',', '.'))
+    if (!isNaN(novoValor) && novoValor !== linha.valor) {
+      await aoAlterar(linha.id, { valor: novoValor })
+    }
+    setEditandoValor(false)
+  }
+
+  const handleModalidade = async (val: string) => {
+    if (val === 'compra_propria') {
+      await aoAlterar(linha.id, {
+        modalidade_saida: 'compra_propria',
+        valor_proprio: linha.valor,
+        valor_terceiros: 0,
+      })
+    } else {
+      await aoAlterar(linha.id, { modalidade_saida: val as any })
+    }
+  }
+
+  const meta = TIPO_META[linha.tipo_linha] || {
+    label: linha.tipo_linha,
+    badgeClass: 'bg-slate-100 text-slate-600 border-slate-200',
+    icon: null,
   }
 
   return (
     <div
-      className={`border rounded-lg transition-colors ${
-        linha.selecionado
-          ? 'bg-slate-900/90 border-slate-700/90'
-          : 'bg-slate-950/50 border-slate-800/60 opacity-60'
+      className={`bg-white border rounded-xl p-3.5 flex flex-col gap-2.5 transition-colors ${
+        provavelDuplicado
+          ? 'border-amber-300 bg-amber-50/40'
+          : ignorado
+            ? 'border-slate-200 bg-slate-50 opacity-70'
+            : 'border-slate-200 hover:border-slate-300'
       }`}
     >
-      {/* Linha Resumida Principal */}
-      <div className="p-3 flex items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col lg:flex-row lg:items-start gap-3">
+        {/* Checkbox seleção */}
+        <div className="flex items-center pt-1 shrink-0">
           <Checkbox
             checked={linha.selecionado}
             onCheckedChange={(checked) => aoAlternarSelecao(linha.id, !!checked)}
-            className="data-[state=checked]:bg-teal-600 data-[state=checked]:border-teal-600 border-slate-600"
+            disabled={ignorado}
+            className="data-[state=checked]:bg-emerald-600 data-[state=checked]:border-emerald-600 border-slate-300"
           />
-
-          <span className="font-mono text-slate-400 min-w-[70px]">
-            {linha.data.split('-').reverse().slice(0, 2).join('/')}
-          </span>
-
-          <div className="flex flex-col">
-            <span className="font-medium text-slate-200">
-              {linha.descricao_editavel || linha.descricao_normalizada}
-            </span>
-            <span className="text-[10px] text-slate-400 line-clamp-1">
-              {linha.descricao_original}
-            </span>
-          </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          {/* Parcela */}
-          {linha.total_parcelas && linha.total_parcelas > 1 ? (
-            <span className="inline-flex items-center gap-1 font-mono text-[11px] text-teal-400 bg-teal-950/60 border border-teal-800/50 px-2 py-0.5 rounded">
-              <Layers className="w-3 h-3" />
-              {linha.parcela_atual}/{linha.total_parcelas}
+        {/* Descrição / Estabelecimento */}
+        <div className="flex-1 min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            {editandoDescricao ? (
+              <input
+                autoFocus
+                value={descricaoTemp}
+                onChange={(e) => setDescricaoTemp(e.target.value)}
+                onBlur={salvarDescricao}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') salvarDescricao()
+                  if (e.key === 'Escape') {
+                    setDescricaoTemp(linha.descricao_editavel || '')
+                    setEditandoDescricao(false)
+                  }
+                }}
+                className="text-sm font-semibold text-slate-900 border border-slate-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setEditandoDescricao(true)}
+                className="text-sm font-semibold text-slate-900 text-left hover:text-emerald-700 hover:underline underline-offset-2"
+                title="Clique para editar a descrição"
+              >
+                {linha.descricao_editavel || linha.descricao_original}
+              </button>
+            )}
+
+            <Badge
+              variant="outline"
+              className={`text-[10px] font-medium border ${meta.badgeClass}`}
+            >
+              {meta.icon}
+              {meta.label}
+            </Badge>
+
+            {linha.modalidade_saida === 'compra_propria' && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-medium border-emerald-200 bg-emerald-50 text-emerald-700"
+              >
+                Própria 100%
+              </Badge>
+            )}
+            {linha.modalidade_saida === 'compra_compartilhada' && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-medium border-blue-200 bg-blue-50 text-blue-700"
+              >
+                Compartilhada
+              </Badge>
+            )}
+            {provavelDuplicado && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-medium border-amber-300 bg-amber-100 text-amber-800"
+              >
+                <AlertTriangle className="w-3 h-3 mr-1" /> Possível duplicado
+              </Badge>
+            )}
+            {linha.status === 'conciliado' && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-medium border-emerald-200 bg-emerald-50 text-emerald-700"
+              >
+                Conciliado
+              </Badge>
+            )}
+            {linha.status === 'preenchido_regra' && (
+              <Badge
+                variant="outline"
+                className="text-[10px] font-medium border-purple-200 bg-purple-50 text-purple-700"
+              >
+                <Sparkles className="w-3 h-3 mr-1" /> Regra aplicada
+              </Badge>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+            <span>
+              {linha.data?.split('-').reverse().join('/')} •{' '}
+              {linha.final_cartao ? `•••• ${linha.final_cartao}` : ''}
+              {linha.titular && linha.titular.trim() ? ` • ${linha.titular}` : ''}
+              {linha.total_parcelas && linha.total_parcelas > 1
+                ? ` • ${linha.parcela_atual}/${linha.total_parcelas}`
+                : ''}
             </span>
-          ) : (
-            <span className="text-slate-500 font-mono text-[11px]">-</span>
+            {(linha.descricao_original || '') !== (linha.descricao_editavel || '') && (
+              <span className="text-slate-400 italic truncate max-w-[240px]">
+                original: {linha.descricao_original}
+              </span>
+            )}
+          </div>
+
+          {/* Aviso de conciliação/duplicidade detectada */}
+          {linha.correspondencia_tipo === 'parcela' && linha.correspondencia_id && (
+            <div className="text-[11px] bg-emerald-50 border border-emerald-200 text-emerald-700 rounded px-2 py-1 inline-flex items-center gap-1.5">
+              <CheckCircle2 className="w-3 h-3" /> Parcela conciliada com lançamento existente no
+              SAP — não será importada novamente.
+            </div>
           )}
+          {provavelDuplicado && (
+            <div className="text-[11px] bg-amber-50 border border-amber-200 text-amber-800 rounded px-2 py-1 inline-flex items-center gap-1.5">
+              <AlertTriangle className="w-3 h-3" /> Possível lançamento já existente (linha repetida
+              no PDF ou compra já registrada). Revise antes de importar.
+            </div>
+          )}
+        </div>
 
-          {/* Valor */}
-          <span
-            className={`font-semibold font-mono text-xs min-w-[85px] text-right ${
-              linha.tipo_linha === 'credito' ? 'text-emerald-400' : 'text-slate-100'
-            }`}
+        {/* Valor */}
+        <div className="w-full lg:w-32 shrink-0 text-left lg:text-right">
+          {editandoValor ? (
+            <input
+              autoFocus
+              value={valorTemp}
+              onChange={(e) => setValorTemp(e.target.value)}
+              onBlur={salvarValor}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') salvarValor()
+                if (e.key === 'Escape') {
+                  setValorTemp(String(linha.valor || ''))
+                  setEditandoValor(false)
+                }
+              }}
+              className="w-full lg:w-28 text-sm font-semibold text-slate-900 border border-slate-300 rounded px-1.5 py-0.5 text-right focus:outline-none focus:ring-1 focus:ring-emerald-500 bg-white"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditandoValor(true)}
+              className={`text-sm font-semibold hover:text-emerald-700 hover:underline underline-offset-2 ${
+                linha.tipo_linha === 'credito' ? 'text-emerald-600' : 'text-slate-900'
+              }`}
+              title="Clique para editar o valor"
+            >
+              {formatMoneyBRL(linha.valor)}
+            </button>
+          )}
+        </div>
+
+        {/* Coluna de classificação */}
+        <div className="w-full lg:w-[300px] shrink-0 flex flex-col gap-1.5">
+          <div className="flex gap-1.5">
+            <Select
+              value={linha.categoria_id || ''}
+              onValueChange={(val) =>
+                aoAlterar(linha.id, { categoria_id: val, subcategoria_id: '' })
+              }
+            >
+              <SelectTrigger className="bg-white border-slate-200 text-slate-900 h-7 text-[11px] flex-1">
+                <SelectValue placeholder="Categoria..." />
+              </SelectTrigger>
+              <SelectContent className="bg-white border-slate-200 text-slate-900">
+                {categorias.map((c) => (
+                  <SelectItem key={c.id} value={c.id} className="text-[11px]">
+                    {c.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select
+              value={linha.subcategoria_id || ''}
+              onValueChange={(val) => aoAlterar(linha.id, { subcategoria_id: val })}
+              disabled={!linha.categoria_id}
+            >
+              <SelectTrigger className="bg-white border-slate-200 text-slate-900 h-7 text-[11px] flex-1">
+                <SelectValue placeholder="Subcat..." />
+              </SelectTrigger>
+              <SelectContent className="bg-white border-slate-200 text-slate-900">
+                {subcategoriasFiltradas.map((s) => (
+                  <SelectItem key={s.id} value={s.id} className="text-[11px]">
+                    {s.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Select
+            value={linha.modalidade_saida || 'compra_propria'}
+            onValueChange={handleModalidade}
           >
-            {linha.tipo_linha === 'credito' ? '-' : ''}
-            {formatMoneyBRL(linha.valor)}
-          </span>
-
-          {/* Status Badge */}
-          <div className="hidden sm:block min-w-[120px]">{renderBadgeStatus()}</div>
-
-          {/* Botão Expandir */}
-          <button
-            type="button"
-            onClick={() => setExpandido(!expandido)}
-            className="p-1.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200"
-            title="Ver detalhes da linha"
-          >
-            {expandido ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </button>
+            <SelectTrigger className="bg-white border-slate-200 text-slate-900 h-7 text-[11px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-white border-slate-200 text-slate-900">
+              <SelectItem value="compra_propria" className="text-[11px]">
+                <span className="flex items-center gap-1">
+                  <PlusCircle className="w-3 h-3" /> Compra Própria (100%)
+                </span>
+              </SelectItem>
+              <SelectItem value="compra_compartilhada" className="text-[11px]">
+                Compra Compartilhada
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      {/* Painel Expandido com Detalhes Editáveis */}
-      {expandido && (
-        <div className="p-4 border-t border-slate-800 bg-slate-950/80 rounded-b-lg space-y-4 text-xs">
-          {/* Seção 1: Dados Básicos e Reconstrução */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="space-y-1">
-              <Label className="text-slate-400 text-[11px]">Data Original / Compra</Label>
-              <Input
-                type="date"
-                value={linha.data}
-                onChange={(e) => aoAlterar(linha.id, { data: e.target.value })}
-                className="bg-slate-800 border-slate-700 text-slate-200 h-8 text-xs"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-slate-400 text-[11px]">Descrição Editável</Label>
-              <Input
-                value={linha.descricao_editavel}
-                onChange={(e) => aoAlterar(linha.id, { descricao_editavel: e.target.value })}
-                className="bg-slate-800 border-slate-700 text-slate-200 h-8 text-xs"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-slate-400 text-[11px]">Valor da Parcela (R$)</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={linha.valor}
-                onChange={(e) =>
-                  aoAlterar(linha.id, {
-                    valor: parseFloat(e.target.value) || 0,
-                    valor_proprio: parseFloat(e.target.value) || 0,
-                  })
-                }
-                className="bg-slate-800 border-slate-700 text-slate-200 h-8 text-xs font-mono"
-              />
-            </div>
-          </div>
-
-          {/* Seção Reconstrução de Parcelada Antiga (BLOCO G 11-13) */}
-          {linha.tipo_linha === 'parcelado' && (
-            <div className="p-3 bg-amber-950/20 border border-amber-800/40 rounded-md space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-amber-400 font-semibold text-[11px] flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5" /> Reconstrução do Lançamento Pai
-                </span>
-                <span className="text-[10px] text-amber-300 font-medium">
-                  Confirme antes de importar
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <div>
-                  <Label className="text-slate-400 text-[10px]">Parcela Atual</Label>
-                  <Input
-                    type="number"
-                    value={linha.parcela_atual || 1}
-                    onChange={(e) =>
-                      aoAlterar(linha.id, { parcela_atual: parseInt(e.target.value, 10) || 1 })
-                    }
-                    className="bg-slate-800 border-slate-700 text-slate-200 h-7 text-xs"
-                  />
-                </div>
-                <div>
-                  <Label className="text-slate-400 text-[10px]">Total Parcelas</Label>
-                  <Input
-                    type="number"
-                    value={linha.total_parcelas || 1}
-                    onChange={(e) => {
-                      const total = parseInt(e.target.value, 10) || 1
-                      const estimado = Math.round(linha.valor * total * 100) / 100
-                      aoAlterar(linha.id, {
-                        total_parcelas: total,
-                        valor_total_estimado: estimado,
-                      })
-                    }}
-                    className="bg-slate-800 border-slate-700 text-slate-200 h-7 text-xs"
-                  />
-                </div>
-                <div>
-                  <Label className="text-slate-400 text-[10px]">Valor Total Pai (R$)</Label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={linha.valor_total_estimado || linha.valor}
-                    onChange={(e) =>
-                      aoAlterar(linha.id, {
-                        valor_total_estimado: parseFloat(e.target.value) || linha.valor,
-                      })
-                    }
-                    className="bg-slate-800 border-slate-700 text-slate-200 h-7 text-xs font-mono font-semibold text-teal-300"
-                  />
-                </div>
-                <div className="flex items-center pt-4">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      id={`hist-${linha.id}`}
-                      checked={linha.marcar_historicas_anteriores}
-                      onCheckedChange={(checked) =>
-                        aoAlterar(linha.id, { marcar_historicas_anteriores: !!checked })
-                      }
-                      className="data-[state=checked]:bg-teal-600 border-slate-600"
-                    />
-                    <Label
-                      htmlFor={`hist-${linha.id}`}
-                      className="text-[10px] text-slate-300 cursor-pointer font-normal"
-                    >
-                      Marcar anteriores como históricas/pagas
-                    </Label>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Seção Tratamento de Linha (Compra, Estorno, Crédito/Ajuste, Ignorar) */}
-          <div className="p-2.5 bg-slate-900/90 border border-slate-800 rounded-md flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Label className="text-slate-400 text-[11px] whitespace-nowrap">
-                Tratamento da Linha:
-              </Label>
-              <Select
-                value={linha.tratamento || 'compra'}
-                onValueChange={(val: any) => {
-                  const isIgn = val === 'ignorar'
-                  const isCred = val === 'estorno' || val === 'credito_ajuste'
-                  aoAlterar(linha.id, {
-                    tratamento: val,
-                    tipo_linha: isCred
-                      ? 'credito'
-                      : val === 'ignorar'
-                        ? 'ignorado'
-                        : linha.tipo_linha === 'parcelado'
-                          ? 'parcelado'
-                          : 'compra',
-                    selecionado: !isIgn,
-                    afeta_resultado: isCred || isIgn ? false : linha.afeta_resultado,
-                    afeta_orcamento: isCred || isIgn ? false : linha.afeta_orcamento,
-                    status: isIgn
-                      ? 'ignorado'
-                      : linha.status === 'ignorado'
-                        ? 'novo'
-                        : linha.status,
-                  })
-                }}
-              >
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200 h-7 text-xs w-[160px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
-                  <SelectItem value="compra">Compra (Normal)</SelectItem>
-                  <SelectItem value="estorno">Estorno de Compra</SelectItem>
-                  <SelectItem value="credito_ajuste">Crédito / Ajuste</SelectItem>
-                  <SelectItem value="ignorar">Ignorar Linha</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {linha.origem_classificacao === 'regra_aprendida' && (
-              <span className="text-[10px] text-amber-300 font-medium flex items-center gap-1 bg-amber-950/40 border border-amber-800/50 px-2 py-0.5 rounded">
-                <Sparkles className="w-3 h-3" /> Preenchido por regra anterior (editável)
-              </span>
-            )}
-            {linha.status === 'conciliado' && (
-              <span className="text-[10px] text-sky-300 font-medium flex items-center gap-1 bg-sky-950/40 border border-sky-800/50 px-2 py-0.5 rounded">
-                <CheckCircle2 className="w-3 h-3" /> Conciliado com parcela existente (não criará
-                novo)
-              </span>
-            )}
-          </div>
-
-          {/* Seção 2: Categoria, Subcategoria e Modalidades de Saída */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            <div className="space-y-1">
-              <Label className="text-slate-400 text-[11px]">Categoria</Label>
-              <Select
-                value={linha.categoria_id || ''}
-                onValueChange={(val) =>
-                  aoAlterar(linha.id, {
-                    categoria_id: val,
-                    subcategoria_id: null,
-                    status: 'pronto',
-                  })
-                }
-              >
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200 h-8 text-xs">
-                  <SelectValue placeholder="Selecione categoria..." />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
-                  {categorias.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-slate-400 text-[11px]">Subcategoria</Label>
-              <Select
-                value={linha.subcategoria_id || ''}
-                onValueChange={(val) => aoAlterar(linha.id, { subcategoria_id: val })}
-                disabled={!linha.categoria_id}
-              >
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200 h-8 text-xs">
-                  <SelectValue placeholder="Selecione subcategoria..." />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
-                  {subcategoriasDaCategoria.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1">
-              <Label className="text-slate-400 text-[11px]">Modalidade de Saída</Label>
-              <Select
-                value={linha.modalidade_saida}
-                onValueChange={(val) => {
-                  const valorTotal = linha.valor
-                  const proprio =
-                    val === 'compra_propria' ? valorTotal : linha.valor_proprio || valorTotal
-                  aoAlterar(linha.id, {
-                    modalidade_saida: val,
-                    valor_proprio: proprio,
-                    valor_terceiros: valorTotal - proprio,
-                  })
-                }}
-              >
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-200 h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 text-slate-200">
-                  <SelectItem value="compra_propria">Compra Própria (100%)</SelectItem>
-                  <SelectItem value="compra_compartilhada">Compra Compartilhada</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {linha.modalidade_saida === 'compra_compartilhada' && (
-              <div className="space-y-1">
-                <Label className="text-slate-400 text-[11px]">Valor Próprio (R$)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  value={linha.valor_proprio || 0}
-                  onChange={(e) => {
-                    const proprio = parseFloat(e.target.value) || 0
-                    aoAlterar(linha.id, {
-                      valor_proprio: proprio,
-                      valor_terceiros: Math.max(0, linha.valor - proprio),
-                    })
-                  }}
-                  className="bg-slate-800 border-slate-700 text-slate-200 h-8 text-xs"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Observações da Linha */}
-          <div className="space-y-1">
-            <Label className="text-slate-400 text-[11px]">Observações / Metadados</Label>
-            <Input
-              value={linha.observacao || ''}
-              placeholder="Observações complementares..."
-              onChange={(e) => aoAlterar(linha.id, { observacao: e.target.value })}
-              className="bg-slate-800 border-slate-700 text-slate-200 h-8 text-xs"
+      {/* Rodapé para compra compartilhada: proporção próprio × terceiros */}
+      {linha.modalidade_saida === 'compra_compartilhada' && !ignorado && (
+        <div className="flex flex-wrap items-center gap-3 pl-8 pt-2 border-t border-slate-100 text-[11px] text-slate-600">
+          <span className="font-semibold text-slate-700">Divisão:</span>
+          <label className="flex items-center gap-1.5">
+            <span>Próprio R$</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={linha.valor_proprio ?? ''}
+              onChange={(e) =>
+                aoAlterar(linha.id, {
+                  valor_proprio: parseFloat(e.target.value),
+                  valor_terceiros: Math.max(0, linha.valor - (parseFloat(e.target.value) || 0)),
+                })
+              }
+              className="w-24 border border-slate-300 rounded px-1.5 py-0.5 text-right bg-white"
             />
-          </div>
-
-          {/* Metadados do Cartão e Rastreabilidade */}
-          <div className="flex flex-wrap items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800">
-            <div>
-              Titular do PDF: <strong className="text-slate-300">{linha.titular || 'N/D'}</strong> |
-              Final do Cartão:{' '}
-              <strong className="text-slate-300">{linha.final_cartao || 'N/D'}</strong>
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={linha.afeta_resultado}
-                  onChange={(e) => aoAlterar(linha.id, { afeta_resultado: e.target.checked })}
-                  className="rounded text-teal-600 focus:ring-0"
-                />
-                Afeta Resultado
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={linha.afeta_orcamento}
-                  onChange={(e) => aoAlterar(linha.id, { afeta_orcamento: e.target.checked })}
-                  className="rounded text-teal-600 focus:ring-0"
-                />
-                Afeta Orçamento
-              </label>
-            </div>
-          </div>
+          </label>
+          <label className="flex items-center gap-1.5">
+            <span>Terceiros R$</span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={linha.valor_terceiros ?? ''}
+              onChange={(e) =>
+                aoAlterar(linha.id, {
+                  valor_terceiros: parseFloat(e.target.value),
+                  valor_proprio: Math.max(0, linha.valor - (parseFloat(e.target.value) || 0)),
+                })
+              }
+              className="w-24 border border-slate-300 rounded px-1.5 py-0.5 text-right bg-white"
+            />
+          </label>
+          {Math.abs((linha.valor_proprio || 0) + (linha.valor_terceiros || 0) - linha.valor) >
+            0.01 && (
+            <span className="text-amber-700 flex items-center gap-1">
+              <AlertTriangle className="w-3 h-3" /> Soma difere do total
+            </span>
+          )}
         </div>
       )}
     </div>
