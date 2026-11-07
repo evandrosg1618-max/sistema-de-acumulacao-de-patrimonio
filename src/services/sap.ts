@@ -2743,6 +2743,7 @@ export const lancamentoService = {
       dataFim?: string
       dataEspecifica?: string
       tipo?: string
+      subtipoAjuste?: string
       contaId?: string
       cartaoId?: string
       categoriaId?: string
@@ -2789,6 +2790,9 @@ export const lancamentoService = {
     }
     if (filtros.tipo && filtros.tipo !== 'todos') {
       query = query.eq('tipo', filtros.tipo)
+    }
+    if (filtros.subtipoAjuste && filtros.subtipoAjuste !== 'todos') {
+      query = query.eq('subtipo_ajuste', filtros.subtipoAjuste)
     }
     if (filtros.contaId && filtros.contaId !== 'todas') {
       query = query.or(
@@ -4300,6 +4304,8 @@ export const lancamentoService = {
       valor_terceiros?: number | null
       afeta_resultado?: boolean | null
       afeta_orcamento?: boolean | null
+      subtipo_ajuste?: 'ajuste_fatura_banco' | 'ajuste_tecnico_sap' | string | null
+      efeito_fatura?: 'aumenta' | 'reduz' | string | null
     },
     userId?: string,
   ): Promise<any> {

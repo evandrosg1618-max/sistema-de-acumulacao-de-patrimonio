@@ -1463,6 +1463,8 @@ export default function CartoesPage() {
                                     l.natureza === 'previsao' ||
                                     l.natureza_previsao === true ||
                                     l.status_pagamento === 'previsao'
+                                  const ehAjuste = l.tipo === 'ajuste'
+                                  const reduzFatura = l.efeito_fatura === 'reduz'
 
                                   return (
                                     <div
@@ -1494,7 +1496,28 @@ export default function CartoesPage() {
                                             <span className="font-semibold text-slate-800 truncate">
                                               {l.descricao}
                                             </span>
-                                            {ehParcela && (
+                                            {ehAjuste && (
+                                              <div className="flex items-center gap-1 shrink-0">
+                                                <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold">
+                                                  ± Ajuste
+                                                </Badge>
+                                                <Badge
+                                                  className={`text-[10px] py-0 px-1.5 font-medium border ${
+                                                    reduzFatura
+                                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                      : 'bg-rose-50 text-rose-700 border-rose-200'
+                                                  }`}
+                                                >
+                                                  {reduzFatura ? 'Reduz fatura' : 'Aumenta fatura'}
+                                                </Badge>
+                                                <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] py-0 px-1.5 font-medium">
+                                                  {l.subtipo_ajuste === 'ajuste_tecnico_sap'
+                                                    ? 'Técnico SAP'
+                                                    : 'Banco'}
+                                                </Badge>
+                                              </div>
+                                            )}
+                                            {ehParcela && !ehAjuste && (
                                               <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
                                                 {numP}/{totP}
                                               </Badge>
@@ -1537,8 +1560,18 @@ export default function CartoesPage() {
                                       </div>
 
                                       <div className="flex items-center gap-3 shrink-0 pl-2">
-                                        <span className="font-bold text-rose-600 text-xs sm:text-sm">
-                                          {formatMoneyBRL(l.valor)}
+                                        <span
+                                          className={`font-bold text-xs sm:text-sm ${
+                                            ehAjuste
+                                              ? reduzFatura
+                                                ? 'text-emerald-600'
+                                                : 'text-rose-600'
+                                              : 'text-rose-600'
+                                          }`}
+                                        >
+                                          {ehAjuste
+                                            ? `${reduzFatura ? '−' : '+'} ${formatMoneyBRL(l.valor)}`
+                                            : formatMoneyBRL(l.valor)}
                                         </span>
 
                                         <div className="flex items-center gap-0.5">

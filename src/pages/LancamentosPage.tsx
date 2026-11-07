@@ -94,6 +94,7 @@ export default function LancamentosPage() {
   const [dataFim, setDataFim] = useState('')
 
   const [filtroTipo, setFiltroTipo] = useState<string>('todos')
+  const [filtroSubtipoAjuste, setFiltroSubtipoAjuste] = useState<string>('todos')
   const [filtroConta, setFiltroConta] = useState<string>('todas')
   const [filtroCartao, setFiltroCartao] = useState<string>('todos')
   const [filtroCategoria, setFiltroCategoria] = useState<string>('todas')
@@ -216,6 +217,7 @@ export default function LancamentosPage() {
     try {
       const filtrosConsulta: any = {
         tipo: filtroTipo,
+        subtipoAjuste: filtroTipo === 'ajuste' ? filtroSubtipoAjuste : undefined,
         contaId: filtroConta,
         cartaoId: filtroCartao,
         categoriaId: filtroCategoria,
@@ -287,6 +289,7 @@ export default function LancamentosPage() {
     dataInicio,
     dataFim,
     filtroTipo,
+    filtroSubtipoAjuste,
     filtroConta,
     filtroCartao,
     filtroCategoria,
@@ -1359,7 +1362,15 @@ export default function LancamentosPage() {
 
         {/* Filtro: Tipo */}
         <div className="shrink-0">
-          <Select value={filtroTipo} onValueChange={setFiltroTipo}>
+          <Select
+            value={filtroTipo}
+            onValueChange={(val) => {
+              setFiltroTipo(val)
+              if (val !== 'ajuste') {
+                setFiltroSubtipoAjuste('todos')
+              }
+            }}
+          >
             <SelectTrigger className="h-8 text-xs bg-white/70 hover:bg-white border-none shadow-none font-medium text-neutral-700 rounded-xl px-2.5 whitespace-nowrap">
               <span>
                 {filtroTipo === 'despesa'
@@ -1368,7 +1379,9 @@ export default function LancamentosPage() {
                     ? 'Tipo: Receitas'
                     : filtroTipo === 'transferencia'
                       ? 'Tipo: Transferências'
-                      : 'Tipo'}
+                      : filtroTipo === 'ajuste'
+                        ? 'Tipo: Ajustes'
+                        : 'Tipo'}
               </span>
             </SelectTrigger>
             <SelectContent className="bg-white text-slate-900 border-slate-200">
@@ -1376,9 +1389,32 @@ export default function LancamentosPage() {
               <SelectItem value="despesa">Somente Despesas</SelectItem>
               <SelectItem value="receita">Somente Receitas</SelectItem>
               <SelectItem value="transferencia">Transferências</SelectItem>
+              <SelectItem value="ajuste">Ajustes</SelectItem>
             </SelectContent>
           </Select>
         </div>
+
+        {/* Subfiltro de Ajuste: aparece apenas quando Tipo === 'ajuste' */}
+        {filtroTipo === 'ajuste' && (
+          <div className="shrink-0">
+            <Select value={filtroSubtipoAjuste} onValueChange={setFiltroSubtipoAjuste}>
+              <SelectTrigger className="h-8 text-xs bg-purple-50 hover:bg-purple-100 border border-purple-200 shadow-none font-semibold text-purple-800 rounded-xl px-2.5 whitespace-nowrap">
+                <span>
+                  {filtroSubtipoAjuste === 'ajuste_fatura_banco'
+                    ? 'Subtipo: Fatura do Banco'
+                    : filtroSubtipoAjuste === 'ajuste_tecnico_sap'
+                      ? 'Subtipo: Técnico do SAP'
+                      : 'Todos os Ajustes'}
+                </span>
+              </SelectTrigger>
+              <SelectContent className="bg-white text-slate-900 border-slate-200">
+                <SelectItem value="todos">Todos os Ajustes</SelectItem>
+                <SelectItem value="ajuste_fatura_banco">Ajustes da Fatura do Banco</SelectItem>
+                <SelectItem value="ajuste_tecnico_sap">Ajustes Técnicos do SAP</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* Filtro: Categorias */}
         <div className="shrink-0">
@@ -1546,6 +1582,7 @@ export default function LancamentosPage() {
                     const isDespesa = l.tipo === 'despesa'
                     const isReceita = l.tipo === 'receita'
                     const isTransf = l.tipo === 'transferencia'
+                    const isAjuste = l.tipo === 'ajuste'
                     const isPago = l.status_pagamento === 'pago'
                     const ehCartao = l.meio_pagamento_tipo === 'CARTAO'
                     const regimeStr = String(l.regime || '')
@@ -1608,27 +1645,37 @@ export default function LancamentosPage() {
                           {/* Ícone circular com o ícone e cor escolhidos para a subcategoria (Bloco 4) */}
                           <div
                             className={`w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 mt-0.5 shadow-2xs ${
-                              isDespesa
-                                ? 'bg-rose-500'
-                                : isReceita
-                                  ? 'bg-emerald-500'
-                                  : 'bg-emerald-600'
+                              isAjuste
+                                ? 'bg-purple-600'
+                                : isDespesa
+                                  ? 'bg-rose-500'
+                                  : isReceita
+                                    ? 'bg-emerald-500'
+                                    : 'bg-emerald-600'
                             }`}
                             style={{
                               backgroundColor:
                                 l.subcategoria?.cor ||
                                 l.categoria?.cor ||
-                                (isDespesa ? '#EF4444' : isReceita ? '#10B981' : '#059669'),
+                                (isAjuste
+                                  ? '#7C3AED'
+                                  : isDespesa
+                                    ? '#EF4444'
+                                    : isReceita
+                                      ? '#10B981'
+                                      : '#059669'),
                             }}
                           >
                             {renderIconePorId(
                               l.subcategoria?.icone ||
                                 l.categoria?.icone ||
-                                (isDespesa
-                                  ? 'tag'
-                                  : isReceita
-                                    ? 'trending-up'
-                                    : 'arrow-right-left'),
+                                (isAjuste
+                                  ? 'scale'
+                                  : isDespesa
+                                    ? 'tag'
+                                    : isReceita
+                                      ? 'trending-up'
+                                      : 'arrow-right-left'),
                               'w-4 h-4 stroke-[2.2]',
                             )}
                           </div>
@@ -1639,25 +1686,61 @@ export default function LancamentosPage() {
                               {l.descricao}
                             </div>
 
-                            {/* Categoria / Subcategoria + Observação (Para empréstimo a terceiros fica em branco conforme PDF Seção 6.8) */}
-                            <div className="flex items-center flex-wrap gap-1.5 text-[11px] text-slate-500">
-                              {l.modalidade_saida !== 'emprestimo_terceiros' && l.categoria && (
-                                <span className="font-medium text-slate-600">
-                                  {l.categoria.nome}
-                                  {l.subcategoria && ` / ${l.subcategoria.nome}`}
-                                </span>
-                              )}
-                              {l.observacao && (
-                                <>
-                                  {l.modalidade_saida !== 'emprestimo_terceiros' && l.categoria && (
+                            {/* Categoria / Subcategoria + Observação + Badges específicas de Ajuste */}
+                            {isAjuste ? (
+                              <div className="flex items-center flex-wrap gap-1.5 text-[11px] pt-0.5">
+                                <Badge
+                                  variant="outline"
+                                  className="bg-purple-50 text-purple-700 border-purple-200 text-[10px] font-bold px-1.5 py-0"
+                                >
+                                  ± Ajuste
+                                </Badge>
+                                <Badge
+                                  variant="outline"
+                                  className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] font-medium px-1.5 py-0"
+                                >
+                                  {l.subtipo_ajuste === 'ajuste_tecnico_sap'
+                                    ? 'Ajuste Técnico do SAP'
+                                    : 'Ajuste da Fatura do Banco'}
+                                </Badge>
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] font-medium px-1.5 py-0 ${
+                                    l.efeito_fatura === 'reduz'
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                      : 'bg-rose-50 text-rose-700 border-rose-200'
+                                  }`}
+                                >
+                                  {l.efeito_fatura === 'reduz' ? 'Reduz fatura' : 'Aumenta fatura'}
+                                </Badge>
+                                {l.observacao && (
+                                  <>
                                     <span className="text-slate-300">•</span>
-                                  )}
-                                  <span className="italic text-slate-400 break-words line-clamp-1">
-                                    {l.observacao}
+                                    <span className="italic text-slate-400 break-words line-clamp-1">
+                                      {l.observacao}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="flex items-center flex-wrap gap-1.5 text-[11px] text-slate-500">
+                                {l.modalidade_saida !== 'emprestimo_terceiros' && l.categoria && (
+                                  <span className="font-medium text-slate-600">
+                                    {l.categoria.nome}
+                                    {l.subcategoria && ` / ${l.subcategoria.nome}`}
                                   </span>
-                                </>
-                              )}
-                            </div>
+                                )}
+                                {l.observacao && (
+                                  <>
+                                    {l.modalidade_saida !== 'emprestimo_terceiros' &&
+                                      l.categoria && <span className="text-slate-300">•</span>}
+                                    <span className="italic text-slate-400 break-words line-clamp-1">
+                                      {l.observacao}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            )}
 
                             {/* Sublinha informativa conforme Modalidade da Saída (PDF Seções 4.8, 5.6 e 6.8) */}
                             {l.tipo === 'despesa' &&
@@ -1749,18 +1832,24 @@ export default function LancamentosPage() {
                           </span>
                         </div>
 
-                        {/* 3ª COLUNA: Valor — AZUL com "+" para receita, VERMELHO com "−" para despesa, VERDE sem sinal para transferência */}
+                        {/* 3ª COLUNA: Valor — Ajuste exibe efeito (−R$ quando reduz fatura, +R$ quando aumenta fatura), nunca rotulado como Receita/Despesa */}
                         <div className="text-right whitespace-nowrap pl-1">
                           <span
                             className={`text-xs sm:text-sm font-bold tracking-tight ${
-                              isReceita
-                                ? 'text-blue-600'
-                                : isDespesa
-                                  ? 'text-rose-600'
-                                  : 'text-emerald-600'
+                              isAjuste
+                                ? l.efeito_fatura === 'reduz'
+                                  ? 'text-emerald-600'
+                                  : 'text-rose-600'
+                                : isReceita
+                                  ? 'text-blue-600'
+                                  : isDespesa
+                                    ? 'text-rose-600'
+                                    : 'text-emerald-600'
                             }`}
                           >
-                            {isReceita ? '+' : isDespesa ? '−' : ''} {formatMoneyBRL(l.valor)}
+                            {isAjuste
+                              ? `${l.efeito_fatura === 'reduz' ? '−' : '+'} ${formatMoneyBRL(l.valor)}`
+                              : `${isReceita ? '+' : isDespesa ? '−' : ''} ${formatMoneyBRL(l.valor)}`}
                           </span>
                         </div>
 

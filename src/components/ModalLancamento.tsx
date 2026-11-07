@@ -201,8 +201,8 @@ export function ModalLancamento({
       setDescricao(initialData.descricao || '')
       setValor(initialData.valor ? Math.abs(initialData.valor).toFixed(2).replace('.', ',') : '')
       setData(initialData.data || getTodayDateString())
-      setSubtipoAjuste(initialData.subtipo_ajuste || 'ajuste_fatura_banco')
-      setEfeitoFatura(initialData.efeito_fatura || 'aumenta')
+      setSubtipoAjuste((initialData.subtipo_ajuste as SubtipoAjuste) || 'ajuste_fatura_banco')
+      setEfeitoFatura((initialData.efeito_fatura as EfeitoFatura) || 'aumenta')
       if (initialData.cartao_id) {
         setCartaoAjusteId(initialData.cartao_id)
       } else if (cartaoPadraoId) {
@@ -390,12 +390,13 @@ export function ModalLancamento({
       return
     }
 
-    // Validação de subcategoria obrigatória (PDF Seções 5.3 e 6.5: não exigir em compra para terceiros e empréstimo a terceiros)
+    // Validação de subcategoria obrigatória (PDF Seções 5.3 e 6.5: não exigir em compra para terceiros e empréstimo a terceiros; não exigir em Ajuste)
     const dispensaSubcategoria =
-      tipo === 'despesa' &&
-      (modalidadeSaida === 'compra_terceiros' || modalidadeSaida === 'emprestimo_terceiros')
+      tipo === 'ajuste' ||
+      (tipo === 'despesa' &&
+        (modalidadeSaida === 'compra_terceiros' || modalidadeSaida === 'emprestimo_terceiros'))
 
-    if (tipo !== 'transferencia' && !dispensaSubcategoria && !subcategoriaId) {
+    if (tipo !== 'transferencia' && tipo !== 'ajuste' && !dispensaSubcategoria && !subcategoriaId) {
       return
     }
 
@@ -433,7 +434,29 @@ export function ModalLancamento({
     let resolvedContaOrigemId: string | null = null
     let resolvedCartaoId: string | null = null
 
-    if (tipo === 'transferencia') {
+    // Validações de Modalidade da Saída e Impactos
+    let valorProprioFinal: number = valorNumerico
+    let valorTerceirosFinal: number = 0
+    let afetaResultadoFinal = true
+    let afetaOrcamentoFinal = true
+
+    if (tipo === 'ajuste') {
+      meioFinal = 'CARTAO'
+      resolvedCartaoId = cartaoAjusteId || (cartoes.length > 0 ? cartoes[0].id : null)
+      if (!resolvedCartaoId) {
+        return
+      }
+      // Regras de afeta_resultado e afeta_orcamento para Ajuste:
+      // Ajuste Banco: Afeta Resultado SIM, Afeta Orçamento NÃO
+      // Ajuste Técnico: Afeta Resultado NÃO, Afeta Orçamento NÃO
+      if (subtipoAjuste === 'ajuste_fatura_banco') {
+        afetaResultadoFinal = true
+        afetaOrcamentoFinal = false
+      } else {
+        afetaResultadoFinal = false
+        afetaOrcamentoFinal = false
+      }
+    } else if (tipo === 'transferencia') {
       meioFinal = 'CONTA'
       resolvedContaOrigemId = contaOrigemId
     } else {
@@ -447,12 +470,6 @@ export function ModalLancamento({
         meioFinal = 'DINHEIRO'
       }
     }
-
-    // Validações de Modalidade da Saída para Despesas (PDF Seções 1 a 6)
-    let valorProprioFinal: number = valorNumerico
-    let valorTerceirosFinal: number = 0
-    let afetaResultadoFinal = true
-    let afetaOrcamentoFinal = true
 
     if (tipo === 'despesa') {
       if (modalidadeSaida === 'compra_compartilhada') {
@@ -530,9 +547,10 @@ export function ModalLancamento({
           conta_origem_id: resolvedContaOrigemId,
           conta_destino_id: tipo === 'transferencia' ? contaDestinoId || null : null,
           cartao_id: resolvedCartaoId,
-          categoria_id: tipo !== 'transferencia' ? categoriaId || null : null,
+          categoria_id: tipo !== 'transferencia' && tipo !== 'ajuste' ? categoriaId || null : null,
           subcategoria_id:
             tipo !== 'transferencia' &&
+            tipo !== 'ajuste' &&
             subcategoriaId &&
             !subcategoriaId.startsWith('cat-fallback-')
               ? subcategoriaId
@@ -552,6 +570,8 @@ export function ModalLancamento({
           valor_terceiros: valorTerceirosFinal,
           afeta_resultado: afetaResultadoFinal,
           afeta_orcamento: afetaOrcamentoFinal,
+          subtipo_ajuste: tipo === 'ajuste' ? subtipoAjuste : null,
+          efeito_fatura: tipo === 'ajuste' ? efeitoFatura : null,
           // Build 5: parâmetros para lançamento fixo
           fixo:
             modoRepeticao === 'fixo'
@@ -635,11 +655,11 @@ export function ModalLancamento({
             )}
             {/* Abas para alternar tipo de lançamento se for novo */}{' '}
             {!initialData && (
-              <div className="grid grid-cols-3 gap-2 p-1 bg-slate-100 rounded-lg mt-3">
+              <div className="grid grid-cols-4 gap-1.5 p-1 bg-slate-100 rounded-lg mt-3">
                 <button
                   type="button"
                   onClick={() => setTipo('despesa')}
-                  className={`py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1.5 transition ${
+                  className={`py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1 transition ${
                     tipo === 'despesa'
                       ? 'bg-rose-600 text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
@@ -651,7 +671,7 @@ export function ModalLancamento({
                 <button
                   type="button"
                   onClick={() => setTipo('receita')}
-                  className={`py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1.5 transition ${
+                  className={`py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1 transition ${
                     tipo === 'receita'
                       ? 'bg-emerald-600 text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
@@ -663,7 +683,7 @@ export function ModalLancamento({
                 <button
                   type="button"
                   onClick={() => setTipo('transferencia')}
-                  className={`py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1.5 transition ${
+                  className={`py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1 transition ${
                     tipo === 'transferencia'
                       ? 'bg-blue-600 text-white shadow-xs'
                       : 'text-slate-600 hover:text-slate-900'
@@ -671,6 +691,24 @@ export function ModalLancamento({
                 >
                   <ArrowRightLeft className="w-3.5 h-3.5" />
                   <span>Transferência</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTipo('ajuste')
+                    if (!cartaoAjusteId) {
+                      if (cartaoPadraoId) setCartaoAjusteId(cartaoPadraoId)
+                      else if (cartoes.length > 0) setCartaoAjusteId(cartoes[0].id)
+                    }
+                  }}
+                  className={`py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1 transition ${
+                    tipo === 'ajuste'
+                      ? 'bg-purple-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Scale className="w-3.5 h-3.5" />
+                  <span>Ajuste</span>
                 </button>
               </div>
             )}
@@ -708,7 +746,174 @@ export function ModalLancamento({
                 </div>
               </div>
 
-              {/* Data | Modalidade da Saída (para despesa) ou Pago com / Recebido em */}
+              {/* SEÇÃO ESPECÍFICA PARA AJUSTE */}
+              {tipo === 'ajuste' && (
+                <div className="p-4 bg-purple-50/70 border border-purple-200 rounded-xl space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-purple-900 uppercase tracking-wide flex items-center gap-1.5">
+                      <Scale className="w-4 h-4 text-purple-700" />
+                      <span>Configurações do Lançamento de Ajuste</span>
+                    </span>
+                    <span className="text-[11px] text-purple-700 font-medium">
+                      Exclusivo de Fatura
+                    </span>
+                  </div>
+
+                  {/* 1. Tipo de Ajuste */}
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700 block mb-1.5">
+                      Tipo de Ajuste *
+                    </Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label
+                        className={`p-3 rounded-lg border cursor-pointer transition flex items-start gap-2.5 ${
+                          subtipoAjuste === 'ajuste_fatura_banco'
+                            ? 'bg-white border-purple-400 shadow-xs ring-1 ring-purple-300'
+                            : 'bg-white/80 border-slate-200 hover:bg-white text-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="subtipo_ajuste"
+                          value="ajuste_fatura_banco"
+                          checked={subtipoAjuste === 'ajuste_fatura_banco'}
+                          onChange={() => setSubtipoAjuste('ajuste_fatura_banco')}
+                          className="mt-0.5 text-purple-600 focus:ring-purple-500"
+                        />
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-slate-900">
+                            Ajuste da Fatura do Banco
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            Encargos, juros, tarifas, estornos ou créditos lançados pelo emissor
+                          </div>
+                        </div>
+                      </label>
+
+                      <label
+                        className={`p-3 rounded-lg border cursor-pointer transition flex items-start gap-2.5 ${
+                          subtipoAjuste === 'ajuste_tecnico_sap'
+                            ? 'bg-white border-purple-400 shadow-xs ring-1 ring-purple-300'
+                            : 'bg-white/80 border-slate-200 hover:bg-white text-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="subtipo_ajuste"
+                          value="ajuste_tecnico_sap"
+                          checked={subtipoAjuste === 'ajuste_tecnico_sap'}
+                          onChange={() => setSubtipoAjuste('ajuste_tecnico_sap')}
+                          className="mt-0.5 text-purple-600 focus:ring-purple-500"
+                        />
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-slate-900">
+                            Ajuste Técnico do SAP
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            Arredondamento, conciliação de centavos ou correção de saldo da fatura
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* 2. Efeito sobre a fatura */}
+                  <div>
+                    <Label className="text-xs font-semibold text-slate-700 block mb-1.5">
+                      Efeito sobre a fatura * (usuário sempre informa valor positivo)
+                    </Label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <label
+                        className={`p-3 rounded-lg border cursor-pointer transition flex items-start gap-2.5 ${
+                          efeitoFatura === 'aumenta'
+                            ? 'bg-rose-50 border-rose-300 shadow-xs ring-1 ring-rose-200'
+                            : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="efeito_fatura"
+                          value="aumenta"
+                          checked={efeitoFatura === 'aumenta'}
+                          onChange={() => setEfeitoFatura('aumenta')}
+                          className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                        />
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-rose-800">
+                            + Aumenta a fatura (Débito)
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            Soma na fatura e no comprometimento
+                          </div>
+                        </div>
+                      </label>
+
+                      <label
+                        className={`p-3 rounded-lg border cursor-pointer transition flex items-start gap-2.5 ${
+                          efeitoFatura === 'reduz'
+                            ? 'bg-emerald-50 border-emerald-300 shadow-xs ring-1 ring-emerald-200'
+                            : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="efeito_fatura"
+                          value="reduz"
+                          checked={efeitoFatura === 'reduz'}
+                          onChange={() => setEfeitoFatura('reduz')}
+                          className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
+                        />
+                        <div className="text-left">
+                          <div className="text-xs font-bold text-emerald-800">
+                            − Reduz a fatura (Crédito)
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            Subtrai da fatura e do comprometimento
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+
+                  {/* 3. Invariantes visíveis e desabilitadas */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-purple-200">
+                    <div className="p-2 bg-white rounded border border-purple-100 text-center">
+                      <div className="text-[10px] text-slate-500 uppercase font-semibold">
+                        Afeta Fatura
+                      </div>
+                      <div className="text-xs font-bold text-purple-700">Sim (100%)</div>
+                    </div>
+                    <div className="p-2 bg-white rounded border border-purple-100 text-center">
+                      <div className="text-[10px] text-slate-500 uppercase font-semibold">
+                        Comprometimento
+                      </div>
+                      <div className="text-xs font-bold text-purple-700">Sim (100%)</div>
+                    </div>
+                    <div className="p-2 bg-white rounded border border-purple-100 text-center">
+                      <div className="text-[10px] text-slate-500 uppercase font-semibold">
+                        Afeta Resultado
+                      </div>
+                      <div
+                        className={`text-xs font-bold ${
+                          subtipoAjuste === 'ajuste_fatura_banco'
+                            ? 'text-emerald-700'
+                            : 'text-slate-500'
+                        }`}
+                      >
+                        {subtipoAjuste === 'ajuste_fatura_banco' ? 'Sim' : 'Não'}
+                      </div>
+                    </div>
+                    <div className="p-2 bg-white rounded border border-purple-100 text-center">
+                      <div className="text-[10px] text-slate-500 uppercase font-semibold">
+                        Afeta Orçamento
+                      </div>
+                      <div className="text-xs font-bold text-slate-500">Não</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Data | Modalidade da Saída (para despesa) ou Pago com / Recebido em ou Cartão (para ajuste) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="lan-data" className="text-xs font-semibold text-slate-700">
@@ -729,7 +934,37 @@ export function ModalLancamento({
                   </div>
                 </div>
 
-                {tipo === 'despesa' ? (
+                {tipo === 'ajuste' ? (
+                  <div>
+                    <Label
+                      htmlFor="lan-cartao-ajuste"
+                      className="text-xs font-semibold text-slate-700 flex items-center justify-between"
+                    >
+                      <span>Cartão de Crédito *</span>
+                      <span className="text-[10px] text-purple-600 font-normal">
+                        obrigatório para ajuste
+                      </span>
+                    </Label>
+                    <Select value={cartaoAjusteId} onValueChange={setCartaoAjusteId} required>
+                      <SelectTrigger id="lan-cartao-ajuste" className="mt-1 text-xs bg-white">
+                        <SelectValue placeholder="Selecione o cartão de crédito" />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-64">
+                        {cartoes.map((c) => (
+                          <SelectItem key={`ajuste-cartao:${c.id}`} value={c.id}>
+                            <div className="flex items-center gap-2">
+                              <CreditCard className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                              <span>{c.nome}</span>
+                              <span className="text-slate-400 text-[11px]">
+                                (Fecha dia {c.dia_fechamento})
+                              </span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : tipo === 'despesa' ? (
                   <div>
                     <Label
                       htmlFor="lan-modalidade"
@@ -1563,27 +1798,57 @@ export function ModalLancamento({
                 </div>
               )}
 
+              {/* Informação da competência da fatura quando for ajuste */}
+              {tipo === 'ajuste' &&
+                cartaoAjusteId &&
+                (() => {
+                  const cObj = cartoes.find((c) => c.id === cartaoAjusteId)
+                  if (!cObj) return null
+                  const compCalc = faturaService.calcularCompetenciaCartao(
+                    data,
+                    cObj.dia_fechamento,
+                    cObj.dia_vencimento,
+                  )
+                  return (
+                    <div className="text-xs font-medium text-purple-800 bg-purple-100/70 border border-purple-200 rounded-md px-3 py-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="w-3.5 h-3.5 shrink-0 text-purple-700" />
+                        <span>
+                          Fatura impactada: <strong>{formatAnoMesPT(compCalc)}</strong> ({cObj.nome}
+                          )
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-purple-600">
+                        {efeitoFatura === 'aumenta' ? '+ Aumenta fatura' : '− Reduz fatura'}
+                      </span>
+                    </div>
+                  )
+                })()}
+
               {/* Regra do toggle "Lançamento pago" (Passo 2 e referência OrganiZe):
                   - O botão de ligar/desligar "Lançamento pago" aparece para Contas Bancárias (incluindo Transferências) e Dinheiro.
-                  - NÃO aparece quando o meio for cartão de crédito (quitado via fatura).
+                  - NÃO aparece quando o meio for cartão de crédito (quitado via fatura) e NUNCA para Ajustes.
                   - Para lançamentos fixos, se ligado, marca "pago" apenas a PRIMEIRA ocorrência; as futuras permanecem não pagas aguardando a ação do usuário no mês seguinte.
                   - Para lançamentos únicos ou transferências, se ligado, movimenta saldos imediatamente. Se desligado, fica pendente sem movimentar.
               */}
-              {(tipo === 'transferencia' || !pagoComDestino.startsWith('cartao:')) && (
-                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <div className="space-y-0.5">
-                    <Label className="text-xs font-semibold text-slate-800">Lançamento pago</Label>
-                    <p className="text-[11px] text-slate-500">
-                      {modoRepeticao === 'fixo'
-                        ? 'Para fixos: marca como paga apenas a primeira ocorrência. As futuras permanecem não pagas.'
-                        : tipo === 'transferencia'
-                          ? 'Se ligado, efetiva a transferência debitando a origem e creditando o destino.'
-                          : 'Se ligado, marca "pago" direto e atualiza o saldo bancário.'}
-                    </p>
+              {tipo !== 'ajuste' &&
+                (tipo === 'transferencia' || !pagoComDestino.startsWith('cartao:')) && (
+                  <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+                    <div className="space-y-0.5">
+                      <Label className="text-xs font-semibold text-slate-800">
+                        Lançamento pago
+                      </Label>
+                      <p className="text-[11px] text-slate-500">
+                        {modoRepeticao === 'fixo'
+                          ? 'Para fixos: marca como paga apenas a primeira ocorrência. As futuras permanecem não pagas.'
+                          : tipo === 'transferencia'
+                            ? 'Se ligado, efetiva a transferência debitando a origem e creditando o destino.'
+                            : 'Se ligado, marca "pago" direto e atualiza o saldo bancário.'}
+                      </p>
+                    </div>
+                    <Switch checked={pago} onCheckedChange={setPago} />
                   </div>
-                  <Switch checked={pago} onCheckedChange={setPago} />
-                </div>
-              )}
+                )}
 
               {/* Observações */}
               <div>
@@ -1627,7 +1892,9 @@ export function ModalLancamento({
                     ? 'bg-rose-600 hover:bg-rose-700'
                     : tipo === 'receita'
                       ? 'bg-emerald-600 hover:bg-emerald-700'
-                      : 'bg-blue-600 hover:bg-blue-700'
+                      : tipo === 'ajuste'
+                        ? 'bg-purple-600 hover:bg-purple-700'
+                        : 'bg-blue-600 hover:bg-blue-700'
                 }`}
               >
                 {salvando || isProcessing
