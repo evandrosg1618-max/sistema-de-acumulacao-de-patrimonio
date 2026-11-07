@@ -11,46 +11,60 @@ import { normalizarNomeEstabelecimento } from './normalizadorEstabelecimento'
  * o resumo soma os lançamentos processados e compara com o Total declarado.
  */
 export class BradescoParser {
-  // Início do quadro cinza de lançamentos
+  // Início do quadro cinza de lançamentos — pode reaparecer a cada página da fatura!
   private static readonly SECAO_INICIO = /^lan[çc]amentos\b/i
-  // Títulos de outras seções/tables que ENCERRAM o quadro de lançamentos
+
+  // Títulos de outras seções que legitimamente encerram o quadro de lançamentos.
+  // Rodapés de página ("Central de Relacionamento", "Ouvidoria", "Página X de Y", números de atendimento)
+  // e títulos repetidos NÃO devem impedir a reabertura do quadro na página seguinte.
+  // IMPORTANTE: Não deve casar com linhas com data ("01/10 Drogasil") nem com cartões.
   private static readonly SECAO_FIM =
-    /^(resumo\s+da\s+fatura|limites|demonstrativo|saldo\s+(anterior|de|total|previsto)|pagamento\s+m[íi]nimo|melhor\s+dia|programa|informativo|extrato|pontos|anuidade|tarifas)\b/i
+    /^(?:resumo\s+da\s+fatura|limites|demonstrativo|saldo\s+(?:anterior|de|total|previsto)|pagamento\s+m[íi]nimo|programa\s+de\s+pontos|extrato\s+de\s+pontos)\b/i
 
   static parse(fullText: string, lines: string[]): ParserResult {
     const avisos: string[] = []
     const linhasExtraidas: LinhaFaturaExtraida[] = []
     const naoReconhecidas: string[] = []
 
-    // 1. Metadados do Cabeçalho
+    // 1. Metadados do Cabeçalho — C5: SEM CHUMBADOS (extraído do PDF)
     const titulares = new Set<string>()
     const finais = new Set<string>()
-    let vencimento = '2026-11-05'
-    let fechamento = '2026-10-23'
-    let valorTotalDeclarado = 1612.81
+    let vencimento = ''
+    let fechamento = ''
+    let valorTotalDeclarado = 0
     let valorPagamentoAnterior = 0
 
     const matchVenc = fullText.match(/Vencimento\s*(\d{2}\/\d{2}\/\d{4})/i)
     if (matchVenc) {
       const [d, m, y] = matchVenc[1].split('/')
       vencimento = `${y}-${m}-${d}`
+    } else {
+      avisos.push('Vencimento não identificado no cabeçalho do PDF Bradesco.')
+    }
+
+    const matchFech =
+      fullText.match(/(?:melhor\s+dia|fechamento|corte)[^\d\n]*(\d{2}\/\d{2}\/\d{4})/i) ||
+      fullText.match(/Previs[aã]o\s+de\s+fechamento[^\d\n]*(\d{2}\/\d{2}\/\d{4})/i)
+    if (matchFech) {
+      const [d, m, y] = matchFech[1].split('/')
+      fechamento = `${y}-${m}-${d}`
     }
 
     // Total declarado na fatura (cabeçalho/resumo) — fonte de dados, não de regras
-    const matchTotal = fullText.match(
-      /Total\s+da\s+fatura(?:\s+em\s+real)?\s*(?:R\$\s*)?([\d.]+,\d{2})/i,
-    )
+    const matchTotal =
+      fullText.match(/Total\s+da\s+fatura(?:\s+em\s+real)?\s*(?:R\$\s*)?([\d.]+,\d{2})/i) ||
+      fullText.match(/Total\s+a\s+pagar\s*(?:R\$\s*)?([\d.]+,\d{2})/i)
     if (matchTotal) {
       valorTotalDeclarado = parseFloat(matchTotal[1].replace(/\./g, '').replace(',', '.'))
     }
 
-    const competencia = vencimento.slice(0, 7)
-    const mesFatura = parseInt(competencia.slice(5, 7), 10) || 11
-    const anoFatura = parseInt(competencia.slice(0, 4), 10) || 2026
+    const competencia = vencimento ? vencimento.slice(0, 7) : new Date().toISOString().slice(0, 7)
+    const mesFatura = vencimento ? parseInt(vencimento.slice(5, 7), 10) : 11
+    const anoFatura = vencimento ? parseInt(vencimento.slice(0, 4), 10) : new Date().getFullYear()
 
-    // 2. Processar SOMENTE o quadro "Lançamentos"
-    let titularAtual = 'EVANDRO DA SILVA GUEDES'
-    let finalAtual = '6429'
+    // 2. Processar o quadro "Lançamentos" — C5: titular/final iniciais vazios, extraídos dinamicamente
+    let titularAtual = ''
+    let finalAtual = ''
     let ordemCounter = 1
     let inSecao = false
     let foraDaSecao = 0
@@ -159,25 +173,28 @@ export class BradescoParser {
     }
 
     for (const rawLine of lines) {
-      const line = rawLine.trim()
+      const line = rawLine
+        .replace(/\u00a0/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
       if (!line) continue
 
-      // Delimitação da seção (C1)
+      // Início do quadro "Lançamentos" (ou reabertura na página seguinte)
       if (BradescoParser.SECAO_INICIO.test(line)) {
         inSecao = true
         pendente = null
         continue
       }
-      if (BradescoParser.SECAO_FIM.test(line)) {
+
+      // Fim do quadro: somente se NÃO for uma linha de lançamento com data e coincidir com SECAO_FIM
+      if (inSecao && BradescoParser.SECAO_FIM.test(line) && !/^\d{2}\/\d{2}/.test(line)) {
         inSecao = false
         pendente = null
-        continue
-      }
-      if (!inSecao) {
         foraDaSecao++
         continue
       }
 
+      // Mudança de titular/cartão (pode ocorrer antes ou dentro do quadro)
       const matchTitular = line.match(titularCartaoRegex)
       if (matchTitular) {
         titularAtual = matchTitular[1].trim()
@@ -188,12 +205,40 @@ export class BradescoParser {
         continue
       }
 
+      // Ignora rodapés de página conhecidos do Bradesco (não devem fechar a seção nem gerar avisos)
+      if (
+        /^(?:Central\s+de\s+Relacionamento|SAC\s+Bradesco|Ouvidoria|P[aá]gina\s+\d+|Para\s+mais\s+informa[çc][õo]es|Demais\s+regi[õo]es|Capitais\s+e\s+regi[õo]es)/i.test(
+          line,
+        )
+      ) {
+        continue
+      }
+
       // Totais/subtotais dentro do quadro não são lançamentos
       if (
         /^(total\b|total para\b|subtotal)/i.test(line) ||
         line.includes('Previsão de fechamento')
       ) {
         pendente = null
+        continue
+      }
+
+      // Se não estamos formalmente inSecao:
+      // Se a linha tem cara clara de lançamento com data (ex: "01/10 DROGASIL ... 121,07"),
+      // e NÃO é de limites ou resumo, reabrimos a seção inSecao automaticamente (C7)
+      if (!inSecao) {
+        const isTabelaLimites = /limite|cr[ée]dito\s+total|saque|dispon[íi]vel/i.test(line)
+        const temDataEValor = linhaDataPrimeiro.test(line) || linhaDescPrimeiro.test(line)
+        if (temDataEValor && !isTabelaLimites) {
+          inSecao = true
+        } else {
+          foraDaSecao++
+          continue
+        }
+      }
+
+      // Cabeçalho de colunas da tabela: ignorar
+      if (/^(?:Data|Movimenta[cç][aã]o|Valor|Hist[óo]rico|Descri[cç][aã]o)/i.test(line)) {
         continue
       }
 
@@ -234,7 +279,7 @@ export class BradescoParser {
         continue
       }
 
-      // C4: nada cai em silêncio dentro do quadro correto
+      // Nada cai em silêncio dentro do quadro correto
       naoReconhecidas.push(line)
     }
 
@@ -256,6 +301,20 @@ export class BradescoParser {
           .toFixed(2)
           .replace('.', ',')} ignorado como lançamento (informativo de pagamento).`,
       )
+    }
+
+    if (linhasExtraidas.length === 0) {
+      avisos.push('Nenhum lançamento reconhecido no quadro Lançamentos do Bradesco.')
+      const amostra = lines
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .slice(0, 15)
+      if (amostra.length > 0) {
+        avisos.push(
+          `Amostra do texto extraído do PDF Bradesco (primeiras 15 linhas):\n` +
+            amostra.map((l, idx) => `${idx + 1}: ${l}`).join('\n'),
+        )
+      }
     }
 
     // Conferência (diretriz do usuário): soma dos lançamentos processados

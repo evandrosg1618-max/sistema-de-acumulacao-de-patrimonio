@@ -15,11 +15,15 @@ import { normalizarNomeEstabelecimento } from './normalizadorEstabelecimento'
  * Padrão de parcelas: "04 DE 10", "08 DE 08", "02 DE 05", "11 DE 12".
  */
 export class CaixaParser {
-  // Seções válidas: título contendo "COMPRAS PARCELADAS" ou "COMPRAS"
-  private static readonly SECAO_COMPRAS = /^\s*\**\s*(compras\s+parceladas|compras)\b/i
-  // Títulos que encerram a seção de compras (Demonstrativo, Anuidade, totais etc.)
+  // Seções válidas: título contendo "COMPRAS PARCELADAS", "COMPRAS NACIONAIS", "COMPRAS INTERNACIONAIS" ou "COMPRAS"
+  // Tolerante a espaços, hífens, asteriscos e quebras
+  private static readonly SECAO_COMPRAS =
+    /^\s*[*•\-–]*\s*(compras\s+parceladas|compras\s+nacionais|compras\s+internacionais|compras)\b/i
+
+  // Títulos que legitimamente encerram o bloco de compras quando iniciam a linha
+  // NUNCA casar se for linha com data (ex: "28/09 PAGAMENTO..."), nem se a palavra aparecer no meio de uma descrição
   private static readonly SECAO_FIM =
-    /(demonstrativo|anuidade|extrato|pagamentos?|encargos|juros|saldo|total|fatura|atendimento|dep[óo]sitos?|d[ée]bitos?\s+autom)/i
+    /^(?:demonstrativo|anuidade|extrato|encargos|juros|central\s+de\s+atendimento|ouvidoria|atendimento|dep[óo]sitos?|d[ée]bitos?\s+autom[aá]ticos?|op[cç][õo]es\s+de\s+parcelamento)\b/i
 
   static parse(fullText: string, lines: string[], emissorForcado?: EmissorFatura): ParserResult {
     const avisos: string[] = []
@@ -32,48 +36,67 @@ export class CaixaParser {
     const emissor: EmissorFatura = isMaster ? 'caixa_master' : 'caixa_visa'
     const emissorNome = isMaster ? 'CAIXA Mastercard' : 'CAIXA Visa Infinite'
 
-    // Metadados
+    // Metadados — C5: NENHUM valor ou data chumbada
     const titulares = new Set<string>()
     const finais = new Set<string>()
-    let vencimento = '2026-11-01'
-    let fechamento = '2026-10-17'
+    let vencimento = ''
+    let fechamento = ''
     let valorTotalDeclarado = 0
     let valorPagamentoAnterior = 0
 
-    const matchVenc = fullText.match(/VENCIMENTO\s*(\d{2}\/\d{2}\/\d{4})/i)
+    // Vencimento: busca "VENCIMENTO 01/11/2026" ou similar no texto completo
+    const matchVenc = fullText.match(/VENCIMENTO[^\d\n]*(\d{2}\/\d{2}\/\d{4})/i)
     if (matchVenc) {
       const [d, m, y] = matchVenc[1].split('/')
       vencimento = `${y}-${m}-${d}`
+    } else {
+      avisos.push('Vencimento não identificado automaticamente no PDF da CAIXA.')
     }
 
-    const matchTotal = fullText.match(
-      /VALOR\s+TOTAL\s+DESTA\s+FATURA\s*:?\s*R?\$?\s*([\d.]+,\d{2})/i,
-    )
+    // Fechamento: busca "MELHOR DIA PARA COMPRA" ou "FECHAMENTO" ou "DATA DE CORTE"
+    const matchFech =
+      fullText.match(/(?:melhor\s+dia|fechamento|corte)[^\d\n]*(\d{2}\/\d{2}\/\d{4})/i) ||
+      fullText.match(
+        /per[íi]odo[^\d\n]*\d{2}\/\d{2}\/\d{4}\s*(?:a|at[é|e])\s*(\d{2}\/\d{2}\/\d{4})/i,
+      )
+    if (matchFech) {
+      const [d, m, y] = matchFech[1].split('/')
+      fechamento = `${y}-${m}-${d}`
+    }
+
+    const matchTotal =
+      fullText.match(/VALOR\s+TOTAL\s+DESTA\s+FATURA\s*:?\s*R?\$?\s*([\d.]+,\d{2})/i) ||
+      fullText.match(/TOTAL\s+DA\s+FATURA\s*:?\s*R?\$?\s*([\d.]+,\d{2})/i) ||
+      fullText.match(/TOTAL\s+A\s+PAGAR\s*:?\s*R?\$?\s*([\d.]+,\d{2})/i)
     if (matchTotal) {
       valorTotalDeclarado = parseFloat(matchTotal[1].replace(/\./g, '').replace(',', '.'))
     }
 
     let titularAtual = ''
     let finalAtual = ''
-    // Competência derivada do vencimento extraído do PDF (fonte de dados, não regra fixa)
-    const competencia = vencimento.slice(0, 7)
-    const mesFatura = parseInt(competencia.slice(5, 7), 10) || 11
-    const anoFatura = parseInt(competencia.slice(0, 4), 10) || new Date().getFullYear()
+    // Competência derivada do vencimento extraído do PDF
+    const competencia = vencimento ? vencimento.slice(0, 7) : new Date().toISOString().slice(0, 7)
+    const mesFatura = vencimento ? parseInt(vencimento.slice(5, 7), 10) : 11
+    const anoFatura = vencimento ? parseInt(vencimento.slice(0, 4), 10) : new Date().getFullYear()
 
     let inSecaoCompras = false
+    let secoesComprasEncontradas = 0
     let ordemCounter = 1
 
     // Regex de cabeçalho de seção de cartão:
     // Ex: "EVANDRO DA SILVA GUEDES (Cartão 4882)"
     // Ex: "JOSIVANIA M FERNANDES (Cartão 7965)"
+    // Ex: "Cartão 4882 - EVANDRO DA SILVA GUEDES"
     const headerCartaoRegex = /^([A-ZÀ-Ú\s]+?)\s*\((?:Cart[aã]o|Cartao)\s+(\d{4})\)/i
+    const headerCartaoAltRegex = /^(?:Cart[aã]o|Cartao)\s+(\d{4})\s*[-–]\s*([A-ZÀ-Ú\s]+)/i
 
-    // Regex de linha CAIXA (C4 — tolerante a variações de layout):
+    // Regex de linha CAIXA (tolerante a variações de layout):
     // Ex: "20/06 JK AUTO PECAS 04 DE 10 CACOAL 298,00D"
     // Ex: "28/09 EBN*SPOTIFY CURITIBA 23,90D"
     // Ex: "28/09 EBN*SPOTIFY CURITIBA 23,90 D" (espaço entre valor e sufixo)
+    // Ex: "28/09 EBN*SPOTIFY CURITIBA R$ 23,90 D"
     const linhaCaixaRegex =
-      /^(\d{2}\/\d{2})\s+(.+?)\s+([\d.]+,\d{2})\s*\**\s*([DC])\s*(?:\((?:P|D)\))?$/i
+      /^(\d{2}\/\d{2})\s+(.+?)\s+(?:R\$\s*)?([\d.]+,\d{2})\s*\**\s*([DC])(?:\s*\((?:P|D)\))?$/i
 
     // Descrição quebrada: data + início da descrição numa linha, valor noutra
     const linhaSemValor = /^(\d{2}\/\d{2})\s+(.+)$/
@@ -157,38 +180,65 @@ export class CaixaParser {
     }
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i].trim()
-      if (!line) continue
+      const rawLine = lines[i]
+        .replace(/\u00a0/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      if (!rawLine) continue
+      const line = rawLine
 
       // Mudança de cartão / titular (vale dentro ou fora da seção)
-      const matchHeaderCartao = line.match(headerCartaoRegex)
+      const matchHeaderCartao = line.match(headerCartaoRegex) || line.match(headerCartaoAltRegex)
       if (matchHeaderCartao) {
-        titularAtual = matchHeaderCartao[1].trim()
-        finalAtual = matchHeaderCartao[2].trim()
+        const t1 = matchHeaderCartao[1].trim()
+        const t2 = matchHeaderCartao[2].trim()
+        if (/^\d{4}$/.test(t1)) {
+          finalAtual = t1
+          titularAtual = t2
+        } else {
+          titularAtual = t1
+          finalAtual = t2
+        }
         titulares.add(titularAtual)
         finais.add(finalAtual)
         pendente = null
         continue
       }
 
-      // Delimitação de seção (C2)
-      if (
-        CaixaParser.SECAO_COMPRAS.test(line) &&
-        !CaixaParser.SECAO_FIM.test(line.replace(CaixaParser.SECAO_COMPRAS, ''))
-      ) {
+      // Delimitação de seção (C2 e C6):
+      // Início de compras: "COMPRAS", "COMPRAS PARCELADAS", "COMPRAS NACIONAIS", etc.
+      if (CaixaParser.SECAO_COMPRAS.test(line)) {
         inSecaoCompras = true
+        secoesComprasEncontradas++
         pendente = null
         continue
       }
-      // Qualquer outro título de seção/rodapé encerra a seção de compras
-      if (
-        !CaixaParser.SECAO_COMPRAS.test(line) &&
-        CaixaParser.SECAO_FIM.test(line) &&
-        !/^\d{2}\/\d{2}/.test(line)
-      ) {
+
+      // Fim de seção de compras: só deve encerrar se NÃO tiver data (não for lançamento)
+      // e começar explicitamente com uma das palavras-chave de fim
+      if (inSecaoCompras && CaixaParser.SECAO_FIM.test(line) && !/^\d{2}\/\d{2}/.test(line)) {
         inSecaoCompras = false
         pendente = null
         continue
+      }
+
+      // Linhas fora da seção de compras são ignoradas
+      if (!inSecaoCompras) {
+        // Se encontramos uma linha com formato claro de transação CAIXA fora de seção formalmente aberta,
+        // mas já tivemos um titular/cartão, pode ser que o cabeçalho de compras tenha quebrado
+        // Ex: "JK AUTO PECAS 04 DE 10" com data
+        // Vamos checar se começa com data e termina com D/C
+        if (
+          linhaCaixaRegex.test(line) &&
+          !line.toUpperCase().includes('PAGAMENTO') &&
+          !line.toUpperCase().includes('OBRIGADO')
+        ) {
+          // É uma transação de compras legítima cujo cabeçalho foi engolido ou variado
+          inSecaoCompras = true
+          secoesComprasEncontradas++
+        } else {
+          continue
+        }
       }
 
       if (!inSecaoCompras) continue
@@ -261,6 +311,17 @@ export class CaixaParser {
       avisos.push(
         'Nenhum lançamento reconhecido nas seções COMPRAS / COMPRAS PARCELADAS. Verifique se o PDF é uma fatura CAIXA e se as seções de compras estão presentes.',
       )
+      // Amostra das 15 primeiras linhas para diagnóstico
+      const amostra = lines
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .slice(0, 15)
+      if (amostra.length > 0) {
+        avisos.push(
+          `Amostra do texto extraído do PDF da CAIXA (primeiras 15 linhas):\n` +
+            amostra.map((l, idx) => `${idx + 1}: ${l}`).join('\n'),
+        )
+      }
     }
 
     return {

@@ -71,58 +71,62 @@ export function ModalSessaoExistenteCartao({
 
   return (
     <Dialog open={aberto} onOpenChange={(open) => !open && fechar()}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[640px] w-[95vw]">
         <DialogHeader>
-          <div className="flex items-center gap-3 mb-2">
+          <div className="flex items-center gap-3 mb-1">
             <div className="p-2 rounded-full bg-amber-500/10 text-amber-500">
               <AlertCircle className="w-5 h-5" />
             </div>
             <DialogTitle className="text-lg">Fatura em Processamento</DialogTitle>
           </div>
-          <DialogDescription className="text-sm text-muted-foreground pt-1">
+          <DialogDescription className="text-sm text-muted-foreground pt-1 leading-relaxed">
             Este cartão possui uma fatura processada, deseja visualizá-la? Ou Importar nova fatura?
           </DialogDescription>
         </DialogHeader>
 
-        <div className="my-2 p-3.5 rounded-lg border border-border/70 bg-muted/40 text-sm space-y-1.5">
+        <div className="my-2 p-3.5 rounded-lg border border-border/70 bg-muted/40 text-sm space-y-2">
           <div className="font-semibold text-foreground flex items-center justify-between">
-            <span>{nomeExibicao}</span>
-            <span className="text-xs px-2 py-0.5 rounded bg-amber-500/15 text-amber-500 font-medium">
+            <span className="text-base">{nomeExibicao}</span>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 font-medium">
               Em revisão
             </span>
           </div>
-          <div className="text-xs text-muted-foreground truncate">
+          <div className="text-xs text-muted-foreground break-all">
             <span className="font-medium text-foreground">Arquivo:</span> {sessaoAlvo.arquivo_nome}
           </div>
-          <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/40">
-            <span>{sessaoAlvo.quantidade_itens} lançamentos</span>
-            <span>Total: {formatMoneyBRL(sessaoAlvo.valor_total_fatura || 0)}</span>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground pt-2 border-t border-border/40">
+            <span className="font-medium text-foreground">
+              {sessaoAlvo.quantidade_itens} lançamentos
+            </span>
+            <span className="font-medium text-foreground">
+              Total: {formatMoneyBRL(sessaoAlvo.valor_total_fatura || 0)}
+            </span>
             <span>{dataFormatada}</span>
           </div>
         </div>
 
-        <p className="text-xs text-muted-foreground">
+        <p className="text-xs text-muted-foreground leading-relaxed">
           Ao importar uma nova fatura, ela prevalecerá para a conferência e a fatura em
           processamento anterior será descartada. Lançamentos que já tenham sido gravados no banco
           anteriormente permanecem intactos.
         </p>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2 pt-3">
+        <DialogFooter className="flex-col sm:flex-row gap-2.5 pt-3">
           <Button
             type="button"
             variant="outline"
             onClick={handleVisualizar}
-            className="flex-1 gap-2"
+            className="flex-1 gap-2 whitespace-nowrap"
           >
-            <FileText className="w-4 h-4" />
+            <FileText className="w-4 h-4 shrink-0" />
             Visualizar fatura em processamento
           </Button>
           <Button
             type="button"
             onClick={handleImportarNova}
-            className="flex-1 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white"
+            className="flex-1 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap"
           >
-            <UploadCloud className="w-4 h-4" />
+            <UploadCloud className="w-4 h-4 shrink-0" />
             Importar nova fatura
           </Button>
         </DialogFooter>

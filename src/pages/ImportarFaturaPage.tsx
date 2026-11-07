@@ -14,6 +14,7 @@ import {
   calcularHashArquivo,
   PasswordRequiredError,
   InvalidPasswordError,
+  PdfExtractionOutput,
 } from '@/services/pdf/pdfReader'
 import { executarParserFatura } from '@/services/pdf/faturaParserRouter'
 import { ModalSenhaPdf } from '@/components/ModalSenhaPdf'
@@ -22,6 +23,8 @@ import { ModalSessaoExistenteCartao } from '@/components/ModalSessaoExistenteCar
 import { ModalDescarteNavegacao } from '@/components/ModalDescarteNavegacao'
 import { ModalVisualizarFaturasEmProcessamento } from '@/components/ModalVisualizarFaturasEmProcessamento'
 import { LinhaRevisaoFaturaItem } from '@/components/LinhaRevisaoFaturaItem'
+import { PainelTextoExtraido } from '@/components/PainelTextoExtraido'
+import { ParserResult } from '@/types/faturaPdf'
 import { Cartao, Categoria, Subcategoria } from '@/types/sap'
 import { formatMoneyBRL } from '@/lib/formatters'
 import { Button } from '@/components/ui/button'
@@ -78,6 +81,9 @@ export const ImportarFaturaPage: React.FC = () => {
   const [filtroAtivo, setFiltroAtivo] = useState<string>('todos')
   const [modalMassaAberto, setModalMassaAberto] = useState(false)
   const [importandoFinal, setImportandoFinal] = useState(false)
+  // C4 — Painel "Ver texto extraído" (ferramenta de homologação)
+  const [extracaoAtual, setExtracaoAtual] = useState<PdfExtractionOutput | null>(null)
+  const [parsedAtual, setParsedAtual] = useState<ParserResult | null>(null)
 
   // Estados C2, C3, C4, C5 (Ciclo de Vida)
   const [sessaoExistenteCartao, setSessaoExistenteCartao] =
@@ -299,6 +305,8 @@ export const ImportarFaturaPage: React.FC = () => {
       const sessao = await faturaImportacaoService.obterSessao(wsId, importacaoId)
       setSessaoAtual(sessao.importacao)
       setLinhas(linhasGravadas)
+      setExtracaoAtual(extraction)
+      setParsedAtual(parsed)
       setSalvouContinuarDepois(false)
 
       toast.success(
@@ -510,6 +518,8 @@ export const ImportarFaturaPage: React.FC = () => {
     setModalDescarteAberto(false)
     setSessaoAtual(null)
     setLinhas([])
+    setExtracaoAtual(null)
+    setParsedAtual(null)
     setArquivoSelecionado(null)
     setArquivoBuffer(null)
     navigate(caminhoNavegacaoPendente || '/cartoes')
@@ -977,6 +987,9 @@ export const ImportarFaturaPage: React.FC = () => {
               </div>
             </div>
           </Card>
+
+          {/* C4 — Painel de Homologação / Diagnóstico: Ver texto extraído */}
+          <PainelTextoExtraido extraction={extracaoAtual} parsed={parsedAtual} />
 
           {/* Lista de Linhas Temporárias */}
           <div className="space-y-2">
