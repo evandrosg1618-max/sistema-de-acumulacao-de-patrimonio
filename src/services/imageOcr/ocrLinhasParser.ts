@@ -109,23 +109,38 @@ function normalizarTokenMesAbreviado(tokenRaw: string): number | null {
 export function extrairValorMonetario(
   texto: string,
 ): { valor: number; textoRestante: string } | null {
-  // Procura potencial token de valor monetário no fim da linha ou precedido de R$
-  // Token pode conter dígitos, letras O/o/l/I (erros de OCR), ponto ou vírgula
-  // Exemplos: "R$ 121,07", "247,00", "247,OO", "247.00", "1.250,50", "35,00", "59,6"
-  const regexFim = /(?:R\$\s*)?([0-9OlI]{1,3}(?:[.,][0-9OlI]{3})*[.,][0-9OlI]{1,2})\b\s*$/i
-  const matchFim = texto.match(regexFim)
+  // Procura token de valor no final da linha (ou precedido de R$)
+  // Suporta sufixo de débito 'D' ou 'd' ou '0' (confusão de D com 0 no OCR da CAIXA),
+  // e prefixo 's' fantasma (ex: s357D -> 35,70)
+  // Formatos esperados:
+  // - "93,36D", "483,66D", "3767D", "s357D"
+  // - "93,360", "67,330", "94,830", "44,850", "42,100" (vírgula + 3 dígitos -> descarta 3º dígito fantasma)
+  // - "100.000", "296.000", "82.030", "37,900" (ponto com 3 dígitos ou 2 dígitos)
+  // - "280500", "33310" (4 a 6 dígitos sem separador -> últimos 2 são centavos)
+  // - "247,00", "247.00", "247,OO", "121,07", "R$ 77,49"
+  const tokens = texto.trim().split(/\s+/)
+  if (tokens.length === 0) return null
 
-  if (matchFim && matchFim[1]) {
-    const parsed = parsearTokenMonetario(matchFim[1])
+  // Tenta do último token em direção ao início (no máximo os últimos 2 tokens para caso o R$ esteja separado)
+  for (let i = tokens.length - 1; i >= Math.max(0, tokens.length - 2); i--) {
+    const rawToken = tokens[i]
+    const parsed = parsearTokenMonetario(rawToken)
     if (parsed && parsed.valor > 0) {
-      const idx = matchFim.index ?? 0
-      const textoRestante = texto.substring(0, idx).trim()
+      // Reconstrói texto restante removendo esse token (e R$ anterior se houver)
+      const tokensRestantes = tokens.slice(0, i)
+      if (
+        tokensRestantes.length > 0 &&
+        tokensRestantes[tokensRestantes.length - 1].toUpperCase() === 'R$'
+      ) {
+        tokensRestantes.pop()
+      }
+      const textoRestante = tokensRestantes.join(' ').trim()
       return { valor: parsed.valor, textoRestante }
     }
   }
 
-  // Alternativa: R$ no meio ou fim com formato monetário
-  const regexRS = /R\$\s*([0-9OlI]{1,3}(?:[.,][0-9OlI]{3})*[.,][0-9OlI]{1,2})\b/i
+  // Alternativa: R$ explícito no meio da linha
+  const regexRS = /R\$\s*([0-9OlIsSdD.,]+)\b/i
   const matchRS = texto.match(regexRS)
   if (matchRS && matchRS[1]) {
     const parsed = parsearTokenMonetario(matchRS[1])
@@ -139,44 +154,91 @@ export function extrairValorMonetario(
 }
 
 function parsearTokenMonetario(tokenBruto: string): { valor: number } | null {
+  if (!tokenBruto) return null
+  let t = tokenBruto.trim()
+
+  // Remove prefixo "R$" se embutido
+  t = t.replace(/^R\$\s*/i, '')
+
+  // Remove "D" ou "d" final (marcador de Débito, ex: "93,36D" -> "93,36", "3767D" -> "3767")
+  t = t.replace(/[Dd]$/, '')
+
+  // Trata 's' ou 'S' no início se seguido de dígitos (ex: "s357" -> "357", "s2,030" -> "2,030")
+  if (/^[sS]\d/.test(t)) {
+    t = t.substring(1)
+  }
+
   // Substitui confusões clássicas de OCR em dígitos (O/o -> 0, l/I -> 1)
-  const normalizado = tokenBruto.replace(/[Oo]/g, '0').replace(/[lI]/g, '1')
+  t = t.replace(/[Oo]/g, '0').replace(/[lI]/g, '1')
 
   // Verifica se há vírgula e/ou ponto
-  const temVirgula = normalizado.includes(',')
-  const temPonto = normalizado.includes('.')
+  const temVirgula = t.includes(',')
+  const temPonto = t.includes('.')
 
   let limpo = ''
 
   if (temVirgula && temPonto) {
-    // Ex: "1.250,50" -> padrão brasileiro
-    const ultVirgula = normalizado.lastIndexOf(',')
-    const ultPonto = normalizado.lastIndexOf('.')
+    const ultVirgula = t.lastIndexOf(',')
+    const ultPonto = t.lastIndexOf('.')
     if (ultVirgula > ultPonto) {
-      // 1.250,50
-      limpo = normalizado.replace(/\./g, '').replace(',', '.')
+      // 1.250,50 ou 1.250,500
+      let dec = t.substring(ultVirgula + 1)
+      if (dec.length === 3) dec = dec.substring(0, 2)
+      limpo = `${t.substring(0, ultVirgula).replace(/\./g, '')}.${dec}`
     } else {
       // 1,250.50
-      limpo = normalizado.replace(/,/g, '')
+      limpo = t.replace(/,/g, '')
     }
   } else if (temVirgula) {
-    // Ex: "247,00" ou "1250,50" ou "59,6"
-    limpo = normalizado.replace(',', '.')
+    // Ex: "93,360" (vírgula + 3 dígitos: o 3º é o "D" lido como zero pelo OCR) -> descarta último dígito
+    // Ex: "247,00", "59,6", "67,330", "94,830", "37,900"
+    const partes = t.split(',')
+    if (partes.length === 2) {
+      let dec = partes[1]
+      if (dec.length === 3) {
+        // Vírgula + 3 dígitos: descarta o último dígito fantasma (93,360 -> 93,36; 37,900 -> 37,90)
+        dec = dec.substring(0, 2)
+      }
+      limpo = `${partes[0]}.${dec}`
+    } else {
+      return null
+    }
   } else if (temPonto) {
-    // Ex: "247.00" ou "1250.50"
-    // Ponto como decimal: deve ter 2 dígitos após o ponto no final (ex: .00)
-    // Se tiver mais partes (ex: 1.250.00), trata a última como decimal
-    const partes = normalizado.split('.')
-    if (partes.length === 2 && (partes[1].length === 2 || partes[1].length === 1)) {
-      limpo = normalizado
-    } else if (partes.length > 2 && partes[partes.length - 1].length === 2) {
-      const decimal = partes.pop()!
-      limpo = `${partes.join('')}.${decimal}`
+    // Ex: "100.000", "296.000", "82.030", "247.00", "62.900", "114.800"
+    // No OCR CAIXA, "100.000" representa 100,00 (ponto decimal com 3 dígitos onde o 3º é D lido como 0)
+    const partes = t.split('.')
+    if (partes.length === 2) {
+      let dec = partes[1]
+      if (dec.length === 3) {
+        // "100.000" -> 100,00; "296.000" -> 296,00; "82.030" -> 82,03
+        dec = dec.substring(0, 2)
+      }
+      limpo = `${partes[0]}.${dec}`
+    } else if (partes.length > 2) {
+      // Ex: 1.250.50 ou 1.250.000
+      let dec = partes.pop()!
+      if (dec.length === 3) dec = dec.substring(0, 2)
+      limpo = `${partes.join('')}.${dec}`
     } else {
       return null
     }
   } else {
-    return null
+    // Sem separador: ex "280500" -> 280,50, "33310" -> 33,31, "3767" -> 37,67, "s357" (já 357) -> 35,70 ou 3,57
+    // Se tiver entre 4 e 6 dígitos puros, os últimos 2 dígitos são centavos
+    if (/^\d{4,6}$/.test(t)) {
+      const centavos = t.substring(t.length - 2)
+      const inteiros = t.substring(0, t.length - 2)
+      limpo = `${inteiros}.${centavos}`
+    } else if (/^\d{3}$/.test(t)) {
+      // Ex: "357" (de s357D -> R$ 35,70)
+      const centavos = t.substring(1) // 57
+      const inteiros = t.substring(0, 1) // 3
+      limpo = `${inteiros}.${centavos}` // 3.57 ou 35.7? Atenção: s357D na verdade é 53,57D ou 35,70D? O prompt diz: "s357D→35,70"
+      // Se t="357" e a especificação diz: "s357D→35,70", temos 35.70
+      limpo = `${t.substring(0, 2)}.${t.substring(2)}0`
+    } else {
+      return null
+    }
   }
 
   const v = parseFloat(limpo)
@@ -222,8 +284,6 @@ export function extrairDataInicial(texto: string, anoPadrao?: number): DataExtra
 
   // 1. Procuramos padrão mês abreviado globalmente na linha:
   // Ex: "22set", "05 out", "12jan", "01 out", "14ago", "OD 22set", "DO 26set", "D 23set", "05out"
-  // A data pode estar precedida de início de string, espaço ou letras de marcador ("OD22set").
-  // O grupo 1 é o dia (1-2 dígitos), grupo 2 é o mês (3 caracteres alfanuméricos), grupo 3 opcional é o ano.
   const regexAbrevGlobal =
     /(?:^|[\sA-Za-z])(\d{1,2})\s*[-/]?\s*([A-Za-z0-9]{3})(?:\s*[-/]?\s*(\d{2,4}))?(?=\s+|$|[A-Za-z])/gi
   let matchAbrev: RegExpExecArray | null
@@ -237,8 +297,6 @@ export function extrairDataInicial(texto: string, anoPadrao?: number): DataExtra
         ano = parseInt(matchAbrev[3], 10)
         if (ano < 100) ano += 2000
       }
-      // O match inteiro pode ter pego o caractere delimitador inicial (espaço ou letra do marcador).
-      // Calculamos o índice exato onde começam os dígitos do dia:
       const offsetDigito = matchAbrev[0].indexOf(matchAbrev[1])
       const indiceReal = matchAbrev.index + (offsetDigito >= 0 ? offsetDigito : 0)
       const textoCasado = matchAbrev[0].substring(offsetDigito >= 0 ? offsetDigito : 0)
@@ -254,8 +312,8 @@ export function extrairDataInicial(texto: string, anoPadrao?: number): DataExtra
     }
   }
 
-  // 2. Procuramos padrão data numérica:
-  // Ex: "01/10", "1/10/2026", "22/09"
+  // 2. Procuramos padrão data numérica com separador:
+  // Ex: "01/10", "1/10/2026", "22/09", "25/08", "29/08"
   const regexNumGlobal = /\b(\d{1,2})[/\-.](\d{1,2})(?:[/\-.](\d{2,4}))?\b/g
   let matchNum: RegExpExecArray | null
   while ((matchNum = regexNumGlobal.exec(texto)) !== null) {
@@ -274,6 +332,28 @@ export function extrairDataInicial(texto: string, anoPadrao?: number): DataExtra
         dia: diaNum,
         mes: mesNum,
         ano,
+      })
+    }
+  }
+
+  // 3. Suporte formato CAIXA sem separador ddmm (ex: "1902" -> 19/02, "2508" -> 25/08, "2608" -> 26/08, "2912" -> 29/12, "0209" -> 02/09, "2006" -> 20/06)
+  // Normalmente após marcadores iniciais como EB, mM, BD, m, 1, etc., ou no início
+  const regexDdmmGlobal = /(?:^|\s|[A-Za-z]{1,4}\s+)(\d{2})(\d{2})(?=\s+[A-Za-z*])/g
+  let matchDdmm: RegExpExecArray | null
+  while ((matchDdmm = regexDdmmGlobal.exec(texto)) !== null) {
+    const diaNum = parseInt(matchDdmm[1], 10)
+    const mesNum = parseInt(matchDdmm[2], 10)
+    if (diaNum >= 1 && diaNum <= 31 && mesNum >= 1 && mesNum <= 12) {
+      const matchCompleto = matchDdmm[0]
+      const offsetDigito = matchCompleto.search(/\d{4}/)
+      const indiceReal = matchDdmm.index + (offsetDigito >= 0 ? offsetDigito : 0)
+      candidatos.push({
+        tipo: 'numerico',
+        indiceInicio: indiceReal,
+        comprimentoMatch: 4,
+        dia: diaNum,
+        mes: mesNum,
+        ano: anoAtual,
       })
     }
   }
@@ -357,13 +437,21 @@ export function extrairParcelamento(texto: string): {
     }
   }
 
-  // Padrão 2: "04 DE 10" ou "4 DE 12" ou "PARC 04 DE 10"
-  const regexDe = /\b(?:PARC(?:ELA)?\s*)?(\d{1,2})\s+DE\s+(\d{1,2})\b/i
+  // Padrão 2: "04 DE 10", "4 DE 12", "PARC 04 DE 10" ou variações CAIXA OCR:
+  // "02DE0S", "O02DEOS", "O8DEOS", "02DEO2", "O4DE10", "10DE 12", "04DE07", "07 DE0S", "06DEO6", "0SDEO6"
+  // Permite prefixo O/0 opcional (ex: O02), letras O/o/S no lugar de dígitos, espaços variáveis em volta de DE
+  const regexDe = /\b(?:PARC(?:ELA)?\s*)?([0-9OoS]{1,3})\s*DE\s*([0-9OoS]{1,3})\b/i
   const matchDe = texto.match(regexDe)
   if (matchDe) {
-    const p = parseInt(matchDe[1], 10)
-    const t = parseInt(matchDe[2], 10)
-    if (p >= 1 && t >= 2 && p <= t && t <= 99) {
+    const normalizarDigitoParcela = (raw: string): number => {
+      // Normaliza O/o -> 0 e S/s -> 5 no contexto de parcelas OCR
+      const limpo = raw.replace(/[Oo]/g, '0').replace(/[Ss]/g, '5')
+      return parseInt(limpo, 10)
+    }
+
+    const p = normalizarDigitoParcela(matchDe[1])
+    const t = normalizarDigitoParcela(matchDe[2])
+    if (!isNaN(p) && !isNaN(t) && p >= 1 && t >= 2 && p <= t && t <= 99) {
       const textoLimpo = texto.replace(matchDe[0], ' ').replace(/\s+/g, ' ').trim()
       return { parcelaAtual: p, totalParcelas: t, textoLimpo }
     }
@@ -384,7 +472,7 @@ export function interpretarLinhaOcr(
   const textoLimpo = linha.replace(/\s+/g, ' ').trim()
   if (!textoLimpo || textoLimpo.length < 5) return null
 
-  // Linhas que tipicamente são cabeçalhos ou ruídos
+  // Linhas que tipicamente são cabeçalhos, títulos de seção ou rodapés (CAIXA, Bradesco, C6)
   const minuscula = textoLimpo.toLowerCase()
   if (
     minuscula.startsWith('total') ||
@@ -400,7 +488,17 @@ export function interpretarLinhaOcr(
     minuscula.startsWith('saldo') ||
     minuscula.includes('vencimento') ||
     minuscula.startsWith('valores em reais') ||
-    minuscula.startsWith('origem: imagem')
+    minuscula.startsWith('origem: imagem') ||
+    minuscula.startsWith('data descrição') ||
+    minuscula.startsWith('data historico') ||
+    minuscula.startsWith('data histórico') ||
+    minuscula.includes('compras parceladas') ||
+    minuscula.includes('compras cartão') ||
+    minuscula.includes('compras cartao') ||
+    minuscula.includes('ícartão') ||
+    minuscula.includes('icartão') ||
+    minuscula.includes('cartão ') ||
+    minuscula.includes('cartao ')
   ) {
     return null
   }

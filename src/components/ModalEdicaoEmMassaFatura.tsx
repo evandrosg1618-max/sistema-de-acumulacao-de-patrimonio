@@ -51,6 +51,11 @@ export interface PatchEdicaoEmMassa {
   aplicarObservacao?: boolean
   observacao?: string
 
+  aplicarRepetir?: boolean
+  repetirTipo?: 'nenhum' | 'parcelado'
+  parcelaAtual?: number
+  totalParcelas?: number
+
   marcarIgnorado?: boolean
 }
 
@@ -105,6 +110,11 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
   const [chkObservacao, setChkObservacao] = useState(false)
   const [observacao, setObservacao] = useState('')
 
+  const [chkRepetir, setChkRepetir] = useState(false)
+  const [repetirTipo, setRepetirTipo] = useState<'nenhum' | 'parcelado'>('parcelado')
+  const [parcelaAtual, setParcelaAtual] = useState<string>('1')
+  const [totalParcelas, setTotalParcelas] = useState<string>('2')
+
   const [acaoEspecial, setAcaoEspecial] = useState<string>('')
   const [salvando, setSalvando] = useState(false)
 
@@ -123,6 +133,7 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
     chkAfetaResultado,
     chkAfetaOrcamento,
     chkObservacao,
+    chkRepetir,
   ].filter(Boolean).length
 
   const handleSalvar = async () => {
@@ -160,6 +171,13 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
 
         aplicarObservacao: chkObservacao,
         observacao: chkObservacao ? observacao : undefined,
+
+        aplicarRepetir: chkRepetir,
+        repetirTipo,
+        parcelaAtual:
+          chkRepetir && repetirTipo === 'parcelado' ? parseInt(parcelaAtual, 10) || 1 : undefined,
+        totalParcelas:
+          chkRepetir && repetirTipo === 'parcelado' ? parseInt(totalParcelas, 10) || 1 : undefined,
 
         marcarIgnorado: acaoEspecial === 'ignorar',
       })
@@ -477,6 +495,73 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
                 onChange={(e) => setObservacao(e.target.value)}
                 className="bg-white border-slate-200 text-xs h-8"
               />
+            )}
+          </div>
+
+          {/* Repetir Lançamento */}
+          <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/50 space-y-2">
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="chk-repetir"
+                checked={chkRepetir}
+                onCheckedChange={(c) => setChkRepetir(!!c)}
+              />
+              <Label htmlFor="chk-repetir" className="font-semibold text-slate-800 cursor-pointer">
+                Repetir lançamento
+              </Label>
+              <span className="text-[10px] text-slate-500">
+                (Configura parcelamento ou remove repetição)
+              </span>
+            </div>
+            {chkRepetir && (
+              <div className="space-y-2 pt-1">
+                <Select
+                  value={repetirTipo}
+                  onValueChange={(v) => setRepetirTipo(v as 'nenhum' | 'parcelado')}
+                >
+                  <SelectTrigger className="bg-white border-slate-200 text-xs h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white border-slate-200 text-xs">
+                    <SelectItem value="parcelado">Parcelado (ex: 1/10x)</SelectItem>
+                    <SelectItem value="nenhum">Não repetir (compra à vista/única)</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                {repetirTipo === 'parcelado' && (
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <Label htmlFor="parc-atual" className="text-[11px] text-slate-600">
+                        Parcela:
+                      </Label>
+                      <Input
+                        id="parc-atual"
+                        type="number"
+                        min="1"
+                        max="120"
+                        value={parcelaAtual}
+                        onChange={(e) => setParcelaAtual(e.target.value)}
+                        className="bg-white border-slate-200 text-xs h-8 w-16 text-center"
+                      />
+                    </div>
+                    <span className="text-slate-400">/</span>
+                    <div className="flex items-center gap-1">
+                      <Label htmlFor="total-parc" className="text-[11px] text-slate-600">
+                        Total:
+                      </Label>
+                      <Input
+                        id="total-parc"
+                        type="number"
+                        min="2"
+                        max="120"
+                        value={totalParcelas}
+                        onChange={(e) => setTotalParcelas(e.target.value)}
+                        className="bg-white border-slate-200 text-xs h-8 w-16 text-center"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 

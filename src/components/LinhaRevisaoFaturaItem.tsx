@@ -245,12 +245,22 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
-            <span>
-              {linha.data?.split('-').reverse().join('/')} •{' '}
-              {linha.final_cartao ? `•••• ${linha.final_cartao}` : ''}
-              {linha.titular && linha.titular.trim() ? ` • ${linha.titular}` : ''}
-            </span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+            {/* Campo Data editável: aceita digitação e date picker direto */}
+            <div className="inline-flex items-center gap-1">
+              <input
+                type="date"
+                value={linha.data || ''}
+                onChange={(e) => {
+                  const novaData = e.target.value
+                  if (novaData) aoAlterar({ data: novaData })
+                }}
+                className="text-[11px] font-medium text-slate-700 bg-slate-50 hover:bg-white focus:bg-white border border-slate-300 rounded px-1.5 py-0.5 cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                title="Clique para abrir o calendário ou digite a data"
+              />
+              {linha.final_cartao && <span>• •••• {linha.final_cartao}</span>}
+              {linha.titular && linha.titular.trim() && <span>• {linha.titular}</span>}
+            </div>
 
             {/* Opção (Repetir parcelado) pré-preenchida com a quantidade de parcelas da fatura, editável */}
             {editandoParcelado ? (

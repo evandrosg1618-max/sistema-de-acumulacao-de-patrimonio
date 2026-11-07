@@ -166,11 +166,7 @@ export function ImportarFaturaPage() {
       const cList = await cartaoService.list(idWs)
       const cartoesAtivos = cList.filter((c: any) => !c.arquivado && !c.deleted_at)
       setCartoes(cartoesAtivos)
-      if (cartoesAtivos.length > 0) {
-        setCartaoSelecionadoId((atual) =>
-          cartoesAtivos.some((c: Cartao) => c.id === atual) ? atual : cartoesAtivos[0].id,
-        )
-      }
+      // A7: Não pré-preencher cartão selecionado para evitar importar no cartão errado
     } catch (err: any) {
       setCartoes([])
       setErroCargaCartoes(err?.message || 'Falha ao carregar os cartões.')
@@ -740,6 +736,18 @@ export function ImportarFaturaPage() {
     if (patch.aplicarObservacao && patch.observacao !== undefined) {
       alteracoesDb.observacao = patch.observacao
     }
+    if (patch.aplicarRepetir) {
+      if (patch.repetirTipo === 'parcelado') {
+        alteracoesDb.parcela_atual = patch.parcelaAtual || 1
+        alteracoesDb.total_parcelas = patch.totalParcelas || 1
+        alteracoesDb.tipo_linha =
+          (patch.totalParcelas || 1) > 1 ? 'compra_parcelada' : 'compra_a_vista'
+      } else {
+        alteracoesDb.parcela_atual = null
+        alteracoesDb.total_parcelas = null
+        alteracoesDb.tipo_linha = 'compra_a_vista'
+      }
+    }
     if (patch.marcarIgnorado) {
       alteracoesDb.status = 'ignorado'
       alteracoesDb.selecionado = false
@@ -782,6 +790,17 @@ export function ImportarFaturaPage() {
         }
         if (patch.aplicarObservacao && patch.observacao !== undefined) {
           novo.observacao = patch.observacao
+        }
+        if (patch.aplicarRepetir) {
+          if (patch.repetirTipo === 'parcelado') {
+            novo.parcela_atual = patch.parcelaAtual || 1
+            novo.total_parcelas = patch.totalParcelas || 1
+            novo.tipo_linha = (patch.totalParcelas || 1) > 1 ? 'compra_parcelada' : 'compra_a_vista'
+          } else {
+            novo.parcela_atual = null
+            novo.total_parcelas = null
+            novo.tipo_linha = 'compra_a_vista'
+          }
         }
         if (patch.marcarIgnorado) {
           novo.status = 'ignorado'
@@ -955,10 +974,25 @@ export function ImportarFaturaPage() {
     else if (filtroAtivo === 'nao_classificados') passaTipo = !l.categoria_id
     else if (filtroAtivo === 'prontos')
       passaTipo = l.status === 'pronto' || l.status === 'preenchido_regra'
-    else if (filtroAtivo === 'compras') passaTipo = l.tipo_linha === 'compra_a_vista'
-    else if (filtroAtivo === 'parcelados') passaTipo = l.tipo_linha === 'compra_parcelada'
-    else if (filtroAtivo === 'creditos') passaTipo = l.tipo_linha === 'credito'
-    else if (filtroAtivo === 'encargos') passaTipo = l.tipo_linha === 'encargo'
+    else if (filtroAtivo === 'compras')
+      passaTipo =
+        l.tipo_linha === 'compra' ||
+        l.tipo_linha === 'compra_a_vista' ||
+        !l.total_parcelas ||
+        l.total_parcelas <= 1
+    else if (filtroAtivo === 'parcelados')
+      passaTipo =
+        l.tipo_linha === 'parcelado' ||
+        l.tipo_linha === 'compra_parcelada' ||
+        (!!l.total_parcelas && l.total_parcelas > 1)
+    else if (filtroAtivo === 'creditos')
+      passaTipo = l.tipo_linha === 'credito' || l.tipo_linha === 'estorno'
+    else if (filtroAtivo === 'encargos')
+      passaTipo =
+        l.tipo_linha === 'encargo' ||
+        l.tipo_linha === 'iof' ||
+        l.tipo_linha === 'juros' ||
+        l.tipo_linha === 'anuidade'
     else if (filtroAtivo === 'revisar')
       passaTipo =
         l.status === 'requer_revisao' || l.status === 'provavel_duplicado' || !l.categoria_id
@@ -1452,6 +1486,14 @@ export function ImportarFaturaPage() {
               <div>
                 <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">
                   Fatura em Revisão
+                  {cartaoSelecionado && (
+                    <span className="normal-case text-emerald-700 font-bold ml-1">
+                      — {cartaoSelecionado.nome}
+                      {cartaoSelecionado.final_cartao
+                        ? ` • final ${cartaoSelecionado.final_cartao}`
+                        : ''}
+                    </span>
+                  )}
                 </span>
                 <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   {sessaoAtual.emissor_detectado?.toUpperCase()} • {sessaoAtual.arquivo_nome}
