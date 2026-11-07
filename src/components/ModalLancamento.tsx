@@ -32,6 +32,8 @@ import {
   RotateCw,
   AlertCircle,
   Layers,
+  Scale,
+  Lock,
 } from 'lucide-react'
 import { formatMoneyBRL, formatAnoMesPT, getTodayDateString } from '@/lib/formatters'
 import {
@@ -44,6 +46,8 @@ import {
   PeriodicidadeFixo,
   PrazoFixo,
   ModalidadeSaida,
+  SubtipoAjuste,
+  EfeitoFatura,
 } from '@/types/sap'
 import { orcamentoService, faturaService, fixoService } from '@/services/sap'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
@@ -97,6 +101,11 @@ export function ModalLancamento({
   const [contaOrigemId, setContaOrigemId] = useState('')
   const [contaDestinoId, setContaDestinoId] = useState('')
 
+  // Para Ajustes (PDF Novo Tipo Ajuste):
+  const [subtipoAjuste, setSubtipoAjuste] = useState<SubtipoAjuste>('ajuste_fatura_banco')
+  const [efeitoFatura, setEfeitoFatura] = useState<EfeitoFatura>('aumenta')
+  const [cartaoAjusteId, setCartaoAjusteId] = useState<string>('')
+
   // Parcelamento (Build 3 e Build 5)
   const [quantidadeParcelas, setQuantidadeParcelas] = useState<number>(1)
 
@@ -137,7 +146,7 @@ export function ModalLancamento({
   // REGRA: Subcategorias arquivadas NÃO devem aparecer normalmente como opção para novos lançamentos;
   // Porém se for edição de lançamento histórico que já possuía a subcategoria arquivada, ela é preservada.
   const subcategoriasDisponiveis = React.useMemo(() => {
-    if (tipo === 'transferencia') return []
+    if (tipo === 'transferencia' || tipo === 'ajuste') return []
     const catsDoTipo = categorias.filter(
       (c) =>
         (tipo === 'receita' ? c.tipo === 'receita' : c.tipo === 'despesa') &&
@@ -190,8 +199,17 @@ export function ModalLancamento({
     if (initialData) {
       setTipo(initialData.tipo)
       setDescricao(initialData.descricao || '')
-      setValor(initialData.valor ? initialData.valor.toFixed(2).replace('.', ',') : '')
+      setValor(initialData.valor ? Math.abs(initialData.valor).toFixed(2).replace('.', ',') : '')
       setData(initialData.data || getTodayDateString())
+      setSubtipoAjuste(initialData.subtipo_ajuste || 'ajuste_fatura_banco')
+      setEfeitoFatura(initialData.efeito_fatura || 'aumenta')
+      if (initialData.cartao_id) {
+        setCartaoAjusteId(initialData.cartao_id)
+      } else if (cartaoPadraoId) {
+        setCartaoAjusteId(cartaoPadraoId)
+      } else if (cartoes.length > 0) {
+        setCartaoAjusteId(cartoes[0].id)
+      }
 
       // Modalidade existente do lançamento em edição
       const modExistente = (initialData.modalidade_saida as ModalidadeSaida) || 'compra_propria'

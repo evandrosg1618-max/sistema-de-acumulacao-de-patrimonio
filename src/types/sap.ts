@@ -44,7 +44,9 @@ export type ClassificacaoGerencial =
   | 'Acumulação de Capital'
   | 'Acumulação de Patrimônio'
 
-export type TipoLancamento = 'despesa' | 'receita' | 'transferencia'
+export type TipoLancamento = 'despesa' | 'receita' | 'transferencia' | 'ajuste'
+export type SubtipoAjuste = 'ajuste_fatura_banco' | 'ajuste_tecnico_sap'
+export type EfeitoFatura = 'aumenta' | 'reduz'
 export type RegimeLancamento = 'unico' | 'fixo' | 'parcelado'
 export type StatusPagamento = 'pendente' | 'pago' | 'cancelado'
 export type StatusFatura = 'aberta' | 'paga' | 'fechada'
@@ -274,6 +276,8 @@ export interface Lancamento {
   valor_terceiros?: number | null
   afeta_resultado?: boolean | null
   afeta_orcamento?: boolean | null
+  subtipo_ajuste?: SubtipoAjuste | string | null
+  efeito_fatura?: EfeitoFatura | string | null
   categoria?: Categoria | null
   subcategoria?: Subcategoria | null
   conta_origem?: Conta | null

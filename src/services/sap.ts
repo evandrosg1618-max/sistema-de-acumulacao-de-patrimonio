@@ -2413,11 +2413,19 @@ export const faturaService = {
         if (faturaEstaFechada) {
           if (a.tipo === 'despesa') totalCompras += v
           else if (a.tipo === 'receita') totalCompras -= v
+          else if (a.tipo === 'ajuste') {
+            if (a.efeito_fatura === 'aumenta') totalCompras += v
+            else if (a.efeito_fatura === 'reduz') totalCompras -= v
+          }
         }
       } else {
-        // Compra à vista normal (estritamente sem parcelas filhas)
+        // Compra à vista normal ou ajuste (estritamente sem parcelas filhas)
         if (a.tipo === 'despesa') totalCompras += v
         else if (a.tipo === 'receita') totalCompras -= v
+        else if (a.tipo === 'ajuste') {
+          if (a.efeito_fatura === 'aumenta') totalCompras += v
+          else if (a.efeito_fatura === 'reduz') totalCompras -= v
+        }
       }
 
       // Remover a chave temporária de verificação antes de colocar em itensFatura
@@ -2842,7 +2850,7 @@ export const lancamentoService = {
 
   async create(dados: {
     workspace_id: string
-    tipo: 'despesa' | 'receita' | 'transferencia'
+    tipo: 'despesa' | 'receita' | 'transferencia' | 'ajuste'
     regime?: 'unico' | 'fixo' | 'parcelado'
     data: string
     descricao: string
@@ -2868,9 +2876,30 @@ export const lancamentoService = {
     valor_terceiros?: number | null
     afeta_resultado?: boolean | null
     afeta_orcamento?: boolean | null
+    subtipo_ajuste?: 'ajuste_fatura_banco' | 'ajuste_tecnico_sap' | string | null
+    efeito_fatura?: 'aumenta' | 'reduz' | string | null
   }): Promise<any> {
     const valorNum = Number(dados.valor)
     if (valorNum <= 0) throw new Error('O valor do lançamento deve ser maior que zero')
+
+    if (dados.tipo === 'ajuste') {
+      if (!dados.cartao_id) {
+        throw new Error('Ajustes devem ser vinculados obrigatoriamente a um cartão de crédito.')
+      }
+      if (!dados.subtipo_ajuste) {
+        throw new Error(
+          'Tipo de ajuste é obrigatório (Ajuste da Fatura do Banco ou Ajuste Técnico do SAP).',
+        )
+      }
+      if (!dados.efeito_fatura) {
+        throw new Error('Efeito sobre a fatura é obrigatório (Aumenta ou Reduz a fatura).')
+      }
+      if (dados.regime && dados.regime !== 'unico') {
+        throw new Error('Ajustes não podem ser recorrentes nem parcelados.')
+      }
+      dados.meio_pagamento_tipo = 'CARTAO'
+      dados.regime = 'unico'
+    }
 
     // Normalizar dimensões de modalidades para despesas (PDF Seções 1 a 6)
     let modalidadeFinal = dados.modalidade_saida || 'compra_propria'
@@ -2914,6 +2943,13 @@ export const lancamentoService = {
         afetaResultadoFinal = true
         afetaOrcamentoFinal = true
       }
+    } else if (dados.tipo === 'ajuste') {
+      modalidadeFinal = 'compra_propria'
+      valorProprioFinal = valorNum
+      valorTerceirosFinal = 0
+      afetaOrcamentoFinal = false // Ajuste NUNCA afeta orçamento
+      // Ajuste Banco afeta resultado; Ajuste Técnico NÃO afeta resultado
+      afetaResultadoFinal = dados.subtipo_ajuste === 'ajuste_fatura_banco'
     } else {
       modalidadeFinal = 'compra_propria'
       valorProprioFinal = valorNum
@@ -2989,6 +3025,8 @@ export const lancamentoService = {
           valor_terceiros: valorTerceirosFinal,
           afeta_resultado: afetaResultadoFinal,
           afeta_orcamento: afetaOrcamentoFinal,
+          subtipo_ajuste: dados.tipo === 'ajuste' ? dados.subtipo_ajuste : null,
+          efeito_fatura: dados.tipo === 'ajuste' ? dados.efeito_fatura : null,
         })
         .select()
         .single()
@@ -4305,6 +4343,12 @@ export const lancamentoService = {
       updates.afeta_resultado !== undefined ? updates.afeta_resultado : anterior.afeta_resultado
     const afetaOrcPassado =
       updates.afeta_orcamento !== undefined ? updates.afeta_orcamento : anterior.afeta_orcamento
+    const subtipoAjustePassado =
+      updates.subtipo_ajuste !== undefined
+        ? updates.subtipo_ajuste
+        : (anterior as any).subtipo_ajuste
+    const efeitoFaturaPassado =
+      updates.efeito_fatura !== undefined ? updates.efeito_fatura : (anterior as any).efeito_fatura
 
     const { data: resAtomico, error: errAtomico } = await db.rpc('editar_lancamento_atomico_rpc', {
       p_workspace_id: workspaceId,
@@ -4333,6 +4377,8 @@ export const lancamentoService = {
       p_valor_terceiros: valorTerceirosPassado,
       p_afeta_resultado: afetaResPassado,
       p_afeta_orcamento: afetaOrcPassado,
+      p_subtipo_ajuste: subtipoAjustePassado || null,
+      p_efeito_fatura: efeitoFaturaPassado || null,
     })
 
     if (errAtomico) {
