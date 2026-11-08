@@ -2826,13 +2826,13 @@ export const lancamentoService = {
       .order('data', { ascending: true })
       .order('created_at', { ascending: true })
 
-    // Se for a tela geral de Lançamentos (sem filtro de cartão específico de fatura),
-    // oculta os filhos de compras parceladas no cartão (numero_parcela > 1 e serie_id is null)
-    // para que a compra parcelada apareça apenas como o lançamento ORIGINAL com o total e a especificação das parcelas.
-    // Lançamentos de séries recorrentes (serie_id is not null) NUNCA são ocultados, pois cada mês é uma ocorrência válida da série.
-    if (!filtros.cartaoId || filtros.cartaoId === 'todos') {
-      query = query.or('serie_id.not.is.null,numero_parcela.is.null,numero_parcela.lte.1')
-    }
+    // R3 (PDF seções 5, 9 e 11): a tela Lançamentos mostra SOMENTE fatos econômicos originais,
+    // COM OU SEM filtro de cartão. Oculta filhos de compras parceladas (numero_parcela > 1 e
+    // serie_id nulo) SEMPRE: o filtro de origem apenas restringe cartao_id dentro do conjunto de
+    // lançamentos originais, nunca expande parcelas (compra parcelada = 1 linha na tela).
+    // Lançamentos de séries recorrentes (serie_id is not null) NUNCA são ocultados, pois cada mês
+    // é uma ocorrência válida da série.
+    query = query.or('serie_id.not.is.null,numero_parcela.is.null,numero_parcela.lte.1')
     if (filtros.dataEspecifica) {
       query = query.eq('data', filtros.dataEspecifica)
     } else {
@@ -2876,6 +2876,20 @@ export const lancamentoService = {
     const { data, error } = await query
     if (error) throw error
 
+    // R1 (PDF seção 14): classificação estrutural ÚNICA feita na fonte (service), antes de
+    // qualquer badge no React. NUNCA inferir parcelamento por quantidade_parcelas/total_parcelas —
+    // séries FIXAS também carregam quantidade e não são parcelamento.
+    //   pai_parcelado → regime 'parcelado' (lançamento original; valor = TOTAL da compra)
+    //   fixo          → regime 'fixo' (valor = valor de CADA ocorrência)
+    //   unico         → todo o resto
+    // Parcela individual (filho, numero_parcela > 1 sem serie_id) nunca retorna do list.
+    const classificarEstrutura = (l: any): 'pai_parcelado' | 'fixo' | 'unico' => {
+      const regime = String(l?.regime || '')
+      if (regime === 'parcelado') return 'pai_parcelado'
+      if (regime === 'fixo') return 'fixo'
+      return 'unico'
+    }
+
     return (data || []).map((l: any) => ({
       ...l,
       valor: Number(l.valor || 0),
@@ -2885,6 +2899,7 @@ export const lancamentoService = {
       conta_destino: l.conta_destino,
       cartao: l.cartoes,
       series_lancamentos: l.series_lancamentos,
+      estrutura: classificarEstrutura(l),
     }))
   },
 

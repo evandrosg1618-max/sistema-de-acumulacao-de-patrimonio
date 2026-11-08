@@ -1503,6 +1503,8 @@ export default function LancamentosPage() {
             <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
               Lançamentos
             </span>
+            {/* R4 (PDF seção 13): contador reflete exatamente a lista exibida, calculado sobre a
+                coleção normalizada pelo service (compra parcelada = 1 registro, sem filhos). */}
             <span className="text-[11px] text-slate-400">
               ({lancamentos.length} {lancamentos.length === 1 ? 'registro' : 'registros'})
             </span>
@@ -1585,25 +1587,28 @@ export default function LancamentosPage() {
                     const isAjuste = l.tipo === 'ajuste'
                     const isPago = l.status_pagamento === 'pago'
                     const ehCartao = l.meio_pagamento_tipo === 'CARTAO'
-                    const regimeStr = String(l.regime || '')
-                    const ehParcelado =
-                      regimeStr === 'parcelado' ||
-                      Boolean(
-                        (l.total_parcelas && l.total_parcelas > 1) ||
-                        (l.quantidade_parcelas && l.quantidade_parcelas > 1),
-                      )
-                    const ehFixo =
-                      regimeStr === 'fixo' || Boolean(l.serie_id && regimeStr === 'fixo')
-                    // Detecção de fixo determinado vs indeterminado
-                    const seriePrazo = (l as any).series_lancamentos?.prazo
-                    const serieQtdTotal = (l as any).series_lancamentos?.quantidade_total
-                    const totalParcelasFixo =
-                      l.total_parcelas || l.quantidade_parcelas || serieQtdTotal || 0
+                    // R1/R2 (PDF seções 2–4, 8, 14 e 16): classificação estrutural ÚNICA, definida
+                    // na fonte pelo lancamentoService.list (l.estrutura). NUNCA inferir parcelamento
+                    // por quantidade_parcelas/total_parcelas/quantidade_total — séries FIXAS também
+                    // carregam quantidade e NÃO são parcelamento. Badges mutuamente exclusivos:
+                    //   pai_parcelado → "X vezes de R$ Y" (Y = total ÷ quantidade, só visual)
+                    //   fixo          → "Fixo X/Y" (determinado) ou "Fixo" (indeterminado),
+                    //                   valor principal SEMPRE o valor de cada ocorrência
+                    //   unico         → sem badge de repetição
+                    const estruturaItem = ((l as any).estrutura ||
+                      (String(l.regime || '') === 'parcelado'
+                        ? 'pai_parcelado'
+                        : String(l.regime || '') === 'fixo'
+                          ? 'fixo'
+                          : 'unico')) as 'pai_parcelado' | 'fixo' | 'unico'
+                    const ehParcelado = estruturaItem === 'pai_parcelado'
+                    const ehFixo = estruturaItem === 'fixo'
 
-                    const ehFixoDeterminado =
-                      ehFixo &&
-                      (seriePrazo === 'determinado' ||
-                        (totalParcelasFixo > 1 && seriePrazo !== 'indeterminado'))
+                    // Detecção de fixo determinado vs indeterminado (só pelo PRAZO da série)
+                    const seriePrazo = (l as any).series_lancamentos?.prazo
+                    const totalParcelasFixo = (l as any).series_lancamentos?.quantidade_total || 0
+
+                    const ehFixoDeterminado = ehFixo && seriePrazo === 'determinado'
                     const ehFixoIndeterminado = ehFixo && !ehFixoDeterminado
 
                     const ehPrevisao =
@@ -1775,13 +1780,17 @@ export default function LancamentosPage() {
                                 </div>
                               )}
 
-                            {/* Badges de Fixo / Parcelado (C.3) */}
+                            {/* Badges de Fixo / Parcelado (C.3) — R2 (PDF seção 16): mutuamente
+                                exclusivos; Fixo NUNCA divide o valor pela quantidade da série. */}
                             <div className="flex items-center gap-1.5 pt-0.5">
                               {ehParcelado &&
                                 (() => {
-                                  const totalP =
-                                    l.total_parcelas || l.quantidade_parcelas || serieQtdTotal || 1
-                                  const valorParcela = totalP > 0 ? l.valor / totalP : l.valor
+                                  // Pai parcelado: valor do item = TOTAL da compra; parcela média
+                                  // é apenas visual (2 casas), nunca altera a tabela parcelas.
+                                  const totalP = l.total_parcelas || l.quantidade_parcelas || 1
+                                  const valorParcela = Number(
+                                    (l.valor / (totalP > 0 ? totalP : 1)).toFixed(2),
+                                  )
                                   return (
                                     <Badge
                                       variant="outline"
@@ -1808,7 +1817,7 @@ export default function LancamentosPage() {
                                   variant="outline"
                                   className="bg-purple-50 text-purple-700 border-purple-200 text-[10px] py-0 px-1.5 font-medium shrink-0"
                                 >
-                                  Indeterminado
+                                  Fixo
                                 </Badge>
                               )}
                             </div>
