@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -18,6 +18,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Categoria, Subcategoria, Cartao } from '@/types/sap'
+import {
+  SeletorCategoriaFatura,
+  SeletorSubcategoriaFatura,
+} from '@/components/SeletoresClassificacaoFatura'
 
 export interface PatchEdicaoEmMassa {
   aplicarDescricao?: boolean
@@ -121,6 +125,14 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
   const subcategoriasFiltradas = subcategorias.filter(
     (s) => !categoriaId || s.categoria_id === categoriaId,
   )
+
+  const nomesCategorias = useMemo(() => {
+    const mapa: Record<string, string> = {}
+    categorias.forEach((c) => {
+      mapa[c.id] = c.nome
+    })
+    return mapa
+  }, [categorias])
 
   const totalCamposMarcados = [
     chkDescricao,
@@ -296,24 +308,14 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
                 </Label>
               </div>
               {chkCategoria && (
-                <Select
-                  value={categoriaId}
-                  onValueChange={(val) => {
-                    setCategoriaId(val)
+                <SeletorCategoriaFatura
+                  categorias={categorias}
+                  valor={categoriaId}
+                  aoMudar={(val) => {
+                    setCategoriaId(val || '')
                     if (chkSubcategoria) setSubcategoriaId('')
                   }}
-                >
-                  <SelectTrigger className="bg-white border-slate-200 text-xs h-8">
-                    <SelectValue placeholder="Selecione a categoria..." />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border-slate-200 text-xs">
-                    {categorias.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               )}
             </div>
 
@@ -330,28 +332,19 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
                 </Label>
               </div>
               {chkSubcategoria && (
-                <Select
-                  value={subcategoriaId}
-                  onValueChange={(val) => {
-                    setSubcategoriaId(val)
+                <SeletorSubcategoriaFatura
+                  subcategorias={subcategoriasFiltradas}
+                  nomesCategorias={nomesCategorias}
+                  valor={subcategoriaId}
+                  aoMudar={(val) => {
+                    setSubcategoriaId(val || '')
                     // Se a categoria correspondente não estiver definida, preenche automaticamente
                     const sub = subcategorias.find((s) => s.id === val)
                     if (sub && !categoriaId) {
                       setCategoriaId(sub.categoria_id)
                     }
                   }}
-                >
-                  <SelectTrigger className="bg-white border-slate-200 text-xs h-8">
-                    <SelectValue placeholder="Selecione a subcategoria..." />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border-slate-200 text-xs">
-                    {subcategoriasFiltradas.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               )}
             </div>
           </div>

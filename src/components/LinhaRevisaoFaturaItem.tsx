@@ -9,6 +9,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  SeletorCategoriaFatura,
+  SeletorSubcategoriaFatura,
+} from '@/components/SeletoresClassificacaoFatura'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -78,11 +82,15 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
     linha.total_parcelas ? String(linha.total_parcelas) : '',
   )
 
-  const categoriaSelecionada = categorias.find((c) => c.id === linha.categoria_id)
   const subcategoriasFiltradas = subcategorias.filter((s) => s.categoria_id === linha.categoria_id)
-  const subcategoriaSelecionada = subcategoriasFiltradas.find((s) => s.id === linha.subcategoria_id)
+  const nomesCategorias = React.useMemo(() => {
+    const mapa: Record<string, string> = {}
+    categorias.forEach((c) => {
+      mapa[c.id] = c.nome
+    })
+    return mapa
+  }, [categorias])
 
-  const classificado = !!linha.categoria_id
   const ignorado = linha.status === 'ignorado'
   const provavelDuplicado = linha.status === 'provavel_duplicado' || linha.status === 'duplicado'
 
@@ -366,56 +374,43 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
         {/* Coluna de classificação */}
         <div className="w-full lg:w-[300px] shrink-0 flex flex-col gap-1.5">
           <div className="flex gap-1.5">
-            <Select
-              value={linha.categoria_id || ''}
-              onValueChange={(val) => {
-                // Ao trocar categoria, limpa subcategoria se não pertencer a ela
-                const subsValidas = subcategorias.filter((s) => s.categoria_id === val)
+            {/* Categoria: select PRÓPRIO, filtro digitável visível e seleção LIMPÁVEL (mesmo com sugestão da IA) */}
+            <SeletorCategoriaFatura
+              categorias={categorias}
+              valor={linha.categoria_id || ''}
+              aoMudar={(novaCategoriaId) => {
+                // Ao limpar/trocar categoria, a subcategoria incompatível sai da seleção
+                const subsValidas = novaCategoriaId
+                  ? subcategorias.filter((s) => s.categoria_id === novaCategoriaId)
+                  : []
                 const subAindaValida = subsValidas.some((s) => s.id === linha.subcategoria_id)
                 aoAlterar(linha.id, {
-                  categoria_id: val,
+                  categoria_id: novaCategoriaId || '',
                   subcategoria_id: subAindaValida ? linha.subcategoria_id : '',
                 })
               }}
-            >
-              <SelectTrigger className="bg-white border-slate-200 text-slate-900 h-7 text-[11px] flex-1">
-                <SelectValue placeholder="Categoria..." />
-              </SelectTrigger>
-              <SelectContent className="bg-white border-slate-200 text-slate-900">
-                {categorias.map((c) => (
-                  <SelectItem key={c.id} value={c.id} className="text-[11px]">
-                    {c.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              desabilitado={ignorado}
+            />
 
-            <Select
-              value={linha.subcategoria_id || ''}
-              onValueChange={(val) => {
-                // Reativa a subcategoria: escolher a subcategoria marca automaticamente a categoria vinculada
-                const subObj = subcategorias.find((s) => s.id === val)
-                if (subObj) {
-                  aoAlterar(linha.id, {
-                    categoria_id: subObj.categoria_id,
-                    subcategoria_id: val,
-                  })
-                } else {
-                  aoAlterar(linha.id, { subcategoria_id: val })
+            {/* Subcategoria: select PRÓPRIO, filtro digitável visível ("Filtrar categoria ou subcategoria...") */}
+            <SeletorSubcategoriaFatura
+              subcategorias={linha.categoria_id ? subcategoriasFiltradas : subcategorias}
+              nomesCategorias={nomesCategorias}
+              valor={linha.subcategoria_id || ''}
+              aoMudar={(novaSubId) => {
+                if (!novaSubId) {
+                  aoAlterar(linha.id, { subcategoria_id: '' })
+                  return
                 }
+                // Escolher a subcategoria marca automaticamente a categoria vinculada
+                const subObj = subcategorias.find((s) => s.id === novaSubId)
+                aoAlterar(linha.id, {
+                  categoria_id: subObj ? subObj.categoria_id : linha.categoria_id,
+                  subcategoria_id: novaSubId,
+                })
               }}
-            >
-              <SelectTrigger className="bg-white border-slate-200 text-slate-900 h-7 text-[11px] flex-1">
-                <SelectValue placeholder="Subcat..." />
-              </SelectTrigger>
-              <SelectContent className="bg-white border-slate-200 text-slate-900">
-                {(linha.categoria_id ? subcategoriasFiltradas : subcategorias).map((s) => (
-                  <SelectItem key={s.id} value={s.id} className="text-[11px]">
-                    {s.nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              desabilitado={ignorado}
+            />
           </div>
 
           <Select
