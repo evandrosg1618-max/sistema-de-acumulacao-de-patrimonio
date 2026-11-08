@@ -15,6 +15,17 @@ import {
 } from '@/components/SeletoresClassificacaoFatura'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   AlertTriangle,
   Sparkles,
@@ -24,6 +35,8 @@ import {
   Percent,
   ShieldAlert,
   CheckCircle2,
+  Trash2,
+  Loader2,
 } from 'lucide-react'
 
 export interface LinhaRevisaoFaturaItemProps {
@@ -32,6 +45,7 @@ export interface LinhaRevisaoFaturaItemProps {
   subcategorias: Subcategoria[]
   aoAlterar: (id: string, dados: Partial<FaturaImportacaoLinhaRegistro>) => Promise<void>
   aoAlternarSelecao: (id: string, selecionado: boolean) => Promise<void>
+  aoExcluir: (id: string) => Promise<void>
 }
 
 // Metadados de tipo de linha
@@ -72,6 +86,7 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
   subcategorias,
   aoAlterar,
   aoAlternarSelecao,
+  aoExcluir,
 }) => {
   const [editandoDescricao, setEditandoDescricao] = useState(false)
   const [descricaoTemp, setDescricaoTemp] = useState(linha.descricao_editavel || '')
@@ -81,6 +96,8 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
   const [totalParcelasTemp, setTotalParcelasTemp] = useState(
     linha.total_parcelas ? String(linha.total_parcelas) : '',
   )
+  const [confirmarExclusaoAberto, setConfirmarExclusaoAberto] = useState(false)
+  const [excluindo, setExcluindo] = useState(false)
 
   const subcategoriasFiltradas = subcategorias.filter((s) => s.categoria_id === linha.categoria_id)
   const nomesCategorias = React.useMemo(() => {
@@ -144,6 +161,19 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
       })
     } else {
       await aoAlterar(linha.id, { modalidade_saida: val as any })
+    }
+  }
+
+  // M3 — Exclusão do item do processamento: confirma sempre, executa uma única vez
+  // (anti duplo clique) e só chama o service na confirmação do AlertDialog.
+  const confirmarExclusao = async () => {
+    if (excluindo) return
+    setExcluindo(true)
+    try {
+      await aoExcluir(linha.id)
+      setConfirmarExclusaoAberto(false)
+    } finally {
+      setExcluindo(false)
     }
   }
 
@@ -432,6 +462,25 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
             </SelectContent>
           </Select>
         </div>
+
+        {/* Ação de excluir item (lixeira) — sempre com confirmação */}
+        <div className="flex items-start pt-1 shrink-0">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setConfirmarExclusaoAberto(true)}
+            disabled={excluindo}
+            className="h-7 w-7 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+            title="Excluir item do processamento"
+          >
+            {excluindo ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="w-3.5 h-3.5" />
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Rodapé para compra compartilhada: proporção próprio × terceiros */}
@@ -478,6 +527,43 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
           )}
         </div>
       )}
+
+      {/* Confirmação obrigatória antes de excluir */}
+      <AlertDialog
+        open={confirmarExclusaoAberto}
+        onOpenChange={(aberto) => {
+          if (!excluindo) setConfirmarExclusaoAberto(aberto)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir item do processamento</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que esse item deve ser excluído do processamento
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluindo}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={excluindo}
+              onClick={(e) => {
+                // Impede o fechamento automático; o fechamento ocorre só após a exclusão no banco
+                e.preventDefault()
+                confirmarExclusao()
+              }}
+              className="bg-rose-600 text-white hover:bg-rose-700"
+            >
+              {excluindo ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> Excluindo...
+                </>
+              ) : (
+                'Excluir'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

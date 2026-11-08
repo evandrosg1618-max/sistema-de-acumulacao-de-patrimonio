@@ -412,6 +412,58 @@ export const faturaImportacaoService = {
   },
 
   /**
+   * M3 — Exclui (descarta definitivamente) uma linha capturada da revisão da fatura.
+   * O banco é a fonte da verdade: a linha é REMOVIDA da tabela fatura_importacao_linhas
+   * (RLS do workspace garante o escopo) e a exclusão é auditada.
+   */
+  async excluirLinha(linhaId: string, workspaceId: string): Promise<void> {
+    const { error } = await supabase
+      .from('fatura_importacao_linhas' as any)
+      .delete()
+      .eq('id', linhaId)
+      .eq('workspace_id', workspaceId)
+
+    if (error) {
+      throw new Error(`Não foi possível excluir o item: ${error.message}`)
+    }
+
+    try {
+      await auditoriaService.registrar({
+        workspace_id: workspaceId,
+        entidade: 'fatura_importacao_linhas',
+        entidade_id: linhaId,
+        acao: 'EXCLUIR_LINHA_REVISAO_FATURA',
+        estado_posterior: { linhaId, excluidaEm: new Date().toISOString() },
+      })
+    } catch (e) {
+      // Auditoria é best-effort: a exclusão em si já foi persistida.
+      console.warn('Falha ao registrar auditoria da exclusão de linha:', e)
+    }
+  },
+
+  /**
+   * Atualiza a contagem de itens da sessão (mantida consistente após exclusões).
+   */
+  async atualizarContagemItens(
+    importacaoId: string,
+    workspaceId: string,
+    novaQuantidade: number,
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('fatura_importacoes' as any)
+      .update({
+        quantidade_itens: novaQuantidade,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', importacaoId)
+      .eq('workspace_id', workspaceId)
+
+    if (error) {
+      throw new Error(`Falha ao atualizar contagem de itens da sessão: ${error.message}`)
+    }
+  },
+
+  /**
    * Atualiza uma linha temporária durante a revisão do usuário.
    */
   async atualizarLinha(

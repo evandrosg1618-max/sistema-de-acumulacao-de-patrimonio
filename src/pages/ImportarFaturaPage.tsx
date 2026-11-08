@@ -670,6 +670,36 @@ export function ImportarFaturaPage() {
     await faturaImportacaoService.atualizarLinha(linhaId, { selecionado })
   }
 
+  // M3 — Exclui um item capturado por engano (pgto de fatura, título, lixo de OCR).
+  // Remove do banco (fonte da verdade), da lista local e recalcula os totais da
+  // conferência (que derivam de `linhas`) e a contagem de itens da sessão.
+  const handleExcluirLinha = async (linhaId: string) => {
+    if (!wsId || !sessaoAtual) return
+    try {
+      await faturaImportacaoService.excluirLinha(linhaId, wsId)
+
+      const linhaExcluida = linhas.find((l) => l.id === linhaId)
+      const novaQuantidade = Math.max(0, (sessaoAtual.quantidade_itens || 0) - 1)
+
+      setLinhas((prev) => prev.filter((l) => l.id !== linhaId))
+      setSessaoAtual({ ...sessaoAtual, quantidade_itens: novaQuantidade })
+
+      // Mantém o contador da sessão consistente no banco (não bloqueia o usuário se falhar)
+      try {
+        await faturaImportacaoService.atualizarContagemItens(sessaoAtual.id, wsId, novaQuantidade)
+      } catch (e) {
+        console.warn('Falha ao atualizar contagem de itens da sessão:', e)
+      }
+
+      toast.success(
+        `Item "${linhaExcluida?.descricao_editavel || 'sem descrição'}" excluído do processamento.`,
+      )
+    } catch (err: any) {
+      toast.error('Não foi possível excluir o item: ' + err.message)
+      throw err
+    }
+  }
+
   const handleSelecionarTodosVisiveis = async (selecionar: boolean) => {
     const idsVisiveis = linhasFiltradas.map((l) => l.id)
     if (idsVisiveis.length === 0) return
@@ -1753,6 +1783,7 @@ export function ImportarFaturaPage() {
                   subcategorias={subcategorias}
                   aoAlterar={handleAlterarLinha}
                   aoAlternarSelecao={handleAlternarSelecao}
+                  aoExcluir={handleExcluirLinha}
                 />
               ))
             )}
