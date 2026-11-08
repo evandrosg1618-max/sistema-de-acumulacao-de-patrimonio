@@ -2221,7 +2221,7 @@ export const faturaService = {
 
     const { data: lancsAvulso } = await db
       .from('lancamentos')
-      .select('valor, tipo')
+      .select('valor, tipo, subtipo_ajuste, efeito_fatura')
       .eq('workspace_id', workspaceId)
       .eq('cartao_id', cartaoId)
       .eq('competencia', competencia)
@@ -2229,9 +2229,13 @@ export const faturaService = {
       .is('deleted_at', null)
 
     let totalAvulso = 0
-    for (const l of lancsAvulso || []) {
+    for (const l of (lancsAvulso as any[]) || []) {
       if (l.tipo === 'despesa') totalAvulso += Number(l.valor || 0)
       else if (l.tipo === 'receita') totalAvulso -= Number(l.valor || 0)
+      else if (l.tipo === 'ajuste') {
+        if (l.efeito_fatura === 'aumenta') totalAvulso += Number(l.valor || 0)
+        else if (l.efeito_fatura === 'reduz') totalAvulso -= Number(l.valor || 0)
+      }
     }
 
     const total = Math.max(0, Math.round((totalParcelas + totalAvulso) * 100) / 100)
@@ -2375,6 +2379,10 @@ export const faturaService = {
         status_pagamento,
         observacao,
         modalidade_saida,
+        subtipo_ajuste,
+        efeito_fatura,
+        afeta_resultado,
+        afeta_orcamento,
         categorias (id, nome, cor, icone),
         subcategorias (id, nome),
         parcelas:parcelas(id)
