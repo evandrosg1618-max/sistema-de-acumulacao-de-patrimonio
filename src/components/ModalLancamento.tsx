@@ -1591,7 +1591,8 @@ export function ModalLancamento({
                               type="text"
                               value={buscaSubcategoria}
                               onChange={(e) => setBuscaSubcategoria(e.target.value)}
-                              placeholder="Filtrar subcategoria..."
+                              placeholder="Filtrar categoria ou subcategoria..."
+                              title="Digite para filtrar a lista pela categoria ou subcategoria"
                               className="h-8 text-xs bg-slate-50 text-slate-900 border-slate-200"
                               onClick={(e) => e.stopPropagation()}
                               onKeyDown={(e) => e.stopPropagation()}
