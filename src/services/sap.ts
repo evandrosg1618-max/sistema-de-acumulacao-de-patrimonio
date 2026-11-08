@@ -2270,6 +2270,8 @@ export const faturaService = {
     isAtrasada: boolean
     saldoAnteriorTransportado: number
     totalComSaldoAnterior: number
+    somaFiltrada: number
+    somasPorClasse: { todas: number; avista: number; parceladas: number }
     itens: any[]
   }> {
     // Garante que o valor da fatura esteja sempre sincronizado no banco
@@ -2327,6 +2329,10 @@ export const faturaService = {
       const v = Number(p.valor || 0)
       totalCompras += v
       const orig = p.lancamentos as any
+      // P1: a data do item é SEMPRE a data ORIGINAL da compra (lancamentos.data do pai),
+      // nunca data_vencimento, created_at, data de importação ou de inclusão na fatura.
+      // Ex.: compra 21/10/2026 em 12x → TODAS as 12 parcelas exibem 21/10/2026.
+      const dataOriginalCompra = orig?.data || p.data_vencimento || p.competencia
       itensFatura.push({
         id: p.id,
         parcela_id: p.id,
@@ -2334,7 +2340,9 @@ export const faturaService = {
         lancamento_pai_id: p.lancamento_id, // aponta para o lançamento original
         descricao: orig?.descricao || 'Despesa no Cartão',
         valor: v,
-        data: p.data_vencimento || orig?.data,
+        data: dataOriginalCompra,
+        data_exibicao: dataOriginalCompra,
+        data_vencimento_parcela: p.data_vencimento,
         competencia: p.competencia,
         tipo: 'despesa',
         meio_pagamento_tipo: 'CARTAO',
@@ -2342,6 +2350,7 @@ export const faturaService = {
         numero_parcela: p.numero_parcela,
         total_parcelas: p.total_parcelas,
         quantidade_parcelas: p.total_parcelas,
+        classe_item: 'parcelada',
         status_pagamento: p.status || 'pendente',
         observacao: orig?.observacao,
         modalidade_saida: orig?.modalidade_saida || 'compra_propria',
@@ -2438,6 +2447,14 @@ export const faturaService = {
 
       // Remover a chave temporária de verificação antes de colocar em itensFatura
       const { parcelas: _p, ...itemLimpo } = a
+      itemLimpo.data_exibicao = a.data
+      // P3: classe pela ESTRUTURA REAL — 'parcelada' só nas parcelas da tabela 'parcelas';
+      // ajustes e recorrentes nunca entram como compra à vista
+      itemLimpo.classe_item = ehRecorrenteFixo
+        ? 'recorrente'
+        : a.tipo === 'ajuste'
+          ? 'ajuste'
+          : 'avista'
       // Se for recorrente em fatura aberta, sinalizar como previsão
       if (ehRecorrenteFixo && !faturaEstaFechada) {
         itemLimpo.natureza_previsao = true
@@ -2447,6 +2464,37 @@ export const faturaService = {
     }
 
     totalCompras = Math.max(0, totalCompras)
+
+    // P2: ordenação UNIFICADA de TODA a coleção (parcelas + à vista + recorrentes + ajustes)
+    // pela data ORIGINAL em um único sort — nunca ordenar grupos separadamente e concatenar.
+    // Desempate estável: 1) data original, 2) descrição, 3) id apenas como critério técnico.
+    // Padrão Data ↓ (mais recentes primeiro); a inversão Data ↑ é feita na tela.
+    itensFatura.sort((x: any, y: any) => {
+      const dx = String(x.data_exibicao || x.data || '')
+      const dy = String(y.data_exibicao || y.data || '')
+      if (dx !== dy) return dx < dy ? 1 : -1
+      const dc = String(x.descricao || '').localeCompare(String(y.descricao || ''), 'pt-BR')
+      if (dc !== 0) return dc
+      return String(x.id || '').localeCompare(String(y.id || ''))
+    })
+
+    // P4: soma dos valores filtrados calculada NO SERVICE, sobre o conjunto financeiro
+    // correspondente a cada filtro (não sobre o DOM renderizado). Assinatura econômica:
+    // despesa/parcela soma; receita subtrai; Ajuste conforme efeito_fatura. Previsões de
+    // fatura aberta entram (são exibidas). Nunca altera Total/A Pagar/comprometimento.
+    const somasPorClasse = { todas: 0, avista: 0, parceladas: 0 }
+    for (const it of itensFatura) {
+      const v = Number(it.valor || 0)
+      const vs =
+        it.tipo === 'receita' ? -v : it.tipo === 'ajuste' && it.efeito_fatura === 'reduz' ? -v : v
+      somasPorClasse.todas += vs
+      if (it.classe_item === 'parcelada') somasPorClasse.parceladas += vs
+      else if (it.classe_item === 'avista') somasPorClasse.avista += vs
+    }
+    const arredondar = (n: number) => Math.round(n * 100) / 100
+    somasPorClasse.todas = arredondar(somasPorClasse.todas)
+    somasPorClasse.avista = arredondar(somasPorClasse.avista)
+    somasPorClasse.parceladas = arredondar(somasPorClasse.parceladas)
 
     // Buscar pagamentos realizados para esta fatura
     const { data: pags } = await db
@@ -2548,6 +2596,8 @@ export const faturaService = {
       status: statusDinamico,
       statusExibicao,
       isAtrasada,
+      somaFiltrada: somasPorClasse.todas,
+      somasPorClasse,
       itens: itensFatura,
     }
   },

@@ -31,6 +31,7 @@ import {
   CheckCircle2,
   Clock,
   RotateCcw,
+  Scale,
   ChevronRight,
   ChevronDown,
   Layers,
@@ -46,6 +47,7 @@ import { ModalPagamentoFatura } from '@/components/ModalPagamentoFatura'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { ModalConfirmacaoExclusao } from '@/components/ModalConfirmacaoExclusao'
+import { ConciliarFaturaModal } from '@/components/ConciliarFaturaModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -67,6 +69,27 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from 'sonner'
+
+// P3/P2: filtro de classe (estrutura real, nunca texto da descrição) + ordem pela data ORIGINAL.
+// Aplicados sobre a coleção já unificada e pré-ordenada pelo service (padrão Data ↓).
+type FiltroClasseFatura = 'todas' | 'avista' | 'parceladas'
+
+function aplicarFiltroClasseEOrdem(
+  itens: any[],
+  filtro: FiltroClasseFatura,
+  ordem: 'desc' | 'asc',
+) {
+  const filtrados = itens.filter((i) =>
+    filtro === 'todas'
+      ? true
+      : filtro === 'avista'
+        ? i.classe_item === 'avista'
+        : i.classe_item === 'parcelada',
+  )
+  // O service já entrega ordenado por data original (desc) com desempate estável
+  // (data → descrição → id técnico). Inverter para Data ↑ mantém os mesmos critérios.
+  return ordem === 'asc' ? filtrados.slice().reverse() : filtrados
+}
 
 const BANDEIRAS = ['Mastercard', 'Visa', 'Elo', 'American Express', 'Hipercard', 'Outro']
 
@@ -97,6 +120,12 @@ export default function CartoesPage() {
 
   // Gestão de faturas e competências (Build 3)
   const [cartaoExpandido, setCartaoExpandido] = useState<string | null>(null)
+  // P2/P3/P7: filtros da seção "Compras e Parcelas" preservados em memória durante operações
+  const [filtroClasseFatura, setFiltroClasseFatura] = useState<FiltroClasseFatura>('todas')
+  const [ordemItensFatura, setOrdemItensFatura] = useState<'desc' | 'asc'>('desc')
+  // P5: conciliação da fatura (SAP × banco)
+  const [modalConciliarOpen, setModalConciliarOpen] = useState(false)
+  const [conciliarCartao, setConciliarCartao] = useState<Cartao | null>(null)
   const [faturaParaPagar, setFaturaParaPagar] = useState<Fatura | null>(null)
   const [cartaoFaturaPagar, setCartaoFaturaPagar] = useState<Cartao | null>(null)
   const [modalPagamentoOpen, setModalPagamentoOpen] = useState(false)
@@ -358,6 +387,49 @@ export default function CartoesPage() {
       },
     })
     setModalConfirmacaoExclusaoOpen(true)
+  }
+
+  // P5: abrir conciliação da fatura (peso visual secundário ao Pagar Fatura)
+  const abrirConciliarFatura = (cartao: Cartao) => {
+    const resumo = resumosFatura[cartao.id]
+    if (!resumo?.fatura) {
+      toast.error('Fatura não encontrada para esta competência — não há valor para conciliar.')
+      return
+    }
+    setConciliarCartao(cartao)
+    setModalConciliarOpen(true)
+  }
+
+  // P5/P6: NUNCA cria o Ajuste automaticamente — apenas abre o formulário EXISTENTE
+  // (Novo Lançamento → Ajuste) pré-preenchido; o usuário revisa e confirma.
+  const handleCriarAjusteConciliacao = (diferenca: number) => {
+    const cartao = conciliarCartao
+    const resumo = cartao ? resumosFatura[cartao.id] : undefined
+    setModalConciliarOpen(false)
+    if (!cartao || !resumo?.fatura) {
+      toast.error('Não foi possível identificar a fatura para criar o Ajuste.')
+      return
+    }
+    const compFatura = resumo.fatura.competencia || competenciaFiltro
+    // Data dentro da competência conciliada garante o lançamento na fatura correta
+    const dataAjuste = resumo.fatura.data_fechamento || `${compFatura}-01`
+    setLancamentoFaturaEmEdicao({
+      id: undefined,
+      tipo: 'ajuste',
+      descricao: `Ajuste de conciliação da fatura ${formatAnoMesPT(compFatura)}`,
+      valor: Math.abs(Number(diferenca.toFixed(2))),
+      data: dataAjuste,
+      meio_pagamento_tipo: 'CARTAO',
+      cartao_id: cartao.id,
+      regime: 'unico',
+      status_pagamento: 'pendente',
+      subtipo_ajuste: 'ajuste_tecnico_sap',
+      efeito_fatura: diferenca > 0 ? 'aumenta' : 'reduz',
+      afeta_resultado: false,
+      afeta_orcamento: false,
+    } as any)
+    setCartaoIdParaNovoLanc(cartao.id)
+    setModalLancamentoOpen(true)
   }
 
   // REQUISITOS 2, 3 e 4: Ações de Lançamentos dentro da Fatura
@@ -1187,6 +1259,23 @@ export default function CartoesPage() {
                 const fatura = cartao.fatura_atual || 0
                 const resumo = resumosFatura[cartao.id]
                 const totalComp = cartao.total_comprometido || fatura
+                // P2/P3/P4: itens filtrados pela estrutura real e reordenados pela data ORIGINAL
+                const itensFiltradosCartao = aplicarFiltroClasseEOrdem(
+                  resumo?.itens || [],
+                  filtroClasseFatura,
+                  ordemItensFatura,
+                )
+                const contadoresFatura = {
+                  todas: resumo?.itens?.length || 0,
+                  avista: (resumo?.itens || []).filter((i: any) => i.classe_item === 'avista')
+                    .length,
+                  parceladas: (resumo?.itens || []).filter(
+                    (i: any) => i.classe_item === 'parcelada',
+                  ).length,
+                }
+                // P4: soma dos valores filtrados vem do SERVICE (agregado do conjunto financeiro),
+                // não do DOM — sobrevive a paginação/virtualização futura e nunca altera a fatura.
+                const somaFiltradaCartao = Number(resumo?.somasPorClasse?.[filtroClasseFatura] ?? 0)
 
                 return (
                   <div key={cartao.id} id={`cartao-${cartao.id}`} className="transition">
@@ -1431,6 +1520,75 @@ export default function CartoesPage() {
                               </div>
                             </div>
 
+                            {/* P2/P3/P4/P5: barra compacta — filtros, ordem, soma filtrada (do service) e Conciliar Fatura */}
+                            {resumo?.itens && resumo.itens.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setFiltroClasseFatura('todas')}
+                                  className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition ${
+                                    filtroClasseFatura === 'todas'
+                                      ? 'bg-indigo-600 text-white border-indigo-600'
+                                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  Todas {contadoresFatura.todas}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setFiltroClasseFatura('avista')}
+                                  className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition ${
+                                    filtroClasseFatura === 'avista'
+                                      ? 'bg-indigo-600 text-white border-indigo-600'
+                                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  À vista {contadoresFatura.avista}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setFiltroClasseFatura('parceladas')}
+                                  className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition ${
+                                    filtroClasseFatura === 'parceladas'
+                                      ? 'bg-indigo-600 text-white border-indigo-600'
+                                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  Parceladas {contadoresFatura.parceladas}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setOrdemItensFatura(
+                                      ordemItensFatura === 'desc' ? 'asc' : 'desc',
+                                    )
+                                  }
+                                  className="px-2 py-1 rounded-md text-[11px] font-semibold border bg-white text-slate-600 border-slate-200 hover:bg-slate-50 transition"
+                                  title={
+                                    ordemItensFatura === 'desc'
+                                      ? 'Mais recentes primeiro (clique para inverter)'
+                                      : 'Mais antigas primeiro (clique para inverter)'
+                                  }
+                                >
+                                  Data {ordemItensFatura === 'desc' ? '↓' : '↑'}
+                                </button>
+                                <span className="text-[11px] text-slate-400 font-normal">
+                                  Soma dos valores filtrados: {formatMoneyBRL(somaFiltradaCartao)}
+                                </span>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={isProcessing}
+                                  onClick={() => abrirConciliarFatura(cartao)}
+                                  className="h-6 text-[11px] text-slate-600 border-slate-200 hover:bg-slate-50 font-semibold"
+                                >
+                                  <Scale className="w-3 h-3 mr-1" />
+                                  Conciliar Fatura
+                                </Button>
+                              </div>
+                            )}
+
                             {!resumo?.itens || resumo.itens.length === 0 ? (
                               <div className="p-6 bg-slate-50 rounded-lg text-center space-y-2 border border-dashed border-slate-200">
                                 <p className="text-xs text-slate-500 font-medium">
@@ -1447,9 +1605,15 @@ export default function CartoesPage() {
                                   Lançar compra nesta fatura
                                 </Button>
                               </div>
+                            ) : itensFiltradosCartao.length === 0 ? (
+                              <div className="p-4 bg-slate-50 rounded-lg text-center border border-dashed border-slate-200">
+                                <p className="text-xs text-slate-500 font-medium">
+                                  Nenhum item para o filtro selecionado.
+                                </p>
+                              </div>
                             ) : (
                               <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto border border-slate-200 rounded-lg bg-white">
-                                {resumo.itens.map((l: any) => {
+                                {itensFiltradosCartao.map((l: any) => {
                                   const numP = l.numero_parcela || 1
                                   const totP = l.total_parcelas || l.quantidade_parcelas || 1
                                   const ehParcela = totP > 1
@@ -1477,7 +1641,12 @@ export default function CartoesPage() {
                                     >
                                       <div className="flex items-center gap-2.5 min-w-0">
                                         <span className="text-slate-400 text-[11px] font-mono shrink-0">
-                                          {l.data ? l.data.split('-').reverse().join('/') : ''}
+                                          {l.data_exibicao || l.data
+                                            ? (l.data_exibicao || l.data)
+                                                .split('-')
+                                                .reverse()
+                                                .join('/')
+                                            : ''}
                                         </span>
                                         <div className="flex flex-col min-w-0">
                                           {/* BLOCO 3: badge de Modalidade de Saída quando NÃO é compra própria.
@@ -1747,6 +1916,24 @@ export default function CartoesPage() {
         nomeCartao={cartaoFaturaPagar?.nome}
         contas={contas}
         onConfirmar={handlePagarFatura}
+      />
+
+      {/* P5: Modal Conciliação da Fatura (SAP × banco) */}
+      <ConciliarFaturaModal
+        open={modalConciliarOpen}
+        onOpenChange={setModalConciliarOpen}
+        nomeCartao={conciliarCartao?.nome}
+        competencia={
+          conciliarCartao
+            ? resumosFatura[conciliarCartao.id]?.fatura?.competencia || competenciaFiltro
+            : competenciaFiltro
+        }
+        valorSap={Number(
+          conciliarCartao ? (resumosFatura[conciliarCartao.id]?.totalCompras ?? 0) : 0,
+        )}
+        onCalcular={() => {}}
+        onVoltarRevisar={() => setModalConciliarOpen(false)}
+        onCriarAjuste={handleCriarAjusteConciliacao}
       />
 
       {/* Modal de Lançamento / Edição direto na Fatura */}
