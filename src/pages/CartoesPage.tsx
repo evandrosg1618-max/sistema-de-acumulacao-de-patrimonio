@@ -72,7 +72,7 @@ import { toast } from 'sonner'
 
 // P3/P2: filtro de classe (estrutura real, nunca texto da descrição) + ordem pela data ORIGINAL.
 // Aplicados sobre a coleção já unificada e pré-ordenada pelo service (padrão Data ↓).
-type FiltroClasseFatura = 'todas' | 'avista' | 'parceladas'
+type FiltroClasseFatura = 'todas' | 'avista' | 'parceladas' | 'fixos'
 
 function aplicarFiltroClasseEOrdem(
   itens: any[],
@@ -84,7 +84,9 @@ function aplicarFiltroClasseEOrdem(
       ? true
       : filtro === 'avista'
         ? i.classe_item === 'avista'
-        : i.classe_item === 'parcelada',
+        : filtro === 'fixos'
+          ? i.classe_item === 'recorrente'
+          : i.classe_item === 'parcelada',
   )
   // O service já entrega ordenado por data original (desc) com desempate estável
   // (data → descrição → id técnico). Inverter para Data ↑ mantém os mesmos critérios.
@@ -123,6 +125,10 @@ export default function CartoesPage() {
   // P2/P3/P7: filtros da seção "Compras e Parcelas" preservados em memória durante operações
   const [filtroClasseFatura, setFiltroClasseFatura] = useState<FiltroClasseFatura>('todas')
   const [ordemItensFatura, setOrdemItensFatura] = useState<'desc' | 'asc'>('desc')
+  // C1 (v0.0.97): histórico navegável de Outras Competências — padrão atual ao abrir
+  // (a partir do mês anterior); 'todas' = sem recorte; N = N competências mais recentes
+  const [modoHistorico, setModoHistorico] = useState<'padrao' | 'todas' | number>('padrao')
+  const [compHistorico, setCompHistorico] = useState<string>('')
   // P5: conciliação da fatura (SAP × banco)
   const [modalConciliarOpen, setModalConciliarOpen] = useState(false)
   const [conciliarCartao, setConciliarCartao] = useState<Cartao | null>(null)
@@ -1272,6 +1278,10 @@ export default function CartoesPage() {
                   parceladas: (resumo?.itens || []).filter(
                     (i: any) => i.classe_item === 'parcelada',
                   ).length,
+                  fixos: (resumo?.itens || []).filter((i: any) => i.classe_item === 'recorrente')
+                    .length,
+                  ajustes: (resumo?.itens || []).filter((i: any) => i.classe_item === 'ajuste')
+                    .length,
                 }
                 // P4: soma dos valores filtrados vem do SERVICE (agregado do conjunto financeiro),
                 // não do DOM — sobrevive a paginação/virtualização futura e nunca altera a fatura.
@@ -1558,6 +1568,30 @@ export default function CartoesPage() {
                                 </button>
                                 <button
                                   type="button"
+                                  onClick={() => setFiltroClasseFatura('fixos')}
+                                  className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition ${
+                                    filtroClasseFatura === 'fixos'
+                                      ? 'bg-indigo-600 text-white border-indigo-600'
+                                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                  }`}
+                                >
+                                  Fixo {contadoresFatura.fixos}
+                                </button>
+                                {/* 0.0.93: Ajuste aparece apenas em "Todas" */}
+                                {filtroClasseFatura !== 'todas' && contadoresFatura.ajustes > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setFiltroClasseFatura('todas')}
+                                    className="px-2 py-1 rounded-md text-[11px] font-medium border border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100 transition"
+                                    title="Ajustes só aparecem no filtro Todas — clique para voltar"
+                                  >
+                                    {contadoresFatura.ajustes} ajuste
+                                    {contadoresFatura.ajustes > 1 ? 's' : ''} oculto
+                                    {contadoresFatura.ajustes > 1 ? 's' : ''} (ver em Todas)
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
                                   onClick={() =>
                                     setOrdemItensFatura(
                                       ordemItensFatura === 'desc' ? 'asc' : 'desc',
@@ -1776,13 +1810,81 @@ export default function CartoesPage() {
 
                         {/* Histórico Geral de Faturas */}
                         <div>
-                          <div className="flex items-center justify-between mb-2">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                             <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                               OUTRAS COMPETÊNCIAS CADASTRADAS
                             </span>
-                            <span className="text-[11px] text-slate-400">
-                              Clique no card para abrir os lançamentos daquela fatura
-                            </span>
+                            {/* C1 (v0.0.97): histórico navegável — Últimas 6/12, Todas
+                                e filtro de competência; padrão (a partir do mês anterior)
+                                ao abrir. Filtro de EXIBIÇÃO no frontend, sem nova query. */}
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setModoHistorico('padrao')
+                                  setCompHistorico('')
+                                }}
+                                className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition ${
+                                  modoHistorico === 'padrao'
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                }`}
+                              >
+                                Padrão
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setModoHistorico(6)
+                                  setCompHistorico('')
+                                }}
+                                className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition ${
+                                  modoHistorico === 6
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                }`}
+                              >
+                                Últimas 6
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setModoHistorico(12)
+                                  setCompHistorico('')
+                                }}
+                                className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition ${
+                                  modoHistorico === 12
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                }`}
+                              >
+                                Últimas 12
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setModoHistorico('todas')}
+                                className={`px-2 py-1 rounded-md text-[11px] font-semibold border transition ${
+                                  modoHistorico === 'todas'
+                                    ? 'bg-indigo-600 text-white border-indigo-600'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                                }`}
+                              >
+                                Todas
+                              </button>
+                              <Input
+                                type="month"
+                                value={compHistorico}
+                                onChange={(e) => {
+                                  setCompHistorico(e.target.value)
+                                  if (e.target.value) setModoHistorico('todas')
+                                }}
+                                placeholder="Filtrar competência"
+                                className="h-7 w-[150px] text-[11px] bg-white border-slate-200"
+                              />
+                              <span className="text-[11px] text-slate-400 hidden lg:inline">
+                                Clique no card para abrir os lançamentos daquela fatura
+                              </span>
+                            </div>
                           </div>
 
                           {!faturasMap[cartao.id] || faturasMap[cartao.id].length === 0 ? (
@@ -1804,12 +1906,26 @@ export default function CartoesPage() {
                                 const lista = [...faturasMap[cartao.id]]
                                 // Ordenação cronológica CRESCENTE
                                 lista.sort((a, b) => a.competencia.localeCompare(b.competencia))
-                                // Filtrar a partir do mês anterior (se houver; senão mostra todas em ordem crescente)
-                                const aPartirDoMesAnterior = lista.filter(
-                                  (f) => f.competencia >= compMesAnterior,
-                                )
-                                const listaFinal =
-                                  aPartirDoMesAnterior.length > 0 ? aPartirDoMesAnterior : lista
+
+                                // C1 (v0.0.97): filtro de EXIBIÇÃO (frontend, sem nova query).
+                                // • 'padrao': a partir do mês anterior (comportamento atual ao abrir)
+                                // • 'todas': histórico completo, inclusive 2025
+                                // • N (6/12): as N competências mais recentes (ordenadas da mais
+                                //   antiga para a mais recente na grade)
+                                // • compHistorico: exibe a(s) fatura(s) A PARTIR da competência
+                                //   escolhida (só ela, se for a mais recente)
+                                let listaFinal = lista
+                                if (modoHistorico === 'padrao') {
+                                  const aPartirDoMesAnterior = lista.filter(
+                                    (f) => f.competencia >= compMesAnterior,
+                                  )
+                                  listaFinal =
+                                    aPartirDoMesAnterior.length > 0 ? aPartirDoMesAnterior : lista
+                                } else if (compHistorico) {
+                                  listaFinal = lista.filter((f) => f.competencia >= compHistorico)
+                                } else if (typeof modoHistorico === 'number') {
+                                  listaFinal = lista.slice(-modoHistorico)
+                                }
 
                                 return listaFinal.map((fat) => {
                                   const isPaga = fat.status === 'paga'

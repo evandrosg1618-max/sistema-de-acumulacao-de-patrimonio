@@ -2271,7 +2271,7 @@ export const faturaService = {
     saldoAnteriorTransportado: number
     totalComSaldoAnterior: number
     somaFiltrada: number
-    somasPorClasse: { todas: number; avista: number; parceladas: number }
+    somasPorClasse: { todas: number; avista: number; parceladas: number; fixos: number }
     itens: any[]
   }> {
     // Garante que o valor da fatura esteja sempre sincronizado no banco
@@ -2403,18 +2403,15 @@ export const faturaService = {
       .is('deleted_at', null)
       .order('data', { ascending: false })
 
-    // Regra SAP-4 BLOCO 2:
-    // (a) Fatura FECHADA (data atual >= data_fechamento): lançamentos recorrentes entram no VALOR TOTAL da fatura
-    // (b) Fatura ABERTA (data atual < data_fechamento): recorrente aparece como "previsão", mas NÃO soma no valor da fatura
+    // Regra C3 (v0.0.97): o recorrente (fixo) SOMA no valor da fatura quando a
+    // data atual >= a.data (data da recorrência da competência) — vale para
+    // fatura aberta e fechada. Enquanto a.data > hoje, permanece "previsão".
     const hojeStrFmt = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/Porto_Velho',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
     }).format(new Date())
-
-    const dataFechFatura = fatura.data_fechamento || `${competencia}-01`
-    const faturaEstaFechada = hojeStrFmt >= dataFechFatura
 
     for (const a of lancsCartaoComp || []) {
       // Se tiver parcelas filhas ou for regime parcelado, descarta estritamente (pois as cotas já estão em parcelasComp)
@@ -2427,7 +2424,8 @@ export const faturaService = {
       const ehRecorrenteFixo = a.regime === 'fixo' || !!a.serie_id
 
       if (ehRecorrenteFixo) {
-        if (faturaEstaFechada) {
+        const recorrenteVenceu = String(a.data || '') <= hojeStrFmt
+        if (recorrenteVenceu) {
           if (a.tipo === 'despesa') totalCompras += v
           else if (a.tipo === 'receita') totalCompras -= v
           else if (a.tipo === 'ajuste') {
@@ -2455,8 +2453,9 @@ export const faturaService = {
         : a.tipo === 'ajuste'
           ? 'ajuste'
           : 'avista'
-      // Se for recorrente em fatura aberta, sinalizar como previsão
-      if (ehRecorrenteFixo && !faturaEstaFechada) {
+      // C3: recorrente ainda não vencido (data da recorrência no futuro)
+      // permanece exibindo como "previsão" e não soma no valor da fatura
+      if (ehRecorrenteFixo && String(a.data || '') > hojeStrFmt) {
         itemLimpo.natureza_previsao = true
         itemLimpo.natureza = 'previsao'
       }
@@ -2482,7 +2481,7 @@ export const faturaService = {
     // correspondente a cada filtro (não sobre o DOM renderizado). Assinatura econômica:
     // despesa/parcela soma; receita subtrai; Ajuste conforme efeito_fatura. Previsões de
     // fatura aberta entram (são exibidas). Nunca altera Total/A Pagar/comprometimento.
-    const somasPorClasse = { todas: 0, avista: 0, parceladas: 0 }
+    const somasPorClasse = { todas: 0, avista: 0, parceladas: 0, fixos: 0 }
     for (const it of itensFatura) {
       const v = Number(it.valor || 0)
       const vs =
@@ -2490,11 +2489,14 @@ export const faturaService = {
       somasPorClasse.todas += vs
       if (it.classe_item === 'parcelada') somasPorClasse.parceladas += vs
       else if (it.classe_item === 'avista') somasPorClasse.avista += vs
+      // C2: soma exclusiva dos recorrentes (Fixo) — mesma assinatura econômica
+      else if (it.classe_item === 'recorrente') somasPorClasse.fixos += vs
     }
     const arredondar = (n: number) => Math.round(n * 100) / 100
     somasPorClasse.todas = arredondar(somasPorClasse.todas)
     somasPorClasse.avista = arredondar(somasPorClasse.avista)
     somasPorClasse.parceladas = arredondar(somasPorClasse.parceladas)
+    somasPorClasse.fixos = arredondar(somasPorClasse.fixos)
 
     // Buscar pagamentos realizados para esta fatura
     const { data: pags } = await db
