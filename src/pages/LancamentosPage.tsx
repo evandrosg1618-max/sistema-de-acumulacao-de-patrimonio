@@ -66,6 +66,7 @@ import { ModalConciliacao } from '@/components/ModalConciliacao'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { ModalConfirmacaoExclusao } from '@/components/ModalConfirmacaoExclusao'
+import { SheetDetalheLancamento } from '@/components/SheetDetalheLancamento'
 import { ModalModoVisualizacao, ModoVisualizacao } from '@/components/ModalModoVisualizacao'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { faturaService } from '@/services/sap'
@@ -104,6 +105,8 @@ export default function LancamentosPage() {
   // Ordenação da listagem: 'desc' = do mais recente para o mais antigo (padrão), 'asc' = do mais antigo para o mais recente
   const [ordemData, setOrdemData] = useState<'desc' | 'asc'>('desc')
   const [calendarioPopoverOpen, setCalendarioPopoverOpen] = useState(false)
+  // M2/M3 (mobile): lançamento aberto no bottom sheet de detalhes — null = fechado
+  const [lancamentoDetalhe, setLancamentoDetalhe] = useState<Lancamento | null>(null)
 
   // BUILD 5 (SAP-5 BLOCO 2): Seletor de Modo de Visualização (padrão: Competência Integral)
   const [modoVisualizacao, setModoVisualizacao] = useState<ModoVisualizacao>('competencia_integral')
@@ -342,6 +345,17 @@ export default function LancamentosPage() {
     setLancamentoEmEdicao(null)
     setTipoModalPadrao(tipo)
     setModalLancamentoOpen(true)
+  }
+
+  // M3 (mobile): navegação para a fatura do cartão — a MESMA usada pelo menu ⋮ do desktop
+  // (reutilizada pelo bottom sheet; nenhuma lógica nova de navegação).
+  const irParaFatura = (lin: Lancamento) => {
+    if (!lin.cartao_id) {
+      toast.error('Lançamento sem cartão vinculado.')
+      return
+    }
+    const comp = lin.competencia || getCurrentAnoMes()
+    navigate(`/cartoes?cartaoId=${lin.cartao_id}&competencia=${comp}`)
   }
 
   const abrirEdicaoLancamento = async (l: Lancamento) => {
@@ -1611,6 +1625,23 @@ export default function LancamentosPage() {
                     const ehFixoDeterminado = ehFixo && seriePrazo === 'determinado'
                     const ehFixoIndeterminado = ehFixo && !ehFixoDeterminado
 
+                    // M1 (mobile): texto do badge de regime para a linha 3 do card compacto.
+                    // Mesma classificação estrutural dos badges do desktop (l.estrutura):
+                    // Fixo NUNCA é dividido ("Fixo 2/10"); parcelado mostra só o pai ("5 vezes de R$ 32,02").
+                    const badgeRegimeTexto = ehParcelado
+                      ? `${l.total_parcelas || l.quantidade_parcelas || 1} vezes de ${formatMoneyBRL(
+                          Number(
+                            (l.valor / (l.total_parcelas || l.quantidade_parcelas || 1)).toFixed(2),
+                          ),
+                        )
+                          .replace('R$', '')
+                          .trim()}`
+                      : ehFixoDeterminado
+                        ? `Fixo ${l.numero_parcela ? `${l.numero_parcela}/` : '1/'}${totalParcelasFixo}`
+                        : ehFixoIndeterminado
+                          ? 'Fixo'
+                          : null
+
                     const ehPrevisao =
                       (l as any).natureza === 'previsao' ||
                       (l as any).natureza_previsao === true ||
@@ -1628,20 +1659,26 @@ export default function LancamentosPage() {
                       meioPagamentoLabel = l.conta_origem.nome
                     }
 
-                    // Redirecionamento para fatura do cartão (C.2)
-                    const handleIrParaFatura = () => {
-                      if (!l.cartao_id) {
-                        toast.error('Lançamento sem cartão vinculado.')
-                        return
-                      }
-                      const comp = l.competencia || getCurrentAnoMes()
-                      navigate(`/cartoes?cartaoId=${l.cartao_id}&competencia=${comp}`)
+                    // Redirecionamento para fatura do cartão (C.2) — delega à função de página
+                    // `irParaFatura` (também usada pelo bottom sheet mobile)
+                    const handleIrParaFatura = (alvo?: Lancamento) => {
+                      irParaFatura(alvo || l)
                     }
 
                     return (
                       <div
                         key={l.id}
-                        className={`p-3 px-3.5 rounded-xl grid grid-cols-[1fr_auto_auto_auto_auto] sm:grid-cols-[1fr_180px_130px_36px_32px] items-center gap-3 transition group hover:bg-slate-50 border border-slate-100/70 shadow-2xs ${
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Detalhes de ${l.descricao}`}
+                        onClick={() => setLancamentoDetalhe(l)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setLancamentoDetalhe(l)
+                          }
+                        }}
+                        className={`p-2 px-3 sm:p-3 sm:px-3.5 rounded-xl grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_180px_130px_36px_32px] items-center gap-3 transition group hover:bg-slate-50 active:bg-slate-100/70 border border-slate-100/70 shadow-2xs cursor-pointer ${
                           ehPrevisao ? 'bg-amber-50/20' : 'bg-white'
                         }`}
                       >
@@ -1739,7 +1776,7 @@ export default function LancamentosPage() {
                                   <>
                                     {l.modalidade_saida !== 'emprestimo_terceiros' &&
                                       l.categoria && <span className="text-slate-300">•</span>}
-                                    <span className="italic text-slate-400 break-words line-clamp-1">
+                                    <span className="italic text-slate-400 break-words line-clamp-1 hidden sm:block">
                                       {l.observacao}
                                     </span>
                                   </>
@@ -1781,8 +1818,10 @@ export default function LancamentosPage() {
                               )}
 
                             {/* Badges de Fixo / Parcelado (C.3) — R2 (PDF seção 16): mutuamente
-                                exclusivos; Fixo NUNCA divide o valor pela quantidade da série. */}
-                            <div className="flex items-center gap-1.5 pt-0.5">
+                                exclusivos; Fixo NUNCA divide o valor pela quantidade da série.
+                                M1 (mobile): esta fileira fica oculta — o badge desce para a
+                                linha 3 do card compacto (coluna direita). */}
+                            <div className="hidden sm:flex items-center gap-1.5 pt-0.5">
                               {ehParcelado &&
                                 (() => {
                                   // Pai parcelado: valor do item = TOTAL da compra; parcela média
@@ -1824,8 +1863,9 @@ export default function LancamentosPage() {
                           </div>
                         </div>
 
-                        {/* 2ª COLUNA: Meio de pagamento — nome da conta, cartão ou "Dinheiro" */}
-                        <div className="text-left sm:text-left min-w-0 pr-1">
+                        {/* 2ª COLUNA: Meio de pagamento — nome da conta, cartão ou "Dinheiro".
+                            M1 (mobile): sai da coluna central e desce para a linha 3 do card compacto. */}
+                        <div className="hidden sm:block text-left min-w-0 pr-1">
                           <span
                             className="inline-flex items-center gap-1.5 text-[11px] sm:text-xs font-medium text-slate-600 bg-slate-100/80 hover:bg-slate-100 px-2.5 py-1 rounded-md max-w-full truncate"
                             title={meioPagamentoLabel}
@@ -1862,15 +1902,52 @@ export default function LancamentosPage() {
                           </span>
                         </div>
 
-                        {/* 4ª COLUNA: Botão de pagamento (OCULTO COMPLETAMENTE para cartões conforme C.2) */}
+                        {/* M1: LINHA 3 DO CARD MOBILE — meio de pagamento + badge de regime,
+                            DIRETAMENTE ABAIXO da linha descrição/valor (sai da coluna central).
+                            Visível só <640px; no desktop ocupa a 2ª coluna do grid de 5 colunas. */}
+                        <div className="sm:hidden col-start-1 flex flex-wrap items-center gap-1.5 min-w-0 pt-0.5">
+                          <span
+                            className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100/80 px-2 py-0.5 rounded-md max-w-full min-w-0"
+                            title={meioPagamentoLabel}
+                          >
+                            {ehCartao ? (
+                              <CreditCard className="w-3 h-3 text-slate-500 shrink-0" />
+                            ) : l.meio_pagamento_tipo === 'DINHEIRO' ? (
+                              <Banknote className="w-3 h-3 text-slate-500 shrink-0" />
+                            ) : (
+                              <Wallet className="w-3 h-3 text-slate-500 shrink-0" />
+                            )}
+                            <span className="truncate">{meioPagamentoLabel}</span>
+                          </span>
+                          {badgeRegimeTexto && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] py-0 px-1.5 font-medium shrink-0 ${
+                                ehParcelado
+                                  ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                  : 'bg-purple-50 text-purple-700 border-purple-200'
+                              }`}
+                            >
+                              {badgeRegimeTexto}
+                            </Badge>
+                          )}
+                        </div>
+
+                        {/* 4ª COLUNA: Botão de pagamento (OCULTO COMPLETAMENTE para cartões conforme C.2).
+                            M1 (mobile): fica DIRETAMENTE ABAIXO do valor (coluna da direita) e é o
+                            indicador de status pago/não pago — verde quando pago, neutro quando não.
+                            stopPropagation: o toque NÃO abre o bottom sheet de detalhes. */}
                         <div className="flex items-center justify-center w-9 h-9 shrink-0">
                           {ehCartao ? null : isPago ? (
                             <button
                               type="button"
                               disabled={isProcessing}
-                              onClick={() => handleTogglePago(l)}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleTogglePago(l)
+                              }}
                               title="Pago — clique para desfazer"
-                              className="p-1.5 rounded-lg text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 transition"
+                              className="p-1.5 rounded-lg text-emerald-500 sm:text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 transition"
                             >
                               <ThumbsUp className="w-4 h-4 stroke-[2.5]" />
                             </button>
@@ -1878,17 +1955,22 @@ export default function LancamentosPage() {
                             <button
                               type="button"
                               disabled={isProcessing}
-                              onClick={() => handleTogglePago(l)}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleTogglePago(l)
+                              }}
                               title="Não pago — clique para confirmar pagamento"
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50/50 transition"
+                              className="p-1.5 rounded-lg text-slate-500 sm:text-slate-400 hover:text-emerald-600 hover:bg-emerald-50/50 transition"
                             >
                               <ThumbsDown className="w-4 h-4 stroke-[2.5]" />
                             </button>
                           )}
                         </div>
 
-                        {/* 5ª COLUNA: 3 pontinhos com opção "Fatura" para cartão (C.2) */}
-                        <div className="flex items-center justify-center w-8 shrink-0">
+                        {/* 5ª COLUNA: 3 pontinhos com opção "Fatura" para cartão (C.2) —
+                            M1: SEM coluna ⋮ no mobile; as ações migram para o bottom sheet
+                            (SheetDetalheLancamento), que reutiliza exatamente estas funções. */}
+                        <div className="hidden sm:flex items-center justify-center w-8 shrink-0">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button
@@ -1906,7 +1988,7 @@ export default function LancamentosPage() {
                               {ehCartao && (
                                 <>
                                   <DropdownMenuItem
-                                    onClick={handleIrParaFatura}
+                                    onClick={() => handleIrParaFatura()}
                                     className="cursor-pointer text-slate-900 font-medium hover:bg-indigo-50 hover:text-indigo-900"
                                   >
                                     <Receipt className="w-3.5 h-3.5 mr-2 text-indigo-600" />
@@ -1944,6 +2026,34 @@ export default function LancamentosPage() {
           })
         )}
       </div>
+
+      {/* M2/M3 (mobile): BOTTOM SHEET de detalhes e ações do lançamento — vaul Drawer.
+          Ações reutilizam exatamente as mesmas funções do menu ⋮ do desktop. */}
+      <SheetDetalheLancamento
+        lancamento={lancamentoDetalhe}
+        open={lancamentoDetalhe !== null}
+        onOpenChange={(aberto) => {
+          if (!aberto) setLancamentoDetalhe(null)
+        }}
+        onVerFatura={() => {
+          if (lancamentoDetalhe) {
+            setLancamentoDetalhe(null)
+            irParaFatura(lancamentoDetalhe)
+          }
+        }}
+        onEditar={() => {
+          if (lancamentoDetalhe) {
+            setLancamentoDetalhe(null)
+            abrirEdicaoLancamento(lancamentoDetalhe)
+          }
+        }}
+        onExcluir={() => {
+          if (lancamentoDetalhe) {
+            setLancamentoDetalhe(null)
+            handleExcluirLancamento(lancamentoDetalhe)
+          }
+        }}
+      />
 
       {/* MODAL DE CRIAÇÃO / EDIÇÃO */}
       <ModalLancamento
