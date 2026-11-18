@@ -185,9 +185,7 @@ export function ModalDetalheSessaoCaptura({ sessao, onFechar, onContinuarRevisao
           </div>
 
           {/* R3.2 — lista legível DENTRO do modal (sem alert()). */}
-          {carregandoItens && (
-            <p className="text-xs text-slate-400">Carregando lançamentos…</p>
-          )}
+          {carregandoItens && <p className="text-xs text-slate-400">Carregando lançamentos…</p>}
           {erroItens && <p className="text-xs text-rose-600">{erroItens}</p>}
           {lancRelacionados !== null && !carregandoItens && (
             <div className="border border-slate-200 rounded-lg p-3 bg-slate-50">

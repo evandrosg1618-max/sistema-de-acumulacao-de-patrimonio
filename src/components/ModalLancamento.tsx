@@ -568,11 +568,7 @@ export function ModalLancamento({
         data_pagamento: pago ? data : null,
         observacao: observacao.trim() || null,
         regime:
-          modoRepeticao === 'fixo'
-            ? 'fixo'
-            : modoRepeticao === 'parcelado'
-              ? 'parcelado'
-              : 'unico',
+          modoRepeticao === 'fixo' ? 'fixo' : modoRepeticao === 'parcelado' ? 'parcelado' : 'unico',
         quantidade_parcelas: modoRepeticao === 'parcelado' ? quantidadeParcelas : 1,
         modalidade_saida: tipo === 'despesa' ? modalidadeSaida : 'compra_propria',
         valor_proprio: valorProprioFinal,
@@ -1893,9 +1889,9 @@ export function ModalLancamento({
                 Cancelar
               </Button>
               {!initialData && !modoCaptura && (
-                 <Button
-                   type="button"
-                   variant="secondary"
+                <Button
+                  type="button"
+                  variant="secondary"
                   disabled={salvando || isProcessing}
                   onClick={(e) => handleSubmeter(e, true)}
                   className="text-xs"

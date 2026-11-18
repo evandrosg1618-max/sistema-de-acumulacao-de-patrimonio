@@ -130,6 +130,18 @@ export function revisaoParaItemDb(i: CapturaItemRevisao) {
   }
 }
 
+/**
+ * R4 — Obrigações do lançamento que o "Pronto" exige (candidato completo):
+ * descrição, valor > 0, data, Pago com e subcategoria (quando a modalidade
+ * a exige — dispensada em compra_terceiros/emprestimo_terceiros).
+ */
+export function candidatoEstaCompleto(i: CapturaItemRevisao): boolean {
+  if (!i.descricao.trim() || !(i.valor > 0) || !i.data || !i.meio_pagamento_id) return false
+  const dispensaSubcategoria =
+    i.modalidade_saida === 'compra_terceiros' || i.modalidade_saida === 'emprestimo_terceiros'
+  return dispensaSubcategoria || Boolean(i.subcategoria_id)
+}
+
 /** Aplica a edição em lote SOMENTE nos campos marcados (PatchLoteCaptura). */
 export function aplicarPatchLote(
   itens: CapturaItemRevisao[],

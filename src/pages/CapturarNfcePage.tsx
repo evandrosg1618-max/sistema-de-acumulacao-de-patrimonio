@@ -51,11 +51,14 @@ import {
   CapturaItemRevisao,
   PatchLoteCaptura,
   candidatoDeItem,
+  candidatoEstaCompleto,
   itemDbParaRevisao,
   revisaoParaItemDb,
   aplicarPatchLote,
 } from '@/components/captura/tiposRevisao'
 import type { Categoria, Subcategoria } from '@/types/sap'
+import { contaService, cartaoService } from '@/services/sap'
+import { ModalDetalheItemCaptura } from '@/components/captura/ModalDetalheItemCaptura'
 import {
   Camera,
   ClipboardPaste,
@@ -106,7 +109,13 @@ function CapturarNfceConteudo() {
   const [descManual, setDescManual] = useState('')
   const [valManual, setValManual] = useState('')
   const inputArquivoRef = useRef<HTMLInputElement | null>(null)
-
+  // R6 — Detalhes = ModalLancamento em MODO CAPTURA (uma instância na página)
+  const [itemDetalheId, setItemDetalheId] = useState<string | null>(null)
+  // R6 — listas para o ModalLancamento em modo captura (Pago com real)
+  const [contas, setContas] = useState<any[]>([])
+  const [cartoes, setCartoes] = useState<any[]>([])
+  const [carregandoContasCartoes, setCarregandoContasCartoes] = useState(true)
+  const [importadosAbertos, setImportadosAbertos] = useState(false)
   const workspaceId = currentWorkspace?.workspace_id || currentWorkspace?.id || ''
 
   const carregarHistorico = useCallback(async () => {
@@ -126,6 +135,16 @@ function CapturarNfceConteudo() {
       .list(workspaceId)
       .then((ms) => setMeios(ms || []))
       .catch(() => setMeios([]))
+    // R6 — listas para o ModalLancamento em modo captura (Pago com real)
+    contaService
+      .list(workspaceId)
+      .then((cs) => setContas(cs || []))
+      .catch(() => setContas([]))
+    cartaoService
+      .list(workspaceId)
+      .then((ks) => setCartoes(ks || []))
+      .catch(() => setCartoes([]))
+      .finally(() => setCarregandoContasCartoes(false))
     categoriaService
       .listComSubcategorias(workspaceId, false)
       .then((lista) => {
@@ -402,8 +421,13 @@ function CapturarNfceConteudo() {
   const atualizarItem = (id: string, patch: Partial<CapturaItemRevisao>) =>
     setItens((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)))
 
+  // R6 — Detalhes: abre a janela do Novo Lançamento em MODO CAPTURA
+  const abrirDetalhes = (item: CapturaItemRevisao) => setItemDetalheId(item.id)
+  const itemDetalhe = itens.find((i) => i.id === itemDetalheId) || null
+
+  // R5 — seleção em massa atua SOMENTE nos itens ainda não importados
   const selecionarTodos = (v: boolean) =>
-    setItens((prev) => prev.map((i) => ({ ...i, selecionado: v })))
+    setItens((prev) => prev.map((i) => (i.status !== 'importado' ? { ...i, selecionado: v } : i)))
 
   const aplicarLote = (patch: PatchLoteCaptura) => {
     const ids = itens.filter((i) => i.selecionado).map((i) => i.id)
@@ -495,6 +519,18 @@ function CapturarNfceConteudo() {
       toast({ title: 'Selecione itens para importar' })
       return
     }
+    // R4 — "Importar selecionados" valida os obrigatórios ANTES de criar
+    // qualquer lançamento; item incompleto fica bloqueado ("Revisar").
+    const incompletos = paraImportar.filter((i) => !candidatoEstaCompleto(i))
+    if (incompletos.length > 0) {
+      toast({
+        title: 'Itens incompletos selecionados',
+        description:
+          'Complete descrição, valor, data, Pago com e subcategoria (quando exigida) nos Detalhes antes de importar.',
+        variant: 'destructive',
+      })
+      return
+    }
     const semMeio = paraImportar.find((i) => !i.meio_pagamento_id)
     if (semMeio) {
       toast({ title: 'Defina o "Pago com" dos itens selecionados', variant: 'destructive' })
@@ -565,7 +601,13 @@ function CapturarNfceConteudo() {
       }
     }
     setImportando(false)
-    const statusSessao = ok > 0 && falhas === 0 ? 'importada' : ok > 0 ? 'parcial' : 'revisao'
+    // R5 — a sessão só vira 'importada' quando NÃO restar item pendente;
+    // 'parcial' mantém o comportamento atual.
+    const restamPendentesApos = itens.some(
+      (i) => i.status !== 'importado' && !paraImportar.some((p) => p.id === i.id),
+    )
+    const statusSessao =
+      ok > 0 && falhas === 0 && !restamPendentesApos ? 'importada' : ok > 0 ? 'parcial' : 'revisao'
     if (sessao) {
       await capturaService.atualizarSessao(sessao.id, sessao.workspace_id, {
         status: statusSessao as any,
@@ -595,7 +637,14 @@ function CapturarNfceConteudo() {
   const somaSelecionados = selecionados.reduce((s, i) => s + i.valor, 0)
   const pendentes = itens.filter((i) => i.status !== 'importado')
   const somaItens = pendentes.reduce((s, i) => s + i.valor, 0)
+  // R5 — itens já importados ficam numa seção recolhida; a revisão mostra só pendentes
+  const importados = itens.filter((i) => i.status === 'importado')
+  const itensParaRevisar = pendentes
+  const restamPendentes = pendentes.length > 0
   const diferenca = totalDocumento != null ? Number((somaItens - totalDocumento).toFixed(2)) : null
+  const botaoImportarLabel = restamPendentes
+    ? `Importar selecionados (${selecionados.filter((i) => i.status !== 'importado').length})`
+    : 'Importar selecionados'
 
   return (
     <div className="px-4 py-4 max-w-2xl mx-auto pb-24">
@@ -857,6 +906,11 @@ function CapturarNfceConteudo() {
           </Card>
 
           {itens.length === 0 && <p className="text-xs text-slate-500">Nenhum item reconhecido.</p>}
+          {itens.length > 0 && !restamPendentes && (
+            <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg p-2.5 font-medium">
+              ✓ Todos os itens reconhecidos dessa captura foram importados.
+            </p>
+          )}
 
           <div className="flex items-center gap-2 flex-wrap">
             <Button
@@ -903,14 +957,12 @@ function CapturarNfceConteudo() {
             </Button>
           </div>
 
-          {itens.map((item, i) => (
+          {itensParaRevisar.map((item, i) => (
             <LinhaRevisaoCaptura
               key={item.id}
               item={item}
               indice={i}
-              atualizado={Boolean(item.atualizado)}
               categorias={categorias}
-              subcategorias={subcategorias}
               meiosPagamento={meios}
               onEditar={atualizarItem}
               onAlternarSelecao={(id) =>
@@ -918,6 +970,7 @@ function CapturarNfceConteudo() {
                   prev.map((x) => (x.id === id ? { ...x, selecionado: !x.selecionado } : x)),
                 )
               }
+              onAbrirDetalhes={abrirDetalhes}
               onExcluir={(id) => {
                 const alvo = itens.find((x) => x.id === id)
                 if (
@@ -938,7 +991,11 @@ function CapturarNfceConteudo() {
           <div className="grid grid-cols-2 gap-2 pt-2">
             <Button
               onClick={importar}
-              disabled={importando || selecionados.length === 0}
+              disabled={
+                importando ||
+                !restamPendentes ||
+                selecionados.filter((i) => i.status !== 'importado').length === 0
+              }
               className="h-11 bg-emerald-600 hover:bg-emerald-700 text-sm"
             >
               {importando ? (
@@ -946,7 +1003,7 @@ function CapturarNfceConteudo() {
               ) : (
                 <CheckSquare className="w-4 h-4" />
               )}
-              Importar selecionados ({selecionados.length})
+              {importando ? 'Importando…' : botaoImportarLabel}
             </Button>
             <Button
               variant="outline"
@@ -956,6 +1013,30 @@ function CapturarNfceConteudo() {
               Voltar às capturas
             </Button>
           </div>
+
+          {/* R5 — itens já importados somem da revisão; seção recolhida p/ rastreio */}
+          {importados.length > 0 && (
+            <div className="border border-slate-200 rounded-lg">
+              <button
+                type="button"
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-[11px] font-semibold text-slate-600"
+                onClick={() => setImportadosAbertos((v) => !v)}
+              >
+                <span>Itens já importados ({importados.length})</span>
+                <span>{importadosAbertos ? '▲' : '▼'}</span>
+              </button>
+              {importadosAbertos && (
+                <div className="px-3 pb-2 space-y-1">
+                  {importados.map((im) => (
+                    <p key={im.id} className="text-[11px] text-slate-500 flex justify-between">
+                      <span className="truncate pr-2">{im.descricao}</span>
+                      <span className="font-semibold shrink-0">{formatMoneyBRL(im.valor)}</span>
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {historico.length > 0 && (
             <HistoricoCapturas historico={historico} onVer={(s) => setSessaoDetalhe(s)} />
@@ -1072,6 +1153,24 @@ function CapturarNfceConteudo() {
       </Dialog>
 
       <ModalDetalheSessaoCaptura sessao={sessaoDetalhe} onFechar={() => setSessaoDetalhe(null)} />
+
+      {/* R6 — Detalhes = janela do Novo Lançamento em MODO CAPTURA:
+          salva SOMENTE no candidato (atualizarItem), nunca cria lançamento. */}
+      {sessao && !carregandoContasCartoes && (
+        <ModalDetalheItemCaptura
+          item={itemDetalhe}
+          open={!!itemDetalhe}
+          onOpenChange={(o) => !o && setItemDetalheId(null)}
+          sessaoId={sessao.id}
+          workspaceId={sessao.workspace_id || workspaceId}
+          contas={contas}
+          cartoes={cartoes}
+          categorias={categorias}
+          subcategorias={subcategorias}
+          userId={user?.id}
+          onGravado={(id, patch) => atualizarItem(id, patch)}
+        />
+      )}
     </div>
   )
 }

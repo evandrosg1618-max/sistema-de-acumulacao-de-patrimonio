@@ -1,316 +1,166 @@
 /**
- * Linha editável de um candidato da revisão de NFC-e (BLOCO 12/13).
- * Campos = os do lançamento normal, com SeletoresClassificacaoFatura.
+ * Linha de revisão do candidato NFC-e (SAP v0.0.106 — R4/R6).
+ * Mobile-first (Samsung S20 FE / Chrome Android, 320 a 430 px).
+ *
+ * R4 — campo Valor alargado (flex-1, min 120px) e SEM prefixo "R$"
+ * (exibirPrefixoMoeda={false}, prop opcional do ValorCalculadoraInput). A
+ * linha inferior "valor • pago com" é mantida. O status "Pronto" é DERIVADO
+ * dos obrigatórios do lançamento (candidatoEstaCompleto): item incompleto
+ * exibe "Revisar" e fica BLOQUEADO de ser importado.
+ *
+ * R6 — o expandir "Detalhes" não tem mais campos inline: avisa a página via
+ * onAbrirDetalhes, que abre o ModalLancamento em MODO CAPTURA (extensão
+ * aditiva da 0.0.105) pré-preenchido com o candidato. A gravação volta
+ * SOMENTE nos campos do candidato — nunca cria lançamento.
  */
-import { useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  SeletorCategoriaFatura,
-  SeletorSubcategoriaFatura,
-} from '@/components/SeletoresClassificacaoFatura'
 import { ValorCalculadoraInput } from '@/components/ValorCalculadoraInput'
-import { MeioPagamento, Categoria, Subcategoria, ModalidadeSaida } from '@/types/sap'
-import { formatMoneyBRL } from '@/lib/formatters'
-import { CapturaItemRevisao } from '@/components/captura/tiposRevisao'
-import { AlertTriangle, ChevronDown, ChevronUp, Trash2 } from 'lucide-react'
+import { candidatoEstaCompleto } from '@/components/captura/tiposRevisao'
+import type { CapturaItemRevisao } from '@/components/captura/tiposRevisao'
+import { AlertTriangle, ChevronDown, Trash2 } from 'lucide-react'
 
-interface Props {
+interface LinhaRevisaoCapturaProps {
   item: CapturaItemRevisao
   indice: number
-  atualizado: boolean
-  categorias: Categoria[]
-  subcategorias: Subcategoria[]
-  meiosPagamento: MeioPagamento[]
+  categorias: any[]
+  meiosPagamento: any[]
   onEditar: (id: string, patch: Partial<CapturaItemRevisao>) => void
   onAlternarSelecao: (id: string) => void
   onExcluir: (id: string) => void
+  onAbrirDetalhes: (item: CapturaItemRevisao) => void
 }
 
 export function LinhaRevisaoCaptura({
   item,
   indice,
-  atualizado,
-  categorias,
-  subcategorias,
   meiosPagamento,
   onEditar,
   onAlternarSelecao,
   onExcluir,
-}: Props) {
-  const [expandida, setExpandida] = useState(false)
+  onAbrirDetalhes,
+}: LinhaRevisaoCapturaProps) {
+  const completo = candidatoEstaCompleto(item)
+  const importado = item.status === 'importado'
+  const bloqueado = !completo && !importado
 
-  const subcategoriasDaCategoria = useMemo(
-    () => subcategorias.filter((s) => s.categoria_id === item.categoria_id),
-    [subcategorias, item.categoria_id],
-  )
-
-  const rotuloStatus =
-    item.status === 'erro'
+  // R4 — status derivado: Pronto = obrigatórios preenchidos; Revisar = falta
+  // algo. Erro/Repetido/Importado preservam os rótulos originais.
+  const rotuloStatus = importado
+    ? 'Importado'
+    : item.status === 'erro'
       ? 'Erro'
       : item.status === 'repetido'
-        ? 'Possível item repetido entre capturas'
-        : item.status === 'revisar' || item.confianca === 'baixa'
-          ? 'Revisar'
-          : 'Pronto'
-
-  const corStatus =
-    item.status === 'erro'
+        ? 'Repetido'
+        : completo
+          ? 'Pronto'
+          : 'Revisar'
+  const classeStatus = importado
+    ? 'bg-slate-100 text-slate-600 border-slate-200'
+    : item.status === 'erro'
       ? 'bg-rose-50 text-rose-700 border-rose-200'
       : item.status === 'repetido'
         ? 'bg-amber-50 text-amber-700 border-amber-200'
-        : item.status === 'revisar' || item.confianca === 'baixa'
-          ? 'bg-orange-50 text-orange-700 border-orange-200'
-          : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+        : completo
+          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+          : 'bg-amber-50 text-amber-800 border-amber-300'
 
   return (
     <div
-      className={`rounded-xl border p-3 bg-white transition-colors ${
-        atualizado ? 'border-emerald-400 bg-emerald-50/30' : 'border-slate-200'
+      className={`border rounded-lg p-2.5 space-y-2 transition-colors ${
+        item.atualizado
+          ? 'border-indigo-300 bg-indigo-50/40'
+          : bloqueado
+            ? 'border-amber-300 bg-amber-50/40'
+            : 'border-slate-200 bg-white'
       }`}
     >
-      {/* Linha compacta: checkbox, descrição, valor, status */}
-      <div className="flex items-start gap-2.5">
+      <div className="flex items-start gap-2">
         <Checkbox
-          className="mt-1"
           checked={item.selecionado}
           onCheckedChange={() => onAlternarSelecao(item.id)}
-          aria-label={`Selecionar item ${indice + 1}`}
+          className="mt-1"
+          disabled={importado}
         />
-        <div className="flex-1 min-w-0 space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-400 shrink-0">{indice + 1}.</span>
+        <div className="flex-1 min-w-0 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-bold text-slate-400">#{indice + 1}</span>
+            <Badge variant="outline" className={`text-[9px] px-1.5 ${classeStatus}`}>
+              {rotuloStatus}
+            </Badge>
+            {item.confianca === 'baixa' && (
+              <span className="text-[9px] text-amber-700 flex items-center gap-0.5">
+                <AlertTriangle className="w-3 h-3" /> confiança baixa
+              </span>
+            )}
+          </div>
+          {/* Descrição + Valor na mesma linha; valor ocupa o espaço restante */}
+          <div className="flex gap-2">
             <Input
               value={item.descricao}
               onChange={(e) => onEditar(item.id, { descricao: e.target.value })}
-              className="h-8 text-sm font-medium"
+              onBlur={(e) => onEditar(item.id, { descricao: e.target.value.trim() })}
               placeholder="Descrição"
+              className="h-9 text-sm flex-1 min-w-0"
+            />
+            <ValorCalculadoraInput
+              value={item.valor > 0 ? String(item.valor).replace('.', ',') : ''}
+              onChange={(texto: string) =>
+                onEditar(item.id, {
+                  valor: Number(String(texto).replace(/\./g, '').replace(',', '.')) || 0,
+                })
+              }
+              className="flex-1 min-w-[120px]"
+              placeholder="Valor"
+              exibirPrefixoMoeda={false}
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="w-28">
-              <ValorCalculadoraInput
-                value={item.valor ? String(item.valor).replace('.', ',') : ''}
-                onChange={(v) =>
-                  onEditar(item.id, { valor: Number(String(v).replace(',', '.')) || 0 })
-                }
-              />
-            </div>
-            <Badge variant="outline" className={`text-[10px] ${corStatus}`}>
-              {rotuloStatus}
-            </Badge>
-            {item.agrupado && (
-              <Badge
-                variant="outline"
-                className="text-[10px] bg-indigo-50 text-indigo-700 border-indigo-200"
-              >
-                Agrupado
-              </Badge>
+          {/* Linha inferior mantida: valor • pago com */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
+            <span className="font-semibold text-slate-700">
+              {item.valor > 0 ? item.valor.toFixed(2).replace('.', ',') : '—'}
+            </span>
+            <span>•</span>
+            <span>
+              Pago com:{' '}
+              <span className="font-semibold text-slate-700">
+                {item.meio_pagamento_nome ||
+                  meiosPagamento.find((m) => m.id === item.meio_pagamento_id)?.nome ||
+                  '—'}
+              </span>
+            </span>
+            {bloqueado && (
+              <span className="text-amber-700">
+                — complete os obrigatórios nos Detalhes para importar
+              </span>
             )}
-            <button
-              type="button"
-              onClick={() => setExpandida((e) => !e)}
-              className="text-xs text-emerald-700 font-semibold flex items-center gap-1 ml-auto"
-            >
-              Detalhes{' '}
-              {expandida ? (
-                <ChevronUp className="w-3.5 h-3.5" />
-              ) : (
-                <ChevronDown className="w-3.5 h-3.5" />
-              )}
-            </button>
           </div>
-          {item.status === 'repetido' && !expandida && (
-            <p className="text-[11px] text-amber-700 flex items-center gap-1">
-              <AlertTriangle className="w-3 h-3" />
-              Confirme se não é o mesmo item reconhecido em duas capturas sobrepostas.
-            </p>
-          )}
         </div>
-      </div>
-
-      {expandida && (
-        <div className="mt-3 pt-3 border-t border-slate-100 space-y-2.5 pl-8">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-                Data
-              </label>
-              <Input
-                type="date"
-                value={item.data || ''}
-                onChange={(e) => onEditar(item.id, { data: e.target.value || null })}
-                className="h-8 text-xs"
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-                Pago com
-              </label>
-              <Select
-                value={item.meio_pagamento_id || ''}
-                onValueChange={(v) => {
-                  const m = meiosPagamento.find((x) => x.id === v)
-                  onEditar(item.id, {
-                    meio_pagamento_id: v,
-                    meio_pagamento_tipo: m?.tipo || null,
-                    meio_pagamento_nome: m?.nome || null,
-                  })
-                }}
-              >
-                <SelectTrigger className="h-8 text-xs bg-white">
-                  <SelectValue placeholder="Selecione..." />
-                </SelectTrigger>
-                <SelectContent className="bg-white max-h-56">
-                  {meiosPagamento
-                    .filter((m) => m.ativo)
-                    .map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.nome}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <SeletorCategoriaFatura
-            categorias={categorias}
-            valor={item.categoria_id || ''}
-            aoMudar={(v) => onEditar(item.id, { categoria_id: v || null, subcategoria_id: null })}
-          />
-          <SeletorSubcategoriaFatura
-            subcategorias={subcategoriasDaCategoria}
-            valor={item.subcategoria_id || ''}
-            aoMudar={(v) => onEditar(item.id, { subcategoria_id: v || null })}
-            desabilitado={!item.categoria_id}
-          />
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-                Modalidade
-              </label>
-              <Select
-                value={item.modalidade_saida || 'compra_propria'}
-                onValueChange={(v) => onEditar(item.id, { modalidade_saida: v as ModalidadeSaida })}
-              >
-                <SelectTrigger className="h-8 text-xs bg-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  <SelectItem value="compra_propria">Compra própria</SelectItem>
-                  <SelectItem value="compra_compartilhada">Compra compartilhada</SelectItem>
-                  <SelectItem value="compra_terceiros">Compra a terceiros</SelectItem>
-                  <SelectItem value="emprestimo_terceiros">Empréstimo a terceiros</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-                Valor Próprio
-              </label>
-              <ValorCalculadoraInput
-                value={
-                  item.valor_proprio != null
-                    ? String(item.valor_proprio).replace('.', ',')
-                    : String(item.valor).replace('.', ',')
-                }
-                onChange={(v) =>
-                  onEditar(item.id, { valor_proprio: Number(String(v).replace(',', '.')) || 0 })
-                }
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-                Valor de Terceiros
-              </label>
-              <ValorCalculadoraInput
-                value={String(item.valor_terceiros ?? 0).replace('.', ',')}
-                onChange={(v) =>
-                  onEditar(item.id, { valor_terceiros: Number(String(v).replace(',', '.')) || 0 })
-                }
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-                Afeta Resultado
-              </label>
-              <Select
-                value={item.afeta_resultado ? 'true' : 'false'}
-                onValueChange={(v) => onEditar(item.id, { afeta_resultado: v === 'true' })}
-              >
-                <SelectTrigger className="h-8 text-xs bg-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  <SelectItem value="true">Sim</SelectItem>
-                  <SelectItem value="false">Não</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-              Afeta Orçamento
-            </label>
-            <Select
-              value={item.afeta_orcamento ? 'true' : 'false'}
-              onValueChange={(v) => onEditar(item.id, { afeta_orcamento: v === 'true' })}
-            >
-              <SelectTrigger className="h-8 text-xs bg-white">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-white">
-                <SelectItem value="true">Sim</SelectItem>
-                <SelectItem value="false">Não</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-[10px] uppercase tracking-wider font-bold text-slate-500">
-              Observação
-            </label>
-            <Textarea
-              value={item.observacao || ''}
-              onChange={(e) => onEditar(item.id, { observacao: e.target.value || null })}
-              className="text-xs min-h-[52px]"
-              placeholder="Observação do lançamento (opcional)"
-            />
-          </div>
-
+        <div className="flex flex-col items-center gap-1">
+          {/* R6 — Detalhes: abre a janela do Novo Lançamento em modo captura */}
           <Button
-            variant="outline"
             size="sm"
-            onClick={() => onExcluir(item.id)}
-            className="h-8 text-xs text-rose-600 border-rose-200 hover:bg-rose-50"
+            variant="outline"
+            className="h-7 text-[10px] px-2"
+            disabled={importado}
+            onClick={() => onAbrirDetalhes(item)}
           >
-            <Trash2 className="w-3.5 h-3.5 mr-1" /> Excluir item
+            <ChevronDown className="w-3 h-3" /> Detalhes
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 w-7 p-0 text-rose-600"
+            disabled={importado}
+            onClick={() => onExcluir(item.id)}
+            aria-label="Excluir item"
+          >
+            <Trash2 className="w-4 h-4" />
           </Button>
         </div>
-      )}
-
-      {!expandida && item.status !== 'repetido' && (
-        <p className="text-[11px] text-slate-400 mt-1.5 pl-8">
-          {item.meio_pagamento_nome ? `Pago com ${item.meio_pagamento_nome} • ` : ''}
-          {formatMoneyBRL(item.valor)}
-        </p>
-      )}
+      </div>
     </div>
   )
 }
