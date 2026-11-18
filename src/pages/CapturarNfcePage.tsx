@@ -20,7 +20,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
+
 import {
   Dialog,
   DialogContent,
@@ -41,7 +41,6 @@ import {
   LIMITE_SESSOES_RECENTES,
   type CapturaSessao,
   type CapturaSessaoImagem,
-  type CapturaSessaoItem,
 } from '@/services/captura/capturaService'
 import { processarCapturasNfce } from '@/services/captura/processarCapturas'
 import type { TrilhaCaptura } from '@/services/captura/nfceParser'
@@ -49,7 +48,15 @@ import { lancamentoService, meioPagamentoService, categoriaService } from '@/ser
 import { formatMoneyBRL, getTodayDateString } from '@/lib/formatters'
 import { ModalDetalheSessaoCaptura } from '@/components/captura/ModalDetalheSessaoCaptura'
 import { LinhaRevisaoCaptura } from '@/components/captura/LinhaRevisaoCaptura'
-import { ItemCandidatoRevisao, patchAplicado } from '@/components/captura/tiposRevisao'
+import {
+  CapturaItemRevisao,
+  PatchLoteCaptura,
+  candidatoDeItem,
+  itemDbParaRevisao,
+  revisaoParaItemDb,
+  aplicarPatchLote,
+} from '@/components/captura/tiposRevisao'
+import type { Categoria, Subcategoria } from '@/types/sap'
 import {
   Camera,
   ClipboardPaste,
@@ -61,7 +68,6 @@ import {
   Eye,
   Scissors,
   History,
-  RefreshCw,
   Loader2,
   ClipboardList,
   Layers,
@@ -78,16 +84,17 @@ function CapturarNfceConteudo() {
   const [trilha, setTrilha] = useState<TrilhaCaptura>('papel')
   const [sessao, setSessao] = useState<CapturaSessao | null>(null)
   const [imagens, setImagens] = useState<Array<CapturaSessaoImagem & { url: string }>>([])
-  const [itens, setItens] = useState<ItemCandidatoRevisao[]>([])
+  const [itens, setItens] = useState<CapturaItemRevisao[]>([])
   const [historico, setHistorico] = useState<CapturaSessao[]>([])
   const [meios, setMeios] = useState<any[]>([])
+  const [categorias, setCategorias] = useState<Categoria[]>([])
+  const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
+  const [totalDocumento, setTotalDocumento] = useState<number | null>(null)
   const [sessaoDetalhe, setSessaoDetalhe] = useState<CapturaSessao | null>(null)
 
   const [cameraAberta, setCameraAberta] = useState(false)
   const [imagemRecorte, setImagemRecorte] = useState<string | null>(null)
-  const [recorteOrigem, setRecorteOrigem] = useState<'nova' | 'bandeja'>({
-    ...({} as any),
-  } as any)
+  const [recorteOrigem, setRecorteOrigem] = useState<'nova' | 'bandeja'>('nova')
   const [imagemEmBandeja, setImagemEmBandeja] = useState<CapturaSessaoImagem | null>(null)
   const [processando, setProcessando] = useState(false)
   const [progresso, setProgresso] = useState('')
@@ -116,9 +123,20 @@ function CapturarNfceConteudo() {
     if (!workspaceId) return
     carregarHistorico()
     meioPagamentoService
-      .getAll(workspaceId)
+      .list(workspaceId)
       .then((ms) => setMeios(ms || []))
       .catch(() => setMeios([]))
+    categoriaService
+      .listComSubcategorias(workspaceId, false)
+      .then((lista) => {
+        const despesa = (lista || []).filter((c: any) => c.tipo === 'despesa')
+        setCategorias(despesa)
+        setSubcategorias(despesa.flatMap((c: any) => c.subcategorias || []))
+      })
+      .catch(() => {
+        setCategorias([])
+        setSubcategorias([])
+      })
   }, [workspaceId, carregarHistorico])
 
   // ─────────────────────── Bandeja / imagens ───────────────────────
@@ -294,7 +312,7 @@ function CapturarNfceConteudo() {
       sessao.workspace_id,
       nova.map((n) => n.id),
     )
-    ecarregarImagens(sessao)
+    recarregarImagens(sessao)
   }
 
   const excluirImagemBandeja = async (im: CapturaSessaoImagem) => {
@@ -330,48 +348,29 @@ function CapturarNfceConteudo() {
       })
       const dataSugerida =
         resultado.dataConfianca === 'alta' ? resultado.dataDocumento : getTodayDateString()
-      const meio = meios.find((m) => m.id === sessao.meio_pagamento_id)
-      const candidatos: ItemCandidatoRevisao[] = resultado.itens.map((it, i) => ({
-        id: `novo_${i}_${Date.now()}`,
-        descricao: it.descricao || '(sem descrição)',
-        valor: it.valor,
-        data: dataSugerida || getTodayDateString(),
-        meioPagamentoId: sessao.meio_pagamento_id,
-        meioPagamentoTipo: sessao.meio_pagamento_tipo,
-        meioPagamentoNome: sessao.meio_pagamento_nome,
-        modalidade: 'compra_propria',
-        valorProprio: it.valor,
-        valorTerceiros: 0,
-        afetaResultado: true,
-        afetaOrcamento: true,
-        observacao: null,
-        status: it.status,
-        repetido: it.status === 'repetido',
-        confianca: it.confianca,
-        novo: true,
-        lancamentoCriadoId: null,
-        editando: false,
-      }))
+      setTotalDocumento(resultado.totalDocumento ?? null)
+      const meioSessao = meios.find((m) => m.id === sessao.meio_pagamento_id)
+      const candidatos: CapturaItemRevisao[] = resultado.itens.map((it) => {
+        const c = candidatoDeItem(it, dataSugerida || getTodayDateString())
+        return {
+          ...c,
+          meio_pagamento_id: sessao.meio_pagamento_id,
+          meio_pagamento_tipo: sessao.meio_pagamento_tipo,
+          meio_pagamento_nome: sessao.meio_pagamento_nome || meioSessao?.nome || null,
+        }
+      })
       setItens(candidatos)
-      await capturaService.substituirItens(
+      const linhasDb = await capturaService.substituirItens(
         sessao.id,
         sessao.workspace_id,
-        candidatos.map((c) => ({
-          descricao: c.descricao,
-          valor: c.valor,
-          status: c.status,
-          confianca: c.confianca,
-          repetido_entre_capturas: c.repetido,
-          data: c.data,
-          meio_pagamento_id: c.meioPagamentoId,
-          meio_pagamento_tipo: c.meioPagamentoTipo,
-          meio_pagamento_nome: c.meioPagamentoNome,
-          modalidade_saida: c.modalidade,
-          valor_proprio: c.valorProprio,
-          valor_terceiros: c.valorTerceiros,
-          afeta_resultado: c.afetaResultado,
-          afeta_orcamento: c.afetaOrcamento,
-          observacao: c.observacao,
+        candidatos.map((c) => revisaoParaItemDb(c)),
+      )
+      // Recria a lista a partir dos registros do banco para obter os IDs reais
+      // (necessários para vincularLancamento / marcarErroItem na importação).
+      setItens(
+        linhasDb.map((row, idx) => ({
+          ...itemDbParaRevisao(row),
+          selecionado: candidatos[idx]?.selecionado ?? true,
         })),
       )
       await capturaService.atualizarSessao(sessao.id, sessao.workspace_id, {
@@ -412,44 +411,53 @@ function CapturarNfceConteudo() {
 
   // ─────────────────────── Revisão / importação ───────────────────────
 
-  const atualizarItem = (id: string, patch: Partial<ItemCandidatoRevisao>) =>
+  const atualizarItem = (id: string, patch: Partial<CapturaItemRevisao>) =>
     setItens((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)))
 
   const selecionarTodos = (v: boolean) =>
-    setItens((prev) => prev.map((i) => ({ ...i, selecionadoLote: v })))
+    setItens((prev) => prev.map((i) => ({ ...i, selecionado: v })))
 
-  const aplicarLote = (patch: Record<string, any>) => {
-    setItens((prev) =>
-      prev.map((i) => (i.selecionadoLote ? { ...i, ...patchAplicado(i, patch) } : i)),
-    )
+  const aplicarLote = (patch: PatchLoteCaptura) => {
+    const ids = itens.filter((i) => i.selecionado).map((i) => i.id)
+    setItens((prev) => aplicarPatchLote(prev, ids, patch))
     toast({ title: 'Lote aplicado', description: 'Somente os campos marcados foram alterados.' })
     setLoteAberto(false)
   }
 
   const agrupar = (descricao: string, valor: number) => {
-    const selecionados = itens.filter((i) => i.selecionadoLote)
-    const grupo: ItemCandidatoRevisao = {
+    const selecionados = itens.filter((i) => i.selecionado)
+    if (selecionados.length === 0) return
+    const primeiro = selecionados[0]
+    const grupo: CapturaItemRevisao = {
       id: `grupo_${Date.now()}`,
+      selecionado: true,
       descricao,
       valor,
-      data: selecionados[0]?.data || getTodayDateString(),
-      meioPagamentoId: selecionados[0]?.meioPagamentoId ?? null,
-      meioPagamentoTipo: selecionados[0]?.meioPagamentoTipo ?? null,
-      meioPagamentoNome: selecionados[0]?.meioPagamentoNome ?? null,
-      modalidade: selecionados[0]?.modalidade || 'compra_propria',
-      valorProprio: valor,
-      valorTerceiros: 0,
-      afetaResultado: selecionados[0]?.afetaResultado ?? true,
-      afetaOrcamento: selecionados[0]?.afetaOrcamento ?? true,
-      observacao: null,
       status: 'pronto',
-      repetido: false,
       confianca: 'alta',
-      novo: true,
-      lancamentoCriadoId: null,
-      editando: false,
+      agrupado: true,
+      idsOriginais: selecionados.map((i) => i.id),
+      data: primeiro.data,
+      meio_pagamento_id: primeiro.meio_pagamento_id,
+      meio_pagamento_tipo: primeiro.meio_pagamento_tipo,
+      meio_pagamento_nome: primeiro.meio_pagamento_nome,
+      categoria_id: primeiro.categoria_id,
+      subcategoria_id: primeiro.subcategoria_id,
+      modalidade_saida: primeiro.modalidade_saida || 'compra_propria',
+      valor_proprio: valor,
+      valor_terceiros: 0,
+      afeta_resultado: primeiro.afeta_resultado,
+      afeta_orcamento: primeiro.afeta_orcamento,
+      observacao: null,
     }
-    setItens((prev) => [...prev.filter((i) => !i.selecionadoLote), grupo])
+    // Exclusivo: remove os individuais agrupados (do estado e, quando já
+    // persistidos, do banco) e mantém apenas o candidato do grupo.
+    for (const s of selecionados) {
+      if (sessao && !s.id.startsWith('manual_') && !s.id.startsWith('grupo_')) {
+        capturaService.excluirItem(s.id, sessao.id, sessao.workspace_id).catch(() => undefined)
+      }
+    }
+    setItens((prev) => [...prev.filter((i) => !i.selecionado), grupo])
     setAgruparAberto(false)
     toast({
       title: 'Itens agrupados',
@@ -468,42 +476,38 @@ function CapturarNfceConteudo() {
       ...prev,
       {
         id: `manual_${Date.now()}`,
+        selecionado: true,
         descricao: descManual.trim(),
         valor,
-        data: sessao?.data_documento || getTodayDateString(),
-        meioPagamentoId: sessao?.meio_pagamento_id || null,
-        meioPagamentoTipo: sessao?.meio_pagamento_tipo || null,
-        meioPagamentoNome: sessao?.meio_pagamento_nome || null,
-        modalidade: 'compra_propria',
-        valorProprio: valor,
-        valorTerceiros: 0,
-        afetaResultado: true,
-        afetaOrcamento: true,
-        observacao: null,
         status: 'pronto',
-        repetido: false,
         confianca: 'alta',
-        novo: true,
-        lancamentoCriadoId: null,
-        editando: false,
+        data: sessao?.data_documento || getTodayDateString(),
+        meio_pagamento_id: sessao?.meio_pagamento_id || null,
+        meio_pagamento_tipo: sessao?.meio_pagamento_tipo || null,
+        meio_pagamento_nome: sessao?.meio_pagamento_nome || meio?.nome || null,
+        categoria_id: null,
+        subcategoria_id: null,
+        modalidade_saida: 'compra_propria',
+        valor_proprio: valor,
+        valor_terceiros: 0,
+        afeta_resultado: true,
+        afeta_orcamento: true,
+        observacao: null,
       },
     ])
     setDescManual('')
     setValManual('')
     setItemManualAberto(false)
-    ecarregar
   }
 
   const importar = async () => {
     if (!sessao || importando) return
-    const paraImportar = itens.filter(
-      (i) => i.selecionadoLote && i.status !== 'importado' && !(i as any).erroImport,
-    )
+    const paraImportar = itens.filter((i) => i.selecionado && i.status !== 'importado')
     if (paraImportar.length === 0) {
       toast({ title: 'Selecione itens para importar' })
       return
     }
-    const semMeio = paraImportar.find((i) => !i.meioPagamentoId)
+    const semMeio = paraImportar.find((i) => !i.meio_pagamento_id)
     if (semMeio) {
       toast({ title: 'Defina o "Pago com" dos itens selecionados', variant: 'destructive' })
       return
@@ -519,11 +523,7 @@ function CapturarNfceConteudo() {
     let falhas = 0
     for (const item of paraImportar) {
       try {
-        const meio = meios.find((m) => m.id === item.meioPagamentoId)
-        const tipoMeio = (meio?.tipo || item.meioPagamentoTipo || 'DINHEIRO') as
-          | 'CONTA'
-          | 'CARTAO'
-          | 'DINHEIRO'
+        const tipoMeio = (item.meio_pagamento_tipo || 'DINHEIRO') as 'CONTA' | 'CARTAO' | 'DINHEIRO'
         const criado = await lancamentoService.create({
           workspace_id: workspaceId,
           tipo: 'despesa',
@@ -532,41 +532,49 @@ function CapturarNfceConteudo() {
           descricao: item.descricao,
           valor: item.valor,
           meio_pagamento_tipo: tipoMeio,
-          conta_origem_id: tipoMeio === 'CONTA' ? item.meioPagamentoId : null,
-          cartao_id: tipoMeio === 'CARTAO' ? item.meioPagamentoId : null,
+          conta_origem_id: tipoMeio === 'CONTA' ? item.meio_pagamento_id : null,
+          cartao_id: tipoMeio === 'CARTAO' ? item.meio_pagamento_id : null,
           status_pagamento: 'pago',
           data_pagamento: getTodayDateString(),
-          subcategoria_id: (item as any).subcategoriaId || null,
-          modalidade_saida: item.modalidade,
-          valor_proprio: item.modalidade === 'compra_compartilhada' ? item.valorProprio : undefined,
+          subcategoria_id: item.subcategoria_id || null,
+          modalidade_saida: (item.modalidade_saida || 'compra_propria') as any,
+          valor_proprio:
+            item.modalidade_saida === 'compra_compartilhada'
+              ? (item.valor_proprio ?? item.valor)
+              : undefined,
           valor_terceiros:
-            item.modalidade === 'compra_compartilhada' ? item.valorTerceiros : undefined,
-          afeta_resultado: item.afetaResultado,
-          afeta_orcamento: item.afetaOrcamento,
+            item.modalidade_saida === 'compra_compartilhada'
+              ? (item.valor_terceiros ?? 0)
+              : undefined,
+          afeta_resultado: item.afeta_resultado,
+          afeta_orcamento: item.afeta_orcamento,
           observacao: item.observacao || null,
         })
         await capturaService.vincularLancamento(
-          (item as any).itemId || '',
+          item.id,
           sessao.id,
           sessao.workspace_id,
           (criado as any)?.id || '',
         )
-        atualizarItem(item.id, {
-          status: 'importado',
-          lancamentoCriadoId: (criado as any)?.id || null,
-        })
+        setItens((prev) =>
+          prev.map((i) =>
+            i.id === item.id ? { ...i, status: 'importado', selecionado: false } : i,
+          ),
+        )
         ok++
       } catch (e: any) {
         falhas++
-        if ((item as any).itemId) {
+        try {
           await capturaService.marcarErroItem(
-            (item as any).itemId,
+            item.id,
             sessao.id,
             sessao.workspace_id,
             e?.message || 'Erro ao importar',
           )
+        } catch {
+          /* item manual/agrupado não existe no banco — segue */
         }
-        atualizarItem(item.id, { status: 'erro' })
+        setItens((prev) => prev.map((i) => (i.id === item.id ? { ...i, status: 'erro' } : i)))
       }
     }
     setImportando(false)
@@ -597,8 +605,11 @@ function CapturarNfceConteudo() {
 
   // ─────────────────────── Renderização ───────────────────────
 
-  const selecionados = itens.filter((i) => i.selecionadoLote)
+  const selecionados = itens.filter((i) => i.selecionado)
   const somaSelecionados = selecionados.reduce((s, i) => s + i.valor, 0)
+  const pendentes = itens.filter((i) => i.status !== 'importado')
+  const somaItens = pendentes.reduce((s, i) => s + i.valor, 0)
+  const diferenca = totalDocumento != null ? Number((somaItens - totalDocumento).toFixed(2)) : null
 
   return (
     <div className="px-4 py-4 max-w-2xl mx-auto pb-24">
@@ -821,6 +832,44 @@ function CapturarNfceConteudo() {
             </p>
           </div>
 
+          <Card className="border-slate-200 bg-slate-50/60">
+            <CardContent className="p-3 space-y-1">
+              <p className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                <ClipboardList className="w-3.5 h-3.5" /> Conferência informativa
+              </p>
+              <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-slate-600">
+                <span>
+                  Total do documento:{' '}
+                  <span className="font-semibold">
+                    {totalDocumento != null ? formatMoneyBRL(totalDocumento) : 'não reconhecido'}
+                  </span>
+                </span>
+                <span>
+                  Itens: <span className="font-semibold">{itens.length}</span>
+                </span>
+                <span>
+                  Soma dos itens: <span className="font-semibold">{formatMoneyBRL(somaItens)}</span>
+                </span>
+                {diferenca != null && (
+                  <span>
+                    Diferença:{' '}
+                    <span
+                      className={`font-semibold ${
+                        Math.abs(diferenca) < 0.01 ? 'text-emerald-700' : 'text-amber-700'
+                      }`}
+                    >
+                      {formatMoneyBRL(diferenca)}
+                    </span>
+                  </span>
+                )}
+              </div>
+              <p className="text-[10px] text-slate-400">
+                A diferença é apenas informativa — nenhum lançamento é gerado automaticamente por
+                ela. Revise itens ausentes ou duplicados e importe manualmente.
+              </p>
+            </CardContent>
+          </Card>
+
           {itens.length === 0 && <p className="text-xs text-slate-500">Nenhum item reconhecido.</p>}
 
           <div className="flex items-center gap-2 flex-wrap">
@@ -872,10 +921,31 @@ function CapturarNfceConteudo() {
             <LinhaRevisaoCaptura
               key={item.id}
               item={item}
-              ordem={i + 1}
-              meios={meios}
-              onAtualizar={atualizarItem}
-              onRemover={(id) => setItens((prev) => prev.filter((x) => x.id !== id))}
+              indice={i}
+              atualizado={Boolean(item.atualizado)}
+              categorias={categorias}
+              subcategorias={subcategorias}
+              meiosPagamento={meios}
+              onEditar={atualizarItem}
+              onAlternarSelecao={(id) =>
+                setItens((prev) =>
+                  prev.map((x) => (x.id === id ? { ...x, selecionado: !x.selecionado } : x)),
+                )
+              }
+              onExcluir={(id) => {
+                const alvo = itens.find((x) => x.id === id)
+                if (
+                  sessao &&
+                  alvo &&
+                  !alvo.id.startsWith('manual_') &&
+                  !alvo.id.startsWith('grupo_')
+                ) {
+                  capturaService
+                    .excluirItem(id, sessao.id, sessao.workspace_id)
+                    .catch(() => undefined)
+                }
+                setItens((prev) => prev.filter((x) => x.id !== id))
+              }}
             />
           ))}
 

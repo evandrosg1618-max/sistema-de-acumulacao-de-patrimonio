@@ -19,12 +19,15 @@ import LancamentosPage from './pages/LancamentosPage'
 import CalculadoraDecisaoPage from './pages/CalculadoraDecisaoPage'
 import { ImportarFaturaPage } from './pages/ImportarFaturaPage'
 import { ImportarFaturaErrorBoundary } from './components/ImportarFaturaErrorBoundary'
+import CapturarNfcePage from './pages/CapturarNfcePage'
 import PlaceholderPage from './pages/PlaceholderPage'
 import Login from './pages/Login'
 import Signup from './pages/Signup'
 import ForgotPassword from './pages/ForgotPassword'
 import ConvitePage from './pages/ConvitePage'
 import NotFound from './pages/NotFound'
+
+import { CapturaNfceErrorBoundary } from './components/captura/CapturaNfceErrorBoundary'
 
 // Protected Route Guard
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -123,6 +126,14 @@ const AppRoutes = () => (
           <ImportarFaturaErrorBoundary>
             <ImportarFaturaPage />
           </ImportarFaturaErrorBoundary>
+        }
+      />
+      <Route
+        path="/capturar-nfce"
+        element={
+          <CapturaNfceErrorBoundary>
+            <CapturarNfcePage />
+          </CapturaNfceErrorBoundary>
         }
       />
       <Route path="/meios-pagamento" element={<MeiosPagamentoPage />} />
