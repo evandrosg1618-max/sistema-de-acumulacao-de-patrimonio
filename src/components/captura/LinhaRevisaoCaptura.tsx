@@ -88,9 +88,15 @@ export function LinhaRevisaoCaptura({
         <div className="flex-1 min-w-0 space-y-1.5">
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] font-bold text-slate-400">#{indice + 1}</span>
-            <Badge variant="outline" className={`text-[9px] px-1.5 ${classeStatus}`}>
+            <Badge
+              variant="outline"
+              className={`text-[9px] px-1.5 ${classeStatus}`}
+              title={item.status === 'erro' ? 'Erro na importação — veja os Detalhes' : undefined}
+            >
               {rotuloStatus}
             </Badge>
+            {/* T4 — o texto bruto do erro (mensagem_erro) fica só em
+                Detalhes/toast; a linha mostra APENAS o badge curto "Erro". */}
             {item.confianca === 'baixa' && (
               <span className="text-[9px] text-amber-700 flex items-center gap-0.5">
                 <AlertTriangle className="w-3 h-3" /> confiança baixa

@@ -1601,16 +1601,23 @@ export function ModalLancamento({
                         <SelectValue placeholder="Selecione a subcategoria obrigatória (*)" />
                       </SelectTrigger>
                       <SelectContent className="max-h-72 bg-white text-slate-900 border-slate-200">
-                        {/* Campo de filtro DIGITÁVEL */}
-                        <div className="p-2 border-b border-slate-100 sticky top-0 bg-white z-10">
+                        {/* Campo de filtro DIGITÁVEL — T2: input montado e ESTÁVEL
+                            fora da lista filtrada (id fixo, sem key mutável) para
+                            o teclado do celular não recolher ao digitar. */}
+                        <div
+                          id="lan-filtro-subcat-wrapper"
+                          className="p-2 border-b border-slate-100 sticky top-0 bg-white z-10"
+                        >
                           <div className="relative">
                             <Input
+                              id="lan-filtro-subcat"
                               type="text"
                               value={buscaSubcategoria}
                               onChange={(e) => setBuscaSubcategoria(e.target.value)}
                               placeholder="Filtrar categoria ou subcategoria..."
                               title="Digite para filtrar a lista pela categoria ou subcategoria"
                               className="h-8 text-xs bg-slate-50 text-slate-900 border-slate-200"
+                              autoComplete="off"
                               onClick={(e) => e.stopPropagation()}
                               onKeyDown={(e) => e.stopPropagation()}
                             />

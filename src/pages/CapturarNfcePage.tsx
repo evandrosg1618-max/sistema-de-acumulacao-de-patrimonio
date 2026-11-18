@@ -754,7 +754,11 @@ function CapturarNfceConteudo() {
             </Card>
           ))}
           {historico.length > 0 && (
-            <HistoricoCapturas historico={historico} onVer={(s) => setSessaoDetalhe(s)} />
+            <HistoricoCapturas
+              historico={historico}
+              onVer={(s) => setSessaoDetalhe(s)}
+              onContinuar={continuarRevisao}
+            />
           )}
         </div>
       )}
@@ -925,7 +929,11 @@ function CapturarNfceConteudo() {
           )}
 
           {historico.length > 0 && (
-            <HistoricoCapturas historico={historico} onVer={(s) => setSessaoDetalhe(s)} />
+            <HistoricoCapturas
+              historico={historico}
+              onVer={(s) => setSessaoDetalhe(s)}
+              onContinuar={continuarRevisao}
+            />
           )}
         </div>
       )}
@@ -941,10 +949,38 @@ function CapturarNfceConteudo() {
           </div>
 
           <Card className="border-slate-200 bg-slate-50/60">
-            <CardContent className="p-3 space-y-1">
+            <CardContent className="p-3 space-y-2">
               <p className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                 <ClipboardList className="w-3.5 h-3.5" /> Conferência informativa
               </p>
+              {/* T1 — Valor total da NFC-e EDITÁVEL (vírgula ou ponto) + Diferença
+                  em tempo real: somaItens − (valor informado ?? total do OCR). */}
+              <div className="flex items-end gap-2 flex-wrap">
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-slate-600 font-semibold">
+                    Valor total da NFC-e
+                  </Label>
+                  <Input
+                    value={valorNfceTexto}
+                    onChange={(e) => aoDigitarValorNfce(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="0,00"
+                    className="h-9 w-[130px] text-[13px] font-semibold"
+                  />
+                </div>
+                {diferenca != null && (
+                  <p className="text-[11px] text-slate-600 pb-1">
+                    Diferença (soma dos itens − total):{' '}
+                    <span
+                      className={`font-bold ${
+                        Math.abs(diferenca) < 0.01 ? 'text-emerald-700' : 'text-amber-700'
+                      }`}
+                    >
+                      {formatMoneyBRL(diferenca)}
+                    </span>
+                  </p>
+                )}
+              </div>
               <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-slate-600">
                 <span>
                   Itens: <span className="font-semibold">{itens.length}</span>
@@ -959,18 +995,6 @@ function CapturarNfceConteudo() {
                     {formatMoneyBRL(somaSelecionados)}
                   </span>
                 </span>
-                {diferenca != null && (
-                  <span>
-                    Diferença:{' '}
-                    <span
-                      className={`font-semibold ${
-                        Math.abs(diferenca) < 0.01 ? 'text-emerald-700' : 'text-amber-700'
-                      }`}
-                    >
-                      {formatMoneyBRL(diferenca)}
-                    </span>
-                  </span>
-                )}
               </div>
               <p className="text-[10px] text-slate-400">
                 A diferença é apenas informativa — nenhum lançamento é gerado automaticamente por
@@ -1143,7 +1167,11 @@ function CapturarNfceConteudo() {
           )}
 
           {historico.length > 0 && (
-            <HistoricoCapturas historico={historico} onVer={(s) => setSessaoDetalhe(s)} />
+            <HistoricoCapturas
+              historico={historico}
+              onVer={(s) => setSessaoDetalhe(s)}
+              onContinuar={continuarRevisao}
+            />
           )}
         </div>
       )}
@@ -1256,7 +1284,11 @@ function CapturarNfceConteudo() {
         </DialogContent>
       </Dialog>
 
-      <ModalDetalheSessaoCaptura sessao={sessaoDetalhe} onFechar={() => setSessaoDetalhe(null)} />
+      <ModalDetalheSessaoCaptura
+        sessao={sessaoDetalhe}
+        onFechar={() => setSessaoDetalhe(null)}
+        onContinuarRevisao={continuarRevisao}
+      />
 
       {/* R6 — Detalhes = janela do Novo Lançamento em MODO CAPTURA:
           salva SOMENTE no candidato (atualizarItem), nunca cria lançamento. */}
@@ -1283,9 +1315,12 @@ function CapturarNfceConteudo() {
 function HistoricoCapturas({
   historico,
   onVer,
+  onContinuar,
 }: {
   historico: CapturaSessao[]
   onVer: (s: CapturaSessao) => void
+  /** T5 — retoma a revisão da sessão (revisao/parcial) direto na página. */
+  onContinuar: (s: CapturaSessao) => void
 }) {
   return (
     <Card className="border-slate-200">
@@ -1315,14 +1350,26 @@ function HistoricoCapturas({
               <p className="text-[10px] text-slate-400">
                 {s.quantidade_imagens} imagem(ns) • {s.quantidade_itens} item(ns)
               </p>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-[11px]"
-                onClick={() => onVer(s)}
-              >
-                Visualizar
-              </Button>
+              <div className="flex items-center gap-1.5">
+                {/* T5 — botão "Continuar Revisão" apenas para sessões retomáveis */}
+                {(s.status === 'revisao' || s.status === 'parcial') && (
+                  <Button
+                    size="sm"
+                    className="h-7 text-[11px] bg-indigo-600 hover:bg-indigo-700"
+                    onClick={() => onContinuar(s)}
+                  >
+                    Continuar Revisão
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[11px]"
+                  onClick={() => onVer(s)}
+                >
+                  Visualizar
+                </Button>
+              </div>
             </div>
           </div>
         ))}

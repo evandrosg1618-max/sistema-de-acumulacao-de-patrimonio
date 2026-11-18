@@ -11,6 +11,7 @@
  */
 import { useMemo } from 'react'
 import { ModalLancamento } from '@/components/ModalLancamento'
+import { toast } from '@/hooks/use-toast'
 import { capturaService } from '@/services/captura/capturaService'
 import type { CapturaItemRevisao } from '@/components/captura/tiposRevisao'
 import type { MeioPagamentoTipo, StatusPagamento } from '@/types/sap'
@@ -123,24 +124,37 @@ export function ModalDetalheItemCaptura({
     }
 
     // Somente itens persistidos (id real do banco) são gravados; candidatos
-    // manuais/agrupados existem só no estado da página.
+    // manuais/agrupados existem só no estado da página. Em erro de PERSISTÊNCIA,
+    // a edição continua válida em memória: a tela volta à revisão e o item
+    // vira "Pronto" normalmente (do 2º item em diante também).
     if (!item.id.startsWith('manual_') && !item.id.startsWith('grupo_')) {
-      await capturaService.atualizarItem(item.id, sessaoId, workspaceId, {
-        descricao: patch.descricao,
-        valor: patch.valor,
-        data: patch.data,
-        meio_pagamento_id: patch.meio_pagamento_id,
-        meio_pagamento_tipo: patch.meio_pagamento_tipo,
-        meio_pagamento_nome: patch.meio_pagamento_nome,
-        categoria_id: patch.categoria_id,
-        subcategoria_id: patch.subcategoria_id,
-        modalidade_saida: patch.modalidade_saida,
-        valor_proprio: patch.valor_proprio,
-        valor_terceiros: patch.valor_terceiros,
-        afeta_resultado: patch.afeta_resultado,
-        afeta_orcamento: patch.afeta_orcamento,
-        observacao: patch.observacao,
-      })
+      try {
+        await capturaService.atualizarItem(item.id, sessaoId, workspaceId, {
+          descricao: patch.descricao,
+          valor: patch.valor,
+          data: patch.data,
+          meio_pagamento_id: patch.meio_pagamento_id,
+          meio_pagamento_tipo: patch.meio_pagamento_tipo,
+          meio_pagamento_nome: patch.meio_pagamento_nome,
+          categoria_id: patch.categoria_id,
+          subcategoria_id: patch.subcategoria_id,
+          modalidade_saida: patch.modalidade_saida,
+          valor_proprio: patch.valor_proprio,
+          valor_terceiros: patch.valor_terceiros,
+          afeta_resultado: patch.afeta_resultado,
+          afeta_orcamento: patch.afeta_orcamento,
+          observacao: patch.observacao,
+        })
+      } catch (e: any) {
+        // T3 — erro orientado ao usuário, MAS o patch segue em memória
+        // (onGravado sempre chamado) para a revisão não travar.
+        toast({
+          title: 'Aviso: edição aplicada apenas nesta tela',
+          description:
+            'Não foi possível salvar no banco agora, mas o item foi atualizado na revisão. Verifique sua conexão.',
+          variant: 'destructive',
+        })
+      }
     }
 
     onGravado?.(item.id, patch)
