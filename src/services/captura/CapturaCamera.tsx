@@ -14,12 +14,14 @@ export interface CapturaCameraProps {
   onFechar: () => void
 }
 
+type CapabilitiesComFoco = MediaTrackCapabilities & {
+  focusMode?: string[]
+  zoom?: { min: number; max: number; step?: number }
+  pointsOfInterest?: unknown
+}
+
 type TrackComFoco = MediaStreamTrack & {
-  getCapabilities?: () => MediaTrackCapabilities & {
-    focusMode?: string[]
-    zoom?: { min: number; max: number; step?: number }
-    pointsOfInterest?: unknown
-  }
+  getCapabilities?: () => CapabilitiesComFoco
 }
 
 /** Aplica constraints de foco sem propagar erro (degradação silenciosa). */
@@ -79,7 +81,7 @@ export function CapturaCamera({ onCapturar, onFechar }: CapturaCameraProps) {
         // Foco nítido: foco contínuo (e zoom, se suportado), sem erro se recusado
         const track = stream.getVideoTracks()[0] as TrackComFoco | undefined
         if (track) {
-          const caps = track.getCapabilities?.()
+          const caps = track.getCapabilities?.() as CapabilitiesComFoco | undefined
           const avancado: Record<string, unknown>[] = []
           if (caps?.focusMode?.includes('continuous')) {
             avancado.push({ focusMode: 'continuous' })
@@ -120,7 +122,7 @@ export function CapturaCamera({ onCapturar, onFechar }: CapturaCameraProps) {
     setFocoTocado({ x: e.clientX - rect.left, y: e.clientY - rect.top })
     const track = streamRef.current?.getVideoTracks()[0] as TrackComFoco | undefined
     if (!track) return
-    const caps = track.getCapabilities?.()
+    const caps = track.getCapabilities?.() as CapabilitiesComFoco | undefined
     const avancado: Record<string, unknown>[] = []
     if (caps?.pointsOfInterest) {
       avancado.push({ pointsOfInterest: [{ x, y }] })
