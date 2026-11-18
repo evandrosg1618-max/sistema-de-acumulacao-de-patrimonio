@@ -145,7 +145,7 @@ function montarItem(
     status: confianca === 'alta' ? 'pronto' : 'revisar',
     confianca,
     origemImagemIndex,
-    linhaBruta: trilha === 'papel' ? linhaBruta.slice(0, 200) : linhaBruta.slice(0, 200),
+    linhaBruta: linhaBruta.slice(0, 200),
   }
 }
 

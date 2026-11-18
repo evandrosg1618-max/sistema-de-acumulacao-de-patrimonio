@@ -45,6 +45,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { workspaceService } from '@/services/sap'
 import { toast } from 'sonner'
+import { ModalCapturarImportar } from '@/components/captura/ModalCapturarImportar'
 
 export default function Layout() {
   const {
@@ -62,6 +63,7 @@ export default function Layout() {
   const [newWsDialogOpen, setNewWsDialogOpen] = useState(false)
   const [newWsNome, setNewWsNome] = useState('')
   const [creatingWs, setCreatingWs] = useState(false)
+  const [modalCapturarAberto, setModalCapturarAberto] = useState(false)
 
   const handleSignOut = async () => {
     try {
@@ -94,7 +96,7 @@ export default function Layout() {
     { label: 'Visão Geral', path: '/' },
     { label: 'Contas', path: '/contas' },
     { label: 'Cartões', path: '/cartoes' },
-    { label: 'Importar Fatura', path: '/importar-fatura' },
+    { label: 'Capturar / Importar', path: '__capturar-importar__' },
     { label: 'Orçamento', path: '/orcamento' },
     { label: 'Categorias', path: '/categorias' },
     { label: 'Lançamentos', path: '/lancamentos' },
@@ -106,7 +108,7 @@ export default function Layout() {
   const cadastrosDesktopItems = [
     { label: 'Minhas Contas', path: '/contas', icon: Wallet },
     { label: 'Meus Cartões', path: '/cartoes', icon: CreditCard },
-    { label: 'Importar Fatura', path: '/importar-fatura', icon: Upload },
+    { label: 'Importar Fatura', path: '/importar-fatura', icon: Upload, abreModalCapturar: true },
     { label: 'Lançamentos', path: '/lancamentos', icon: ArrowLeftRight },
     { label: 'Calculadora Pix × Cartão', path: '/calculadora', icon: Calculator },
     { label: 'Categorias & Subcategorias', path: '/categorias', icon: Tag },
@@ -158,6 +160,31 @@ export default function Layout() {
                   tab.path === '/'
                     ? location.pathname === '/'
                     : location.pathname.startsWith(tab.path)
+                if (tab.path === '__capturar-importar__') {
+                  const capturarAtivo =
+                    location.pathname === '/importar-fatura' ||
+                    location.pathname === '/capturar-nfce'
+                  return (
+                    <button
+                      key={tab.path}
+                      type="button"
+                      onClick={() => setModalCapturarAberto(true)}
+                      className={`h-full flex items-center px-3.5 text-xs font-semibold transition relative notranslate ${
+                        capturarAtivo
+                          ? 'text-white font-bold'
+                          : 'text-white/80 hover:text-white hover:bg-white/10'
+                      }`}
+                      translate="no"
+                    >
+                      <span className="notranslate" translate="no">
+                        {tab.label}
+                      </span>
+                      {capturarAtivo && (
+                        <span className="absolute bottom-0 left-0 right-0 h-1 bg-white rounded-t-sm" />
+                      )}
+                    </button>
+                  )
+                }
                 return (
                   <NavLink
                     key={tab.path}
@@ -239,16 +266,27 @@ export default function Layout() {
                 <DropdownMenuLabel className="text-[11px] font-semibold text-slate-500">
                   Cadastros Essenciais
                 </DropdownMenuLabel>
-                {cadastrosDesktopItems.map((item) => (
-                  <DropdownMenuItem
-                    key={item.path}
-                    onClick={() => navigate(item.path)}
-                    className="text-xs cursor-pointer flex items-center gap-2 py-2"
-                  >
-                    <item.icon className="w-4 h-4 text-emerald-600" />
-                    <span>{item.label}</span>
-                  </DropdownMenuItem>
-                ))}
+                {cadastrosDesktopItems.map((item) =>
+                  'abreModalCapturar' in item && item.abreModalCapturar ? (
+                    <DropdownMenuItem
+                      key={item.path}
+                      onClick={() => setModalCapturarAberto(true)}
+                      className="text-xs cursor-pointer flex items-center gap-2 py-2"
+                    >
+                      <item.icon className="w-4 h-4 text-emerald-600" />
+                      <span>{item.label}</span>
+                    </DropdownMenuItem>
+                  ) : (
+                    <DropdownMenuItem
+                      key={item.path}
+                      onClick={() => navigate(item.path)}
+                      className="text-xs cursor-pointer flex items-center gap-2 py-2"
+                    >
+                      <item.icon className="w-4 h-4 text-emerald-600" />
+                      <span>{item.label}</span>
+                    </DropdownMenuItem>
+                  ),
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={() => navigate('/auditoria')}
@@ -459,31 +497,55 @@ export default function Layout() {
               <div className="text-[10px] uppercase font-bold text-slate-400 px-3 py-1">
                 Navegação Principal
               </div>
-              {topNavTabs.map((tab) => (
-                <NavLink
-                  key={tab.path}
-                  to={tab.path}
-                  onClick={() => setMobileMenuOpen(false)}
-                  translate="no"
-                  className={({ isActive }) =>
-                    `flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium notranslate ${
-                      isActive ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-slate-600'
-                    }`
-                  }
-                >
-                  <span className="notranslate" translate="no">
-                    {tab.label}
-                  </span>
-                  {tab.badge && (
-                    <span
-                      className="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded notranslate"
-                      translate="no"
-                    >
-                      {tab.badge}
+              {topNavTabs.map((tab) =>
+                tab.path === '__capturar-importar__' ? (
+                  <button
+                    key={tab.path}
+                    type="button"
+                    onClick={() => {
+                      setModalCapturarAberto(true)
+                      setMobileMenuOpen(false)
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-600 notranslate"
+                  >
+                    <span className="notranslate" translate="no">
+                      {tab.label}
                     </span>
-                  )}
-                </NavLink>
-              ))}
+                    {tab.badge && (
+                      <span
+                        className="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded notranslate"
+                        translate="no"
+                      >
+                        {tab.badge}
+                      </span>
+                    )}
+                  </button>
+                ) : (
+                  <NavLink
+                    key={tab.path}
+                    to={tab.path}
+                    onClick={() => setMobileMenuOpen(false)}
+                    translate="no"
+                    className={({ isActive }) =>
+                      `flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium notranslate ${
+                        isActive ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-slate-600'
+                      }`
+                    }
+                  >
+                    <span className="notranslate" translate="no">
+                      {tab.label}
+                    </span>
+                    {tab.badge && (
+                      <span
+                        className="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded notranslate"
+                        translate="no"
+                      >
+                        {tab.badge}
+                      </span>
+                    )}
+                  </NavLink>
+                ),
+              )}
 
               <div className="text-[10px] uppercase font-bold text-slate-400 px-3 pt-3 py-1">
                 Cadastros Essenciais
@@ -662,6 +724,16 @@ export default function Layout() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* MODAL: CAPTURAR / IMPORTAR (Fatura de Cartão | NFC-e | NF-e Em breve) */}
+      <ModalCapturarImportar
+        aberto={modalCapturarAberto}
+        onFechar={() => setModalCapturarAberto(false)}
+        onIrPara={(rota) => {
+          setModalCapturarAberto(false)
+          navigate(rota)
+        }}
+      />
     </div>
   )
 }

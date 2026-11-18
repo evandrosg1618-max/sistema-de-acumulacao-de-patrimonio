@@ -13,7 +13,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
-import { useGlobalLoading } from '@/contexts/LoadingContext'
 import { toast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -29,8 +28,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { CapturaCamera } from '@/components/captura/CapturaCamera'
-import { EditorRecorte } from '@/components/captura/EditorRecorte'
+import { CapturaCamera } from '@/services/captura/CapturaCamera'
+import { EditorRecorte } from '@/services/captura/EditorRecorte'
 import { ModalLoteCaptura } from '@/components/captura/ModalLoteCaptura'
 import { ModalAgruparCaptura } from '@/components/captura/ModalAgruparCaptura'
 import { CapturaNfceErrorBoundary } from '@/components/captura/CapturaNfceErrorBoundary'
@@ -78,7 +77,6 @@ type Etapa = 'trilha' | 'capturando' | 'revisao'
 function CapturarNfceConteudo() {
   const navigate = useNavigate()
   const { user, profile, currentWorkspace } = useAuth() as any
-  const { showLoading, hideLoading } = useGlobalLoading()
 
   const [etapa, setEtapa] = useState<Etapa>('trilha')
   const [trilha, setTrilha] = useState<TrilhaCaptura>('papel')
@@ -95,7 +93,9 @@ function CapturarNfceConteudo() {
   const [cameraAberta, setCameraAberta] = useState(false)
   const [imagemRecorte, setImagemRecorte] = useState<string | null>(null)
   const [recorteOrigem, setRecorteOrigem] = useState<'nova' | 'bandeja'>('nova')
-  const [imagemEmBandeja, setImagemEmBandeja] = useState<CapturaSessaoImagem | null>(null)
+  const [imagemEmBandeja, setImagemEmBandeja] = useState<
+    (CapturaSessaoImagem & { url: string }) | null
+  >(null)
   const [processando, setProcessando] = useState(false)
   const [progresso, setProgresso] = useState('')
   const [importando, setImportando] = useState(false)
@@ -278,26 +278,16 @@ function CapturarNfceConteudo() {
     }
   }
 
-  const confirmarRecorteNova = async (regiao: { x: number; y: number; w: number; h: number }) => {
+  // O EditorRecorte devolve a região recortada já como imagem (data URL JPEG).
+  const confirmarRecorteNova = async (recorteDataUrl: string) => {
     if (!imagemRecorte) return
-    const mod = await import('@/services/captura/imagemUtils')
-    const img = await mod.carregarImagem(imagemRecorte)
-    const recortada = mod.recortarImagem(img, regiao)
-    await adicionarCaptura(recortada, regiao)
+    await adicionarCaptura(recorteDataUrl, null)
   }
 
-  const confirmarRecorteBandeja = async (regiao: {
-    x: number
-    y: number
-    w: number
-    h: number
-  }) => {
+  const confirmarRecorteBandeja = async (recorteDataUrl: string) => {
     if (!imagemEmBandeja || !sessao) return
-    const mod = await import('@/services/captura/imagemUtils')
-    const img = await mod.carregarImagem(imagemEmBandeja.url)
-    const recortada = mod.recortarImagem(img, regiao)
     await capturaService.excluirImagem(imagemEmBandeja.id, sessao.id, sessao.workspace_id)
-    await adicionarCaptura(recortada, regiao)
+    await adicionarCaptura(recorteDataUrl, null)
   }
 
   const moverImagem = async (idx: number, direcao: -1 | 1) => {
@@ -337,7 +327,6 @@ function CapturarNfceConteudo() {
     setProcessando(true)
     setImportando(false)
     setProgresso('Preparando OCR…')
-    showLoading()
     try {
       await capturaService.atualizarSessao(sessao.id, sessao.workspace_id, {
         status: 'processando',
@@ -405,7 +394,6 @@ function CapturarNfceConteudo() {
     } finally {
       setProcessando(false)
       setProgresso('')
-      hideLoading()
     }
   }
 
@@ -518,7 +506,6 @@ function CapturarNfceConteudo() {
       return
     }
     setImportando(true)
-    showLoading()
     let ok = 0
     let falhas = 0
     for (const item of paraImportar) {
@@ -578,7 +565,6 @@ function CapturarNfceConteudo() {
       }
     }
     setImportando(false)
-    hideLoading()
     const statusSessao = ok > 0 && falhas === 0 ? 'importada' : ok > 0 ? 'parcial' : 'revisao'
     if (sessao) {
       await capturaService.atualizarSessao(sessao.id, sessao.workspace_id, {

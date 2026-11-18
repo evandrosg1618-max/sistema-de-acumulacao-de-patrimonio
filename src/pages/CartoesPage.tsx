@@ -69,6 +69,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { ModalCapturarImportar } from '@/components/captura/ModalCapturarImportar'
 
 // P3/P2: filtro de classe (estrutura real, nunca texto da descrição) + ordem pela data ORIGINAL.
 // Aplicados sobre a coleção já unificada e pré-ordenada pelo service (padrão Data ↓).
@@ -187,6 +188,9 @@ export default function CartoesPage() {
   })
   const [resumosFatura, setResumosFatura] = useState<Record<string, any>>({})
   const [recalculando, setRecalculando] = useState(false)
+
+  // BLOCO 3: Modal Capturar / Importar (Fatura | NFC-e | NF-e Em breve)
+  const [modalCapturarAberto, setModalCapturarAberto] = useState(false)
 
   // Form
   const [nome, setNome] = useState('')
@@ -1126,11 +1130,11 @@ export default function CartoesPage() {
 
           <Button
             variant="outline"
-            onClick={() => navigate('/importar-fatura')}
+            onClick={() => setModalCapturarAberto(true)}
             className="border-teal-600/40 text-teal-700 hover:bg-teal-50 font-medium text-xs sm:text-sm flex items-center gap-2 shadow-sm h-9"
           >
             <Upload className="w-4 h-4 text-teal-600" />
-            Importar Fatura
+            Capturar / Importar
           </Button>
 
           <Button
@@ -2284,6 +2288,16 @@ export default function CartoesPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* MODAL: CAPTURAR / IMPORTAR (Fatura de Cartão | NFC-e | NF-e Em breve) */}
+      <ModalCapturarImportar
+        aberto={modalCapturarAberto}
+        onFechar={() => setModalCapturarAberto(false)}
+        onIrPara={(rota) => {
+          setModalCapturarAberto(false)
+          navigate(rota)
+        }}
+      />
     </div>
   )
 }

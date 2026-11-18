@@ -76,7 +76,10 @@ export function ModalAgruparCaptura({
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs text-slate-600">Valor do grupo (editável)</Label>
-            <ValorCalculadoraInput value={valor} onChange={(v) => setValor(Number(v) || 0)} />
+            <ValorCalculadoraInput
+              value={String(valor).replace('.', ',')}
+              onChange={(v) => setValor(Number(String(v).replace(',', '.')) || 0)}
+            />
           </div>
         </div>
 

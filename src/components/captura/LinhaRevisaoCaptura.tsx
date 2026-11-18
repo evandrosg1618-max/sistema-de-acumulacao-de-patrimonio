@@ -100,9 +100,10 @@ export function LinhaRevisaoCaptura({
           <div className="flex flex-wrap items-center gap-2">
             <div className="w-28">
               <ValorCalculadoraInput
-                value={item.valor}
-                onChange={(v) => onEditar(item.id, { valor: Number(v) || 0 })}
-                compact
+                value={item.valor ? String(item.valor).replace('.', ',') : ''}
+                onChange={(v) =>
+                  onEditar(item.id, { valor: Number(String(v).replace(',', '.')) || 0 })
+                }
               />
             </div>
             <Badge variant="outline" className={`text-[10px] ${corStatus}`}>
@@ -185,16 +186,14 @@ export function LinhaRevisaoCaptura({
 
           <SeletorCategoriaFatura
             categorias={categorias}
-            value={item.categoria_id || ''}
-            onChange={(v) => onEditar(item.id, { categoria_id: v || null, subcategoria_id: null })}
-            placeholder="— Nenhuma —"
+            valor={item.categoria_id || ''}
+            aoMudar={(v) => onEditar(item.id, { categoria_id: v || null, subcategoria_id: null })}
           />
           <SeletorSubcategoriaFatura
             subcategorias={subcategoriasDaCategoria}
-            value={item.subcategoria_id || ''}
-            onChange={(v) => onEditar(item.id, { subcategoria_id: v || null })}
-            placeholder="— Nenhuma —"
-            disabled={!item.categoria_id}
+            valor={item.subcategoria_id || ''}
+            aoMudar={(v) => onEditar(item.id, { subcategoria_id: v || null })}
+            desabilitado={!item.categoria_id}
           />
 
           <div className="grid grid-cols-2 gap-2">
@@ -222,9 +221,14 @@ export function LinhaRevisaoCaptura({
                 Valor Próprio
               </label>
               <ValorCalculadoraInput
-                value={item.valor_proprio ?? item.valor}
-                onChange={(v) => onEditar(item.id, { valor_proprio: Number(v) || 0 })}
-                compact
+                value={
+                  item.valor_proprio != null
+                    ? String(item.valor_proprio).replace('.', ',')
+                    : String(item.valor).replace('.', ',')
+                }
+                onChange={(v) =>
+                  onEditar(item.id, { valor_proprio: Number(String(v).replace(',', '.')) || 0 })
+                }
               />
             </div>
           </div>
@@ -235,9 +239,10 @@ export function LinhaRevisaoCaptura({
                 Valor de Terceiros
               </label>
               <ValorCalculadoraInput
-                value={item.valor_terceiros ?? 0}
-                onChange={(v) => onEditar(item.id, { valor_terceiros: Number(v) || 0 })}
-                compact
+                value={String(item.valor_terceiros ?? 0).replace('.', ',')}
+                onChange={(v) =>
+                  onEditar(item.id, { valor_terceiros: Number(String(v).replace(',', '.')) || 0 })
+                }
               />
             </div>
             <div className="space-y-1">
