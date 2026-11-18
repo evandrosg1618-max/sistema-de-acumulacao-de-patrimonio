@@ -2,6 +2,9 @@
  * Detalhe de uma sessão do histórico "Capturas recentes" (BLOCO 21):
  * tipo/trilha, data, Pago com, miniaturas (URL assinada), status, itens e
  * acesso a lançamentos relacionados (rastreabilidade, nunca exclusão).
+ * R3: "Ver itens reconhecidos" leva à MESMA tela de revisão da sessão
+ * (Continuar revisão); lançamentos relacionados são listados DENTRO do modal
+ * (zero alert(); itens importados aparecem marcados e nunca são reimportados).
  */
 import { useEffect, useState } from 'react'
 import {
@@ -20,22 +23,34 @@ import {
   rotuloTipoDocumento,
 } from '@/services/captura/capturaService'
 import { formatMoneyBRL } from '@/lib/formatters'
-import { Image as ImageIcon } from 'lucide-react'
+import { Image as ImageIcon, ListChecks, Receipt } from 'lucide-react'
 
 interface Props {
   sessao: CapturaSessao | null
   onFechar: () => void
+  /** R3 — abre a etapa de revisão desta sessão na página (ou avisa se já importada). */
+  onContinuarRevisao?: (sessao: CapturaSessao) => void
 }
 
-export function ModalDetalheSessaoCaptura({ sessao, onFechar }: Props) {
+interface LancRelacionado {
+  descricao: string
+  lancamentoId: string
+}
+
+export function ModalDetalheSessaoCaptura({ sessao, onFechar, onContinuarRevisao }: Props) {
   const [urls, setUrls] = useState<string[]>([])
   const [carregando, setCarregando] = useState(false)
   const [erroImagens, setErroImagens] = useState<string | null>(null)
+  const [carregandoItens, setCarregandoItens] = useState(false)
+  const [erroItens, setErroItens] = useState<string | null>(null)
+  const [lancRelacionados, setLancRelacionados] = useState<LancRelacionado[] | null>(null)
 
   useEffect(() => {
     let ativo = true
     setUrls([])
     setErroImagens(null)
+    setLancRelacionados(null)
+    setErroItens(null)
     if (!sessao) return
     setCarregando(true)
     ;(async () => {
@@ -61,7 +76,37 @@ export function ModalDetalheSessaoCaptura({ sessao, onFechar }: Props) {
     }
   }, [sessao])
 
+  const abrirRevisao = () => {
+    if (!sessao || !onContinuarRevisao) return
+    onFechar()
+    onContinuarRevisao(sessao)
+  }
+
+  const verLancamentos = async () => {
+    if (!sessao) return
+    setCarregandoItens(true)
+    setErroItens(null)
+    try {
+      const itens = await capturaService.listarItens(sessao.id, sessao.workspace_id)
+      setLancRelacionados(
+        itens
+          .filter((it) => it.lancamento_criado_id)
+          .map((it) => ({
+            descricao: it.descricao,
+            lancamentoId: String(it.lancamento_criado_id),
+          })),
+      )
+    } catch {
+      setErroItens('Não foi possível carregar os lançamentos relacionados.')
+      setLancRelacionados(null)
+    } finally {
+      setCarregandoItens(false)
+    }
+  }
+
   if (!sessao) return null
+
+  const podeRetomar = sessao.status === 'revisao' || sessao.status === 'parcial'
 
   return (
     <Dialog open={!!sessao} onOpenChange={(o) => !o && onFechar()}>
@@ -116,63 +161,58 @@ export function ModalDetalheSessaoCaptura({ sessao, onFechar }: Props) {
           </div>
 
           <div className="flex flex-wrap gap-2 pt-1">
+            {/* R3 — um único caminho para a revisão: sessões em revisão/parcial
+                retomam a edição; sessões importadas caem no aviso da página. */}
             <Button
-              variant="outline"
+              variant={podeRetomar ? 'default' : 'outline'}
               size="sm"
               className="h-8 text-xs"
-              onClick={async () => {
-                if (!sessao) return
-                try {
-                  const itens = await capturaService.listarItens(sessao.id, sessao.workspace_id)
-                  if (itens.length === 0) {
-                    alert('Esta captura ainda não tem itens reconhecidos.')
-                    return
-                  }
-                  const txt = itens
-                    .map(
-                      (it) =>
-                        `${it.ordem}. ${it.descricao} — ${formatMoneyBRL(it.valor)}${
-                          it.lancamento_criado_id ? ' (importado)' : ''
-                        }`,
-                    )
-                    .join('\n')
-                  alert(`Itens reconhecidos:\n\n${txt}`)
-                } catch {
-                  alert('Não foi possível carregar os itens desta captura.')
-                }
-              }}
+              onClick={abrirRevisao}
             >
-              Ver itens reconhecidos
+              <ListChecks className="w-3.5 h-3.5 mr-1" />
+              {podeRetomar ? 'Continuar revisão' : 'Ver itens reconhecidos'}
             </Button>
             <Button
               variant="outline"
               size="sm"
               className="h-8 text-xs"
-              onClick={async () => {
-                if (!sessao) return
-                try {
-                  const itens = await capturaService.listarItens(sessao.id, sessao.workspace_id)
-                  const comLanc = itens.filter((it) => it.lancamento_criado_id)
-                  if (comLanc.length === 0) {
-                    alert(
-                      'Esta captura ainda não gerou lançamentos. Use "Processar capturas" e "Importar selecionados" na página de captura.',
-                    )
-                    return
-                  }
-                  const txt = comLanc
-                    .map((it) => `${it.descricao} — lançamento ${it.lancamento_criado_id}`)
-                    .join('\n')
-                  alert(
-                    `Lançamentos relacionados (rastreabilidade):\n\n${txt}\n\nConsulte-os na tela Lançamentos.`,
-                  )
-                } catch {
-                  alert('Não foi possível carregar os lançamentos relacionados.')
-                }
-              }}
+              disabled={carregandoItens}
+              onClick={verLancamentos}
             >
+              <Receipt className="w-3.5 h-3.5 mr-1" />
               Ver lançamentos relacionados
             </Button>
           </div>
+
+          {/* R3.2 — lista legível DENTRO do modal (sem alert()). */}
+          {carregandoItens && (
+            <p className="text-xs text-slate-400">Carregando lançamentos…</p>
+          )}
+          {erroItens && <p className="text-xs text-rose-600">{erroItens}</p>}
+          {lancRelacionados !== null && !carregandoItens && (
+            <div className="border border-slate-200 rounded-lg p-3 bg-slate-50">
+              <p className="text-[10px] uppercase tracking-wider font-bold text-slate-500 mb-2">
+                Lançamentos relacionados (rastreabilidade)
+              </p>
+              {lancRelacionados.length === 0 ? (
+                <p className="text-xs text-slate-500">
+                  Esta captura ainda não gerou lançamentos. Use “Processar capturas” e “Importar
+                  selecionados” na página de captura.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {lancRelacionados.map((l, i) => (
+                    <li key={i} className="text-xs text-slate-700 flex flex-col">
+                      <span className="font-semibold text-slate-900">{l.descricao}</span>
+                      <span className="text-slate-500">
+                        Lançamento #{l.lancamentoId.slice(0, 8)} • consulte na tela Lançamentos
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {sessao.valor_total_documento != null && (
             <p className="text-xs text-slate-500 flex items-center gap-1.5">

@@ -66,6 +66,14 @@ interface ModalLancamentoProps {
   userId?: string
   cartaoPadraoId?: string
   dataPadrao?: string
+  /**
+   * R6 — Modo CAPTURA (aditivo): em vez de persistir via onSave, devolve o
+   * payload montado (todas as validações do modal homologado aplicadas) por
+   * onSalvarCaptura e fecha. NUNCA cria lançamento. Comportamento padrão
+   * das outras telas permanece 100% inalterado.
+   */
+  modoCaptura?: boolean
+  onSalvarCaptura?: (payload: any) => void | Promise<void>
 }
 
 export function ModalLancamento({
@@ -81,6 +89,8 @@ export function ModalLancamento({
   userId,
   cartaoPadraoId,
   dataPadrao,
+  modoCaptura = false,
+  onSalvarCaptura,
 }: ModalLancamentoProps) {
   const { isProcessing } = useGlobalLoading()
   const [tipo, setTipo] = useState<TipoLancamento>(tipoPadrao)
@@ -536,55 +546,61 @@ export function ModalLancamento({
 
     setSalvando(true)
     try {
-      await onSave(
-        {
-          id: initialData?.id,
-          tipo,
-          descricao: descricao.trim(),
-          valor: valorNumerico,
-          data,
-          meio_pagamento_tipo: meioFinal,
-          conta_origem_id: resolvedContaOrigemId,
-          conta_destino_id: tipo === 'transferencia' ? contaDestinoId || null : null,
-          cartao_id: resolvedCartaoId,
-          categoria_id: tipo !== 'transferencia' && tipo !== 'ajuste' ? categoriaId || null : null,
-          subcategoria_id:
-            tipo !== 'transferencia' &&
-            tipo !== 'ajuste' &&
-            subcategoriaId &&
-            !subcategoriaId.startsWith('cat-fallback-')
-              ? subcategoriaId
-              : null,
-          status_pagamento: meioFinal === 'CARTAO' ? 'pendente' : pago ? 'pago' : 'pendente',
-          data_pagamento: pago ? data : null,
-          observacao: observacao.trim() || null,
-          regime:
-            modoRepeticao === 'fixo'
-              ? 'fixo'
-              : modoRepeticao === 'parcelado'
-                ? 'parcelado'
-                : 'unico',
-          quantidade_parcelas: modoRepeticao === 'parcelado' ? quantidadeParcelas : 1,
-          modalidade_saida: tipo === 'despesa' ? modalidadeSaida : 'compra_propria',
-          valor_proprio: valorProprioFinal,
-          valor_terceiros: valorTerceirosFinal,
-          afeta_resultado: afetaResultadoFinal,
-          afeta_orcamento: afetaOrcamentoFinal,
-          subtipo_ajuste: tipo === 'ajuste' ? subtipoAjuste : null,
-          efeito_fatura: tipo === 'ajuste' ? efeitoFatura : null,
-          // Build 5: parâmetros para lançamento fixo
-          fixo:
-            modoRepeticao === 'fixo'
-              ? {
-                  prazo: fixoPrazo,
-                  periodicidade: fixoPeriodicidade,
-                  quantidade_total: fixoPrazo === 'determinado' ? fixoOcorrencias : null,
-                  pago_primeira: meioFinal !== 'CARTAO' && pago,
-                }
-              : null,
-        },
-        criarOutro,
-      )
+      const payload = {
+        id: initialData?.id,
+        tipo,
+        descricao: descricao.trim(),
+        valor: valorNumerico,
+        data,
+        meio_pagamento_tipo: meioFinal,
+        conta_origem_id: resolvedContaOrigemId,
+        conta_destino_id: tipo === 'transferencia' ? contaDestinoId || null : null,
+        cartao_id: resolvedCartaoId,
+        categoria_id: tipo !== 'transferencia' && tipo !== 'ajuste' ? categoriaId || null : null,
+        subcategoria_id:
+          tipo !== 'transferencia' &&
+          tipo !== 'ajuste' &&
+          subcategoriaId &&
+          !subcategoriaId.startsWith('cat-fallback-')
+            ? subcategoriaId
+            : null,
+        status_pagamento: meioFinal === 'CARTAO' ? 'pendente' : pago ? 'pago' : 'pendente',
+        data_pagamento: pago ? data : null,
+        observacao: observacao.trim() || null,
+        regime:
+          modoRepeticao === 'fixo'
+            ? 'fixo'
+            : modoRepeticao === 'parcelado'
+              ? 'parcelado'
+              : 'unico',
+        quantidade_parcelas: modoRepeticao === 'parcelado' ? quantidadeParcelas : 1,
+        modalidade_saida: tipo === 'despesa' ? modalidadeSaida : 'compra_propria',
+        valor_proprio: valorProprioFinal,
+        valor_terceiros: valorTerceirosFinal,
+        afeta_resultado: afetaResultadoFinal,
+        afeta_orcamento: afetaOrcamentoFinal,
+        subtipo_ajuste: tipo === 'ajuste' ? subtipoAjuste : null,
+        efeito_fatura: tipo === 'ajuste' ? efeitoFatura : null,
+        // Build 5: parâmetros para lançamento fixo
+        fixo:
+          modoRepeticao === 'fixo'
+            ? {
+                prazo: fixoPrazo,
+                periodicidade: fixoPeriodicidade,
+                quantidade_total: fixoPrazo === 'determinado' ? fixoOcorrencias : null,
+                pago_primeira: meioFinal !== 'CARTAO' && pago,
+              }
+            : null,
+      }
+
+      // R6: em modo captura NÃO persiste — devolve o payload validado e fecha
+      if (modoCaptura && onSalvarCaptura) {
+        await onSalvarCaptura(payload)
+        onOpenChange(false)
+        return
+      }
+
+      await onSave(payload, criarOutro)
 
       if (criarOutro) {
         setDescricao('')
@@ -634,7 +650,11 @@ export function ModalLancamento({
                 {tipo === 'receita' && <TrendingUp className="w-5 h-5 text-emerald-600" />}
                 {tipo === 'transferencia' && <ArrowRightLeft className="w-5 h-5 text-blue-600" />}
                 <span>
-                  {initialData ? 'Editar Lançamento' : `Novo Lançamento — ${tipo.toUpperCase()}`}
+                  {modoCaptura
+                    ? 'Detalhes do item da captura'
+                    : initialData
+                      ? 'Editar Lançamento'
+                      : `Novo Lançamento — ${tipo.toUpperCase()}`}
                 </span>
               </DialogTitle>
             </DialogHeader>
@@ -1872,10 +1892,10 @@ export function ModalLancamento({
               >
                 Cancelar
               </Button>
-              {!initialData && (
-                <Button
-                  type="button"
-                  variant="secondary"
+              {!initialData && !modoCaptura && (
+                 <Button
+                   type="button"
+                   variant="secondary"
                   disabled={salvando || isProcessing}
                   onClick={(e) => handleSubmeter(e, true)}
                   className="text-xs"
@@ -1898,9 +1918,11 @@ export function ModalLancamento({
               >
                 {salvando || isProcessing
                   ? 'Salvando...'
-                  : initialData
-                    ? 'Salvar Alterações'
-                    : 'Salvar Lançamento'}
+                  : modoCaptura
+                    ? 'Salvar no item'
+                    : initialData
+                      ? 'Salvar Alterações'
+                      : 'Salvar Lançamento'}
               </Button>
             </DialogFooter>
           </form>

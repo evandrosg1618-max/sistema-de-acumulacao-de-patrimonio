@@ -12,6 +12,8 @@ interface ValorCalculadoraInputProps {
   className?: string
   required?: boolean
   placeholder?: string
+  /** R4 — oculta o prefixo "R$" (ex.: linha de revisão da captura NFC-e). Default true: outras telas inalteradas. */
+  exibirPrefixoMoeda?: boolean
 }
 
 export function ValorCalculadoraInput({
@@ -22,6 +24,7 @@ export function ValorCalculadoraInput({
   className = '',
   required = true,
   placeholder = '0,00',
+  exibirPrefixoMoeda = true,
 }: ValorCalculadoraInputProps) {
   const isMobile = useIsMobile()
   const [showCalc, setShowCalc] = useState(false)
@@ -124,7 +127,9 @@ export function ValorCalculadoraInput({
   return (
     <div className="space-y-1.5 relative">
       <div className="relative flex items-center">
-        <span className="absolute left-3 text-sm font-bold text-slate-700 z-10">R$</span>
+        {exibirPrefixoMoeda && (
+          <span className="absolute left-3 text-sm font-bold text-slate-700 z-10">R$</span>
+        )}
         <Input
           ref={inputRef}
           id={id}
@@ -135,7 +140,7 @@ export function ValorCalculadoraInput({
           required={required}
           placeholder={placeholder}
           title="Em desktop: digite números e operadores (+, -, *, /) e aperte Enter para calcular"
-          className={`pl-10 pr-10 font-bold text-base bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 hover:border-slate-400 ${className}`}
+          className={`${exibirPrefixoMoeda ? 'pl-10' : 'pl-3'} pr-10 font-bold text-base bg-white border-slate-300 text-slate-900 placeholder:text-slate-400 focus-visible:ring-emerald-500 focus-visible:border-emerald-500 hover:border-slate-400 ${className}`}
         />
         <button
           type="button"
