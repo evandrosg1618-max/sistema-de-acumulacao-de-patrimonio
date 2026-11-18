@@ -323,57 +323,48 @@ export function extrairDataDocumento(linhas: string[]): {
  * REPETIDA (linhas brutas diferentes, imagens distintas) seguem o fluxo atual:
  * marcarRepeticoesEntreCapturas marca "Possível item repetido" para o usuário.
  */
-export function eliminarDuplicatasProcessamento(
-  itens: ItemCandidatoOcr[],
-): ItemCandidatoOcr[] {
+export function eliminarDuplicatasProcessamento(itens: ItemCandidatoOcr[]): ItemCandidatoOcr[] {
   const saida: ItemCandidatoOcr[] = []
   const vistas = new Set<string>()
+  const vistasSobreposicao = new Set<string>()
   for (const item of itens) {
     const desc = normalizarDescricao(item.descricao).toUpperCase()
-    const bruta = (item.linhaBruta || '').toUpperCase().replace(/\s{2,}/g, ' ').trim()
+    const bruta = (item.linhaBruta || '')
+      .toUpperCase()
+      .replace(/\s{2,}/g, ' ')
+      .trim()
     const chave = `${desc}|${item.valor.toFixed(2)}|${item.origemImagemIndex}|${bruta}`
     // Mesma imagem: só é duplicata se a linha BRUTA inteira for idêntica
     // (compra repetida na MESMA captura tem linha bruta igual porém sequência
     // distinta — comparar também a posição relativa evita removê-la).
-    const chaveMesmaImagem = `${desc}|${item.valor.toFixed(2)}|${item.origemImagemIndex}`
     if (vistas.has(chave)) continue
     // Sobreposição entre capturas consecutivas: mesma desc+valor+linha bruta
     // em imagem adjacente => a MESMA linha foi processada duas vezes.
     const chaveSobreposicao = `${desc}|${item.valor.toFixed(2)}|adj|${bruta}`
-    if (bruta && vistas.has(chaveSobreposicao)) continue
+    if (bruta && vistasSobreposicao.has(chaveSobreposicao)) continue
+
+    saida.push(item)
+    vistas.add(chave)
+    if (bruta) {
+      vistasSobreposicao.add(chaveSobreposicao)
+      // Registra a linha bruta também como pertencente à imagem ADJACENTE
+      // (anterior e seguinte), para detectar sobreposição de capturas.
+      vistasSobreposicao.add(
+        `${desc}|${item.valor.toFixed(2)}|adj@${item.origemImagemIndex - 1}|${bruta}`,
+      )
+      vistasSobreposicao.add(
+        `${desc}|${item.valor.toFixed(2)}|adj@${item.origemImagemIndex + 1}|${bruta}`,
+      )
+    }
   }
   return saida
 }
-export function marcarRepeticoesEntreCapturas(itens: ItemCandidatoOcr[]): ItemCandidatoOcr[] {
-  const vistos = new Map<string, number>()
-  const saida: ItemCandidatoOcr[] = []
-  for (const item of itens) {
-    const chave = `${item.descricao.toUpperCase().trim()}|${item.valor.toFixed(2)}`
-    const ultimaImagem = vistos.get(chave)
-    if (ultimaImagem !== undefined && item.origemImagemIndex !== ultimaImagem) {
-      saida.push({ ...item, status: 'repetido', confianca: item.confianca })
-    } else {
-      saida.push(item)
-    }
-PLACEHOLDER_NAO_EXISTE
-export function marcarRepeticoesEntreCapturas(itens: ItemCandidatoOcr[]): ItemCandidatoOcr[] {
-  const vistos = new Map<string, number>()
-  const saida: ItemCandidatoOcr[] = []
-  for (const item of itens) {
-    const chave = `${item.descricao.toUpperCase().trim()}|${item.valor.toFixed(2)}`
-    const ultimaImagem = vistos.get(chave)
-    if (ultimaImagem !== undefined && item.origemImagemIndex !== ultimaImagem) {
-      saida.push({ ...item, status: 'repetido', confianca: item.confianca })
-    } else {
-      saida.push(item)
-    }
-    vistos.set(chave, item.origemImagemIndex)
-  }
-  return saida
-}
-}
-=======
-PLACEHOLDER_NAO_EXISTE
+
+/**
+ * Marca como "Possível item repetido" itens com mesma descrição+valor vindos
+ * de CAPTURAS DIFERENTES (compra genuinamente repetida entre fotos) — nunca
+ * remove o item, apenas sinaliza para conferência do usuário.
+ */
 export function marcarRepeticoesEntreCapturas(itens: ItemCandidatoOcr[]): ItemCandidatoOcr[] {
   const vistos = new Map<string, number>()
   const saida: ItemCandidatoOcr[] = []
