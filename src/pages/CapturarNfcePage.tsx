@@ -92,6 +92,11 @@ function CapturarNfceConteudo() {
   const [subcategorias, setSubcategorias] = useState<Subcategoria[]>([])
   const [totalDocumento, setTotalDocumento] = useState<number | null>(null)
   const [sessaoDetalhe, setSessaoDetalhe] = useState<CapturaSessao | null>(null)
+  // T1 — Valor total da NFC-e informado/EDITÁVEL pelo usuário (texto cru,
+  // vírgula ou ponto). Pré-preenchido com o total do OCR quando reconhecido;
+  // null = usuário ainda não tocou no campo (dif. usa o total do OCR).
+  const [valorNfceTexto, setValorNfceTexto] = useState<string>('')
+  const [valorNfceInformado, setValorNfceInformado] = useState<number | null>(null)
 
   const [cameraAberta, setCameraAberta] = useState(false)
   const [imagemRecorte, setImagemRecorte] = useState<string | null>(null)
@@ -364,6 +369,13 @@ function CapturarNfceConteudo() {
       const dataSugerida =
         resultado.dataConfianca === 'alta' ? resultado.dataDocumento : getTodayDateString()
       setTotalDocumento(resultado.totalDocumento ?? null)
+      // T1 — pré-preenche o campo editável com o total reconhecido pelo OCR
+      setValorNfceInformado(resultado.totalDocumento ?? null)
+      setValorNfceTexto(
+        resultado.totalDocumento != null && resultado.totalDocumento > 0
+          ? resultado.totalDocumento.toFixed(2).replace('.', ',')
+          : '',
+      )
       const meioSessao = meios.find((m) => m.id === sessao.meio_pagamento_id)
       const candidatos: CapturaItemRevisao[] = resultado.itens.map((it) => {
         const c = candidatoDeItem(it, dataSugerida || getTodayDateString())
@@ -427,6 +439,46 @@ function CapturarNfceConteudo() {
 
   const atualizarItem = (id: string, patch: Partial<CapturaItemRevisao>) =>
     setItens((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)))
+
+  // T1 — digitação do Valor total da NFC-e sem travar (estado local de texto)
+  const aoDigitarValorNfce = (texto: string) => {
+    setValorNfceTexto(texto)
+    const limpo = texto.replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '')
+    const n = Number(limpo)
+    setValorNfceInformado(texto.trim() === '' || !isFinite(n) ? null : n)
+  }
+
+  // T5 — Continuar Revisão: recarrega do banco sessão + imagens + itens da
+  // sessão escolhida e cai na etapa de revisão (itens importados voltam
+  // marcados como importados e NUNCA são reimportados).
+  const continuarRevisao = async (s: CapturaSessao) => {
+    try {
+      const sDb = (await capturaService.getSessao(s.id, s.workspace_id)) || s
+      const listaItens = await capturaService.listarItens(s.id, s.workspace_id)
+      setTrilha((sDb.trilha || 'papel') as TrilhaCaptura)
+      setSessao(sDb)
+      setItens(listaItens.map((row) => itemDbParaRevisao(row)))
+      setTotalDocumento(sDb.valor_total_documento ?? null)
+      setValorNfceInformado(sDb.valor_total_documento ?? null)
+      setValorNfceTexto(
+        sDb.valor_total_documento != null && sDb.valor_total_documento > 0
+          ? sDb.valor_total_documento.toFixed(2).replace('.', ',')
+          : '',
+      )
+      try {
+        await recarregarImagens(sDb)
+      } catch {
+        setImagens([])
+      }
+      setEtapa('revisao')
+    } catch (e: any) {
+      toast({
+        title: 'Não foi possível abrir a revisão',
+        description: e?.message || 'Tente novamente.',
+        variant: 'destructive',
+      })
+    }
+  }
 
   // R6 — Detalhes: abre a janela do Novo Lançamento em MODO CAPTURA
   const abrirDetalhes = (item: CapturaItemRevisao) => setItemDetalheId(item.id)
@@ -553,9 +605,12 @@ function CapturarNfceConteudo() {
     let falhas = 0
     for (const item of paraImportar) {
       try {
-        const tipoMeio = (item.meio_pagamento_tipo || 'DINHEIRO') as 'CONTA' | 'CARTAO' | 'DINHEIRO'
-        const criado = await lancamentoService.create({
-          workspace_id: workspaceId,
+       const tipoMeio = (item.meio_pagamento_tipo || 'DINHEIRO') as 'CONTA' | 'CARTAO' | 'DINHEIRO'
+       const criado = await lancamentoService.create({
+        // T4 — created_by é OBRIGATÓRIO (insert + auditoriaService.registrar):
+        // sem ele a criação falha e o item vira tarja vermelha de erro.
+        created_by: user?.id || profile?.id || null,
+         workspace_id: workspaceId,
           tipo: 'despesa',
           regime: 'unico',
           data: item.data || getTodayDateString(),
@@ -654,7 +709,11 @@ function CapturarNfceConteudo() {
     return true
   })
   const restamPendentes = pendentes.length > 0
-  const diferenca = totalDocumento != null ? Number((somaItens - totalDocumento).toFixed(2)) : null
+  // T1 — Diferença = Soma dos itens − (valor informado ?? total do OCR)
+  const baseDiferenca =
+    valorNfceInformado ?? (totalDocumento != null ? totalDocumento : null)
+  const diferenca =
+    baseDiferenca != null ? Number((somaItens - baseDiferenca).toFixed(2)) : null
   const botaoImportarLabel = restamPendentes
     ? `Importar selecionados (${selecionados.filter((i) => i.status !== 'importado').length})`
     : 'Importar selecionados'
@@ -887,10 +946,7 @@ function CapturarNfceConteudo() {
               </p>
               <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-slate-600">
                 <span>
-                  Total do documento:{' '}
-                  <span className="font-semibold">
-                    {totalDocumento != null ? formatMoneyBRL(totalDocumento) : 'não reconhecido'}
-                  </span>
+                  Itens: <span className="font-semibold">{itens.length}</span>
                 </span>
                 <span>
                   Itens: <span className="font-semibold">{itens.length}</span>
@@ -922,6 +978,8 @@ function CapturarNfceConteudo() {
                 A diferença é apenas informativa — nenhum lançamento é gerado automaticamente por
                 ela. Revise itens ausentes ou duplicados e importe manualmente.
               </p>
+           </CardContent>
+          </Card>
             </CardContent>
           </Card>
 
