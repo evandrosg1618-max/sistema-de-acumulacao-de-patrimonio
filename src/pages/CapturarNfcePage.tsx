@@ -443,7 +443,10 @@ function CapturarNfceConteudo() {
   // T1 — digitação do Valor total da NFC-e sem travar (estado local de texto)
   const aoDigitarValorNfce = (texto: string) => {
     setValorNfceTexto(texto)
-    const limpo = texto.replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '')
+    const limpo = texto
+      .replace(/\./g, '')
+      .replace(',', '.')
+      .replace(/[^\d.]/g, '')
     const n = Number(limpo)
     setValorNfceInformado(texto.trim() === '' || !isFinite(n) ? null : n)
   }
@@ -605,12 +608,12 @@ function CapturarNfceConteudo() {
     let falhas = 0
     for (const item of paraImportar) {
       try {
-       const tipoMeio = (item.meio_pagamento_tipo || 'DINHEIRO') as 'CONTA' | 'CARTAO' | 'DINHEIRO'
-       const criado = await lancamentoService.create({
-        // T4 — created_by é OBRIGATÓRIO (insert + auditoriaService.registrar):
-        // sem ele a criação falha e o item vira tarja vermelha de erro.
-        created_by: user?.id || profile?.id || null,
-         workspace_id: workspaceId,
+        const tipoMeio = (item.meio_pagamento_tipo || 'DINHEIRO') as 'CONTA' | 'CARTAO' | 'DINHEIRO'
+        const criado = await lancamentoService.create({
+          // T4 — created_by é OBRIGATÓRIO (insert + auditoriaService.registrar):
+          // sem ele a criação falha e o item vira tarja vermelha de erro.
+          created_by: user?.id || profile?.id || null,
+          workspace_id: workspaceId,
           tipo: 'despesa',
           regime: 'unico',
           data: item.data || getTodayDateString(),
@@ -710,10 +713,8 @@ function CapturarNfceConteudo() {
   })
   const restamPendentes = pendentes.length > 0
   // T1 — Diferença = Soma dos itens − (valor informado ?? total do OCR)
-  const baseDiferenca =
-    valorNfceInformado ?? (totalDocumento != null ? totalDocumento : null)
-  const diferenca =
-    baseDiferenca != null ? Number((somaItens - baseDiferenca).toFixed(2)) : null
+  const baseDiferenca = valorNfceInformado ?? (totalDocumento != null ? totalDocumento : null)
+  const diferenca = baseDiferenca != null ? Number((somaItens - baseDiferenca).toFixed(2)) : null
   const botaoImportarLabel = restamPendentes
     ? `Importar selecionados (${selecionados.filter((i) => i.status !== 'importado').length})`
     : 'Importar selecionados'
@@ -949,9 +950,6 @@ function CapturarNfceConteudo() {
                   Itens: <span className="font-semibold">{itens.length}</span>
                 </span>
                 <span>
-                  Itens: <span className="font-semibold">{itens.length}</span>
-                </span>
-                <span>
                   Soma dos itens: <span className="font-semibold">{formatMoneyBRL(somaItens)}</span>
                 </span>
                 {/* T3 — soma dos itens SELECIONADOS em tempo real */}
@@ -978,8 +976,6 @@ function CapturarNfceConteudo() {
                 A diferença é apenas informativa — nenhum lançamento é gerado automaticamente por
                 ela. Revise itens ausentes ou duplicados e importe manualmente.
               </p>
-           </CardContent>
-          </Card>
             </CardContent>
           </Card>
 
