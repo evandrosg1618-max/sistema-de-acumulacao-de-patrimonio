@@ -2191,6 +2191,7 @@ export default function CartoesPage() {
                     id="fechamento"
                     name="fechamento"
                     type="number"
+                    inputMode="numeric"
                     min="1"
                     max="31"
                     value={diaFechamento}
@@ -2209,6 +2210,7 @@ export default function CartoesPage() {
                     id="vencimento"
                     name="vencimento"
                     type="number"
+                    inputMode="numeric"
                     min="1"
                     max="31"
                     value={diaVencimento}
@@ -2227,6 +2229,7 @@ export default function CartoesPage() {
                 <Input
                   id="pontos_por_dolar"
                   name="pontos_por_dolar"
+                  inputMode="decimal"
                   placeholder="Ex: 2.0 ou 2,5 (0 se não pontua)"
                   value={pontosPorDolar}
                   onChange={(e) => setPontosPorDolar(e.target.value)}

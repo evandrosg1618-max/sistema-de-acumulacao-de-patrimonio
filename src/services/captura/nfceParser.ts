@@ -32,6 +32,7 @@ export interface ItemCandidatoOcr {
   status: StatusItemCaptura
   confianca: 'alta' | 'baixa'
   origemImagemIndex: number
+  ordemLinha?: number
   linhaBruta: string
 }
 
@@ -116,6 +117,7 @@ function montarItem(
   _trilha: TrilhaCaptura,
   origemImagemIndex: number,
   linhaBruta: string,
+  ordemLinha?: number,
 ): ItemCandidatoOcr {
   let descricao = normalizarDescricao(descricaoBruta)
   let quantidade: number | null = null
@@ -145,6 +147,7 @@ function montarItem(
     status: confianca === 'alta' ? 'pronto' : 'revisar',
     confianca,
     origemImagemIndex,
+    ordemLinha,
     linhaBruta: linhaBruta.slice(0, 200),
   }
 }
@@ -156,10 +159,12 @@ function montarItem(
 export function parseItensPapel(linhas: string[], origemImagemIndex = 0): ItemCandidatoOcr[] {
   const itens: ItemCandidatoOcr[] = []
   let descricaoPendente: string | null = null
+  let posicaoLinha = 0
 
   for (const linhaRaw of linhas) {
     const linha = (linhaRaw || '').trim()
     if (!linha) continue
+    const ordem = posicaoLinha++
 
     const valores = extrairValoresLinha(linha)
     const ehRuido = linhaPareceRuido(linha)
@@ -183,6 +188,7 @@ export function parseItensPapel(linhas: string[], origemImagemIndex = 0): ItemCa
           'papel',
           origemImagemIndex,
           `${descricaoPendente} ${linha}`,
+          ordem,
         ),
       )
       descricaoPendente = null
@@ -191,7 +197,7 @@ export function parseItensPapel(linhas: string[], origemImagemIndex = 0): ItemCa
       const desc = linha.replace(RE_VALOR, ' ').replace(RótulosValor, ' ').trim()
       const valor = valores[valores.length - 1]
       if (desc && /[a-zA-ZÀ-ÿ]{2,}/.test(desc)) {
-        itens.push(montarItem(desc, valor, 'papel', origemImagemIndex, linha))
+        itens.push(montarItem(desc, valor, 'papel', origemImagemIndex, linha, ordem))
       }
     }
   }
@@ -207,10 +213,12 @@ export function parseItensPapel(linhas: string[], origemImagemIndex = 0): ItemCa
 export function parseItensDigital(linhas: string[], origemImagemIndex = 0): ItemCandidatoOcr[] {
   const itens: ItemCandidatoOcr[] = []
   let descricaoPendente: string | null = null
+  let posicaoLinha = 0
 
   for (const linhaRaw of linhas) {
     const linha = (linhaRaw || '').trim()
     if (!linha) continue
+    const ordem = posicaoLinha++
 
     const valores = extrairValoresLinha(linha)
     const ehRuido = linhaPareceRuido(linha)
@@ -238,6 +246,7 @@ export function parseItensDigital(linhas: string[], origemImagemIndex = 0): Item
           'digital',
           origemImagemIndex,
           `${descricaoPendente} ${linha}`,
+          ordem,
         ),
       )
       descricaoPendente = null
@@ -245,7 +254,7 @@ export function parseItensDigital(linhas: string[], origemImagemIndex = 0): Item
       const desc = linha.replace(RE_VALOR, ' ').replace(RótulosValor, ' ').trim()
       const valor = valores[valores.length - 1]
       if (desc && /[a-zA-ZÀ-ÿ]{2,}/.test(desc)) {
-        itens.push(montarItem(desc, valor, 'digital', origemImagemIndex, linha))
+        itens.push(montarItem(desc, valor, 'digital', origemImagemIndex, linha, ordem))
       }
     }
   }

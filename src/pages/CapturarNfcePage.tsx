@@ -116,13 +116,20 @@ function CapturarNfceConteudo() {
   const [cartoes, setCartoes] = useState<any[]>([])
   const [carregandoContasCartoes, setCarregandoContasCartoes] = useState(true)
   const [importadosAbertos, setImportadosAbertos] = useState(false)
+  // T2 — filtro da lista de revisão (Todos | A Revisar | Prontos para importar)
+  const [filtroRevisao, setFiltroRevisao] = useState<'todos' | 'revisar' | 'prontos'>('todos')
+  // T7 — confirmação antes de importar: 'confirmar' (todos Prontos) ou 'bloqueado'
+  const [avisoImportar, setAvisoImportar] = useState<'confirmar' | 'bloqueado' | null>(null)
   const workspaceId = currentWorkspace?.workspace_id || currentWorkspace?.id || ''
 
   const carregarHistorico = useCallback(async () => {
     if (!workspaceId) return
     try {
-      const lista = await capturaService.listarRecentes(workspaceId, LIMITE_SESSOES_RECENTES)
-      setHistorico(lista)
+      // T8 — regra de permanência: sessão com TODOS os itens importados SAI de
+      // "Capturas recentes" (mantidas as últimas 5; lançamentos nunca excluídos).
+      // Busca um pouco além do limite para o filtro não encurtar a lista.
+      const lista = await capturaService.listarRecentes(workspaceId, LIMITE_SESSOES_RECENTES + 5)
+      setHistorico(lista.filter((s) => s.status !== 'importada').slice(0, LIMITE_SESSOES_RECENTES))
     } catch {
       /* histórico é secundário — falha não bloqueia o fluxo */
     }
@@ -639,7 +646,13 @@ function CapturarNfceConteudo() {
   const somaItens = pendentes.reduce((s, i) => s + i.valor, 0)
   // R5 — itens já importados ficam numa seção recolhida; a revisão mostra só pendentes
   const importados = itens.filter((i) => i.status === 'importado')
-  const itensParaRevisar = pendentes
+  // T2 — Pronto = candidato completo (candidatoEstaCompleto é a fonte da verdade);
+  // demais pendentes = A Revisar. Badge continua NÃO clicável.
+  const itensParaRevisar = pendentes.filter((i) => {
+    if (filtroRevisao === 'revisar') return !candidatoEstaCompleto(i)
+    if (filtroRevisao === 'prontos') return candidatoEstaCompleto(i)
+    return true
+  })
   const restamPendentes = pendentes.length > 0
   const diferenca = totalDocumento != null ? Number((somaItens - totalDocumento).toFixed(2)) : null
   const botaoImportarLabel = restamPendentes
@@ -885,6 +898,13 @@ function CapturarNfceConteudo() {
                 <span>
                   Soma dos itens: <span className="font-semibold">{formatMoneyBRL(somaItens)}</span>
                 </span>
+                {/* T3 — soma dos itens SELECIONADOS em tempo real */}
+                <span>
+                  Soma dos itens selecionados:{' '}
+                  <span className="font-semibold text-indigo-700">
+                    {formatMoneyBRL(somaSelecionados)}
+                  </span>
+                </span>
                 {diferenca != null && (
                   <span>
                     Diferença:{' '}
@@ -957,6 +977,36 @@ function CapturarNfceConteudo() {
             </Button>
           </div>
 
+          {/* T2 — filtro Todos / A Revisar / Prontos para importar */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {(
+              [
+                { v: 'todos', r: 'Todos' },
+                { v: 'revisar', r: 'A Revisar' },
+                { v: 'prontos', r: 'Prontos para importar' },
+              ] as const
+            ).map((op) => (
+              <button
+                key={op.v}
+                type="button"
+                onClick={() => setFiltroRevisao(op.v)}
+                className={`h-8 px-3 rounded-full border text-[11px] font-semibold transition-colors ${
+                  filtroRevisao === op.v
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-slate-600 border-slate-300'
+                }`}
+              >
+                {op.r}
+              </button>
+            ))}
+            {filtroRevisao !== 'todos' && (
+              <span className="text-[10px] text-slate-400">{itensParaRevisar.length} item(ns)</span>
+            )}
+          </div>
+
+          {itens.length > 0 && itensParaRevisar.length === 0 && (
+            <p className="text-xs text-slate-500">Nenhum item neste filtro.</p>
+          )}
           {itensParaRevisar.map((item, i) => (
             <LinhaRevisaoCaptura
               key={item.id}

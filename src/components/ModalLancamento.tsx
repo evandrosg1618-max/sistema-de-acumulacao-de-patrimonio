@@ -1441,6 +1441,7 @@ export function ModalLancamento({
                             <Input
                               id="lan-fixo-qtd"
                               type="number"
+                              inputMode="numeric"
                               min={2}
                               max={120}
                               value={fixoOcorrencias}

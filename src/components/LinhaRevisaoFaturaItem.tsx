@@ -306,6 +306,7 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
                 <span>Repetir parcelado:</span>
                 <input
                   type="number"
+                  inputMode="numeric"
                   min="1"
                   max="120"
                   autoFocus
@@ -375,6 +376,7 @@ export const LinhaRevisaoFaturaItem: React.FC<LinhaRevisaoFaturaItemProps> = ({
           {editandoValor ? (
             <input
               autoFocus
+              inputMode="decimal"
               value={valorTemp}
               onChange={(e) => setValorTemp(e.target.value)}
               onBlur={salvarValor}

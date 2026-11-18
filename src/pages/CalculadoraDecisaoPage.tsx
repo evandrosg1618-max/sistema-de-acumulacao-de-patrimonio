@@ -423,6 +423,7 @@ export function CalculadoraDecisaoPage() {
                   </Label>
                   <Input
                     id="preco-pix"
+                    inputMode="decimal"
                     value={precoPixInput}
                     onChange={(e) => setPrecoPixInput(e.target.value)}
                     placeholder="4.800,00"
@@ -442,6 +443,7 @@ export function CalculadoraDecisaoPage() {
                   </Label>
                   <Input
                     id="preco-cartao"
+                    inputMode="decimal"
                     value={precoCartaoInput}
                     onChange={(e) => setPrecoCartaoInput(e.target.value)}
                     placeholder="5.000,00"
@@ -458,6 +460,7 @@ export function CalculadoraDecisaoPage() {
                   <Input
                     id="parcelas"
                     type="number"
+                    inputMode="numeric"
                     min="1"
                     max="48"
                     value={nParcelasInput}

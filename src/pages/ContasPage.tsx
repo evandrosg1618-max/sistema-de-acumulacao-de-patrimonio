@@ -536,9 +536,10 @@ export default function ContasPage() {
                   <Input
                     id="saldoInicial"
                     name="saldoInicial"
+                    inputMode="decimal"
                     placeholder="0,00"
                     value={saldoInicial}
-                    onChange={(e) => setSaldoInicial(e.target.value)}
+                    onChange={(e) => setSaldoInicial(e.target.value.replace(/\./g, ','))}
                     className="mt-1"
                   />
                   <p className="text-[11px] text-slate-500 mt-1">

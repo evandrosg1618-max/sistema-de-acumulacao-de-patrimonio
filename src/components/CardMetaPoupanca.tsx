@@ -396,8 +396,9 @@ export function CardMetaPoupanca({
               <div className="flex items-center gap-1">
                 <input
                   type="text"
+                  inputMode="decimal"
                   value={inputMeta}
-                  onChange={(e) => setInputMeta(e.target.value)}
+                  onChange={(e) => setInputMeta(e.target.value.replace(/\./g, ','))}
                   className="w-20 h-6 text-xs text-right pr-1 border border-slate-300 rounded font-bold"
                   placeholder="0,00"
                   autoFocus

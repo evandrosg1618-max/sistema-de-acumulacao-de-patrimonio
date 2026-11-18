@@ -7,12 +7,14 @@
 import { executarOcrImagem } from '@/services/imageOcr/tesseractService'
 import {
   parseItensNfce,
+  eliminarDuplicatasProcessamento,
   marcarRepeticoesEntreCapturas,
   extrairTotalDocumento,
   extrairDataDocumento,
   type ItemCandidatoOcr,
   type TrilhaCaptura,
 } from '@/services/captura/nfceParser'
+import { isolarTextoAzul, removerCodigoProduto } from '@/services/captura/preProcessoOcr'
 
 export interface ProgressoOcrCaptura {
   imagemIndex: number
@@ -28,6 +30,20 @@ export interface ResultadoProcessamentoCaptura {
   totalConfianca: 'alta' | 'baixa'
   dataConfianca: 'alta' | 'baixa'
   linhasPorImagem: string[][]
+}
+
+/**
+ * Ordena os candidatos na sequência da captura: primeiro pela imagem de
+ * origem, depois pela posição relativa da linha bruta dentro do OCR daquela
+ * imagem — assim a lista de revisão segue a ordem física do cupom/nota.
+ */
+function ordenarPorSequenciaCaptura(itens: ItemCandidatoOcr[]): ItemCandidatoOcr[] {
+  return [...itens].sort((a, b) => {
+    if (a.origemImagemIndex !== b.origemImagemIndex) {
+      return a.origemImagemIndex - b.origemImagemIndex
+    }
+    return (a.ordemLinha ?? 0) - (b.ordemLinha ?? 0)
+  })
 }
 
 export async function processarCapturasNfce(
@@ -46,8 +62,22 @@ export async function processarCapturasNfce(
       status: 'Processando captura ' + (i + 1),
       progresso: 0,
     })
+
+    // Trilha DIGITAL: pré-processamento da imagem (isolar texto azul do bloco
+    // de itens). Fallback seguro: sem azul suficiente devolve null e o OCR roda
+    // normalmente sobre a imagem original — nunca interrompe o fluxo.
+    let imagemEntrada: string | Blob = imagens[i]
+    if (trilha === 'digital' && typeof imagens[i] === 'string') {
+      try {
+        const imagemAzul = await isolarTextoAzul(imagens[i] as string)
+        if (imagemAzul) imagemEntrada = imagemAzul
+      } catch {
+        // pré-processamento é best-effort: qualquer falha segue sem ele
+      }
+    }
+
     const { lines } = await executarOcrImagem(
-      imagens[i],
+      imagemEntrada,
       (p) => {
         onProgresso?.({
           imagemIndex: i,
@@ -63,8 +93,19 @@ export async function processarCapturasNfce(
     itensOcr.push(...itens)
   }
 
-  // Repetições por sobreposição entre capturas consecutivas: só MARCAR
-  const itensMarcados = marcarRepeticoesEntreCapturas(itensOcr)
+  // Qualidade do OCR: 1) elimina duplicatas EXATAS de processamento (mesma
+  // linha OCR repetida por captura sobreposta/bloco duplicado); 2) ordena os
+  // candidatos na sequência da captura (imagem + posição da linha no OCR);
+  // 3) SÓ ENTÃO marca compras genuinamente repetidas entre capturas.
+  const itensSemDuplicatas = eliminarDuplicatasProcessamento(itensOcr)
+  const itensOrdenados = ordenarPorSequenciaCaptura(itensSemDuplicatas)
+  const itensMarcados = marcarRepeticoesEntreCapturas(itensOrdenados)
+
+  // Descrição final: remove código de produto embutido (ex: "7891234 CENOURA")
+  const itensFinais = itensMarcados.map((item) => ({
+    ...item,
+    descricao: removerCodigoProduto(item.descricao) || item.descricao,
+  }))
 
   // Total do documento: melhor tentativa sobre TODAS as linhas combinadas
   const todasLinhasFlat = todasLinhas.flat()
@@ -72,7 +113,7 @@ export async function processarCapturasNfce(
   const { data, confianca: dc } = extrairDataDocumento(todasLinhasFlat)
 
   return {
-    itens: itensMarcados,
+    itens: itensFinais,
     totalDocumento: total,
     dataDocumento: data,
     totalConfianca: tc,

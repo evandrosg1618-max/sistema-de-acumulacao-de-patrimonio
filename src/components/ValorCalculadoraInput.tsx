@@ -134,7 +134,8 @@ export function ValorCalculadoraInput({
           ref={inputRef}
           id={id}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          inputMode="decimal"
+          onChange={(e) => onChange(e.target.value.replace(/\./g, ','))}
           onKeyDown={handleInputKeyDown}
           disabled={disabled}
           required={required}

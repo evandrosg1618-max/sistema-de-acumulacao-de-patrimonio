@@ -1025,8 +1025,11 @@ export default function OrcamentosPage() {
                                         <input
                                           ref={editInputRef}
                                           type="text"
+                                          inputMode="decimal"
                                           value={editValorInput}
-                                          onChange={(e) => setEditValorInput(e.target.value)}
+                                          onChange={(e) =>
+                                            setEditValorInput(e.target.value.replace(/\./g, ','))
+                                          }
                                           onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
                                               salvarLimiteSubcategoria(sub.id, editValorInput)
