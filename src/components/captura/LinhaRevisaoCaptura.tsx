@@ -2,9 +2,10 @@
  * Linha de revisão do candidato NFC-e (SAP v0.0.106 — R4/R6).
  * Mobile-first (Samsung S20 FE / Chrome Android, 320 a 430 px).
  *
- * R4 — campo Valor alargado (flex-1, min 120px) e SEM prefixo "R$"
- * (exibirPrefixoMoeda={false}, prop opcional do ValorCalculadoraInput). A
- * linha inferior "valor • pago com" é mantida. O status "Pronto" é DERIVADO
+ * T1 — campo Valor com LARGURA FIXA ESTREITA (w-[90px] shrink-0, comporta
+ * "XXX,XX"), SEM prefixo "R$" (exibirPrefixoMoeda={false}); a Descrição
+ * ocupa o restante (flex-1 min-w-0) com fonte menor (text-[13px]). A linha
+ * inferior "valor • pago com" é mantida. O status "Pronto" é DERIVADO
  * dos obrigatórios do lançamento (candidatoEstaCompleto): item incompleto
  * exibe "Revisar" e fica BLOQUEADO de ser importado.
  *
@@ -103,7 +104,7 @@ export function LinhaRevisaoCaptura({
               onChange={(e) => onEditar(item.id, { descricao: e.target.value })}
               onBlur={(e) => onEditar(item.id, { descricao: e.target.value.trim() })}
               placeholder="Descrição"
-              className="h-9 text-sm flex-1 min-w-0"
+              className="h-9 text-[13px] flex-1 min-w-0"
             />
             <ValorCalculadoraInput
               value={item.valor > 0 ? String(item.valor).replace('.', ',') : ''}
@@ -112,7 +113,7 @@ export function LinhaRevisaoCaptura({
                   valor: Number(String(texto).replace(/\./g, '').replace(',', '.')) || 0,
                 })
               }
-              className="flex-1 min-w-[120px]"
+              className="w-[90px] shrink-0"
               placeholder="Valor"
               exibirPrefixoMoeda={false}
             />
