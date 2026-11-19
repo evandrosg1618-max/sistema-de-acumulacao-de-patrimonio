@@ -32,6 +32,7 @@ import { CapturaCamera } from '@/services/captura/CapturaCamera'
 import { EditorRecorte } from '@/services/captura/EditorRecorte'
 import { ModalLoteCaptura } from '@/components/captura/ModalLoteCaptura'
 import { ModalAgruparCaptura } from '@/components/captura/ModalAgruparCaptura'
+import type { ModalAgruparConfirmacao } from '@/components/captura/ModalAgruparCaptura'
 import { CapturaNfceErrorBoundary } from '@/components/captura/CapturaNfceErrorBoundary'
 import {
   capturaService,
@@ -506,11 +507,20 @@ function CapturarNfceConteudo() {
   // captura_sessao_itens) e SÓ DEPOIS os originais são excluídos. Estado e
   // banco ficam alinhados: atualizarItem/vincularLancamento/marcarErroItem e
   // continuarRevisao operam sobre linhas reais (bug 3 e 5 resolvidos na raiz).
-  const agrupar = async (descricao: string, valor: number) => {
+  const agrupar = async (
+    descricao: string,
+    valor: number,
+    categoriaId: string | null,
+    subcategoriaId: string | null,
+  ) => {
     const selecionados = itens.filter((i) => i.selecionado)
     if (selecionados.length === 0 || !sessao) return
     const primeiro = selecionados[0]
     const idsOriginais = selecionados.map((i) => i.id)
+    // TESTE CAPTURA 5 / T3 — categoria/subcategoria ESCOLHIDAS no modal de
+    // agrupamento têm prioridade; sem escolha, herda do primeiro selecionado.
+    const categoriaFinal = categoriaId ?? primeiro.categoria_id
+    const subcategoriaFinal = subcategoriaId ?? primeiro.subcategoria_id
     try {
       const grupoDb = await capturaService.inserirItem(sessao.id, sessao.workspace_id, {
         descricao,
@@ -521,8 +531,8 @@ function CapturarNfceConteudo() {
         meio_pagamento_id: primeiro.meio_pagamento_id,
         meio_pagamento_tipo: primeiro.meio_pagamento_tipo,
         meio_pagamento_nome: primeiro.meio_pagamento_nome,
-        categoria_id: primeiro.categoria_id,
-        subcategoria_id: primeiro.subcategoria_id,
+        categoria_id: categoriaFinal,
+        subcategoria_id: subcategoriaFinal,
         modalidade_saida: primeiro.modalidade_saida || 'compra_propria',
         valor_proprio: valor,
         valor_terceiros: 0,
@@ -539,11 +549,18 @@ function CapturarNfceConteudo() {
       }
       const grupo: CapturaItemRevisao = {
         ...itemDbParaRevisao(grupoDb),
-        selecionado: true,
+        // TESTE CAPTURA 5 / T2 — grupo e lista nascem TUDO desmarcado:
+        // o grupo novo não pode entrar por engano no próximo agrupamento.
+        selecionado: false,
         agrupado: true,
         idsOriginais,
       }
-      setItens((prev) => [...prev.filter((i) => !i.selecionado), grupo])
+      setItens((prev) => [
+        ...prev.map((i) =>
+          i.selecionado && i.status !== 'importado' ? { ...i, selecionado: false } : i,
+        ),
+        grupo,
+      ])
       setAgruparAberto(false)
       toast({
         title: 'Itens agrupados',
@@ -1324,6 +1341,8 @@ function CapturarNfceConteudo() {
         onConfirmar={agrupar}
         quantidadeItens={selecionados.length}
         somaSelecionados={somaSelecionados}
+        categorias={categorias}
+        subcategorias={subcategorias}
       />
 
       {/* Item manual */}
