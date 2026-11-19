@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ModalLancamentosPeriodoAnterior } from '@/components/ModalLancamentosPeriodoAnterior'
 import { toast } from 'sonner'
+import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 
 // CARD 4: Barra de Consumo (Padrão para TODAS as barras da tela)
 // Regra:
@@ -250,7 +251,8 @@ export default function OrcamentosPage() {
   const salvarLimiteSubcategoria = async (subcatId: string, valorStr: string) => {
     if (!wsId || isProcessing) return
 
-    const limNum = parseFloat(valorStr.replace(/\./g, '').replace(',', '.'))
+    // T4 — parse monetário único (lib/monetario): "1.234,56" e "1234.56" → 1234.56
+    const limNum = valorDeTextoMonetarioBR(valorStr)
     if (isNaN(limNum) || limNum < 0) {
       toast.error('Informe um valor de limite válido (não pode ser negativo).')
       return
@@ -1027,9 +1029,7 @@ export default function OrcamentosPage() {
                                           type="text"
                                           inputMode="decimal"
                                           value={editValorInput}
-                                          onChange={(e) =>
-                                            setEditValorInput(e.target.value.replace(/\./g, ','))
-                                          }
+                                          onChange={(e) => setEditValorInput(e.target.value)}
                                           onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
                                               salvarLimiteSubcategoria(sub.id, editValorInput)

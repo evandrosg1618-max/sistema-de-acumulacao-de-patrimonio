@@ -51,6 +51,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 
 const TIPOS_CONTA: { label: string; value: TipoConta; desc: string; icon: any }[] = [
   {
@@ -195,7 +196,8 @@ export default function ContasPage() {
 
     setSaving(true)
     try {
-      const saldoNumerico = parseFloat(String(formSaldo).replace(/\./g, '').replace(',', '.')) || 0
+      // T4 — parse monetário único (lib/monetario): "1.234,56" e "1234.56" → 1234.56
+      const saldoNumerico = valorDeTextoMonetarioBR(String(formSaldo)) || 0
 
       if (editingConta) {
         await contaService.update(

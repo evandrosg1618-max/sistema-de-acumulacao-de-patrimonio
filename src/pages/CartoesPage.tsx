@@ -70,6 +70,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { ModalCapturarImportar } from '@/components/captura/ModalCapturarImportar'
+import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 
 // P3/P2: filtro de classe (estrutura real, nunca texto da descrição) + ordem pela data ORIGINAL.
 // Aplicados sobre a coleção já unificada e pré-ordenada pelo service (padrão Data ↓).
@@ -962,8 +963,9 @@ export default function CartoesPage() {
       return
     }
 
-    const limiteNum = parseFloat(String(formLimite).replace(/\./g, '').replace(',', '.')) || 0
-    const pontosNum = parseFloat(String(formPontos).replace(',', '.')) || 0
+    // T4 — parse monetário único (lib/monetario): "1.234,56" e "1234.56" → 1234.56
+    const limiteNum = valorDeTextoMonetarioBR(String(formLimite)) || 0
+    const pontosNum = valorDeTextoMonetarioBR(String(formPontos)) || 0
 
     setSaving(true)
     try {

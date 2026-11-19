@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
+import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 
 export interface MetaPoupancaDados {
   competencia: string
@@ -199,7 +200,8 @@ export function CardMetaPoupanca({
       return
     }
 
-    const m = parseFloat(inputMeta.replace(/\./g, '').replace(',', '.'))
+    // T4 — parse monetário único (lib/monetario): "1.234,56" e "1234.56" → 1234.56
+    const m = valorDeTextoMonetarioBR(inputMeta)
     if (isNaN(m) || m < 0) {
       toast.error('Informe um valor de meta válido (não negativo).')
       return

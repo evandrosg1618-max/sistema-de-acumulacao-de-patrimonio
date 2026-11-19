@@ -52,6 +52,7 @@ import {
 import { orcamentoService, faturaService, fixoService } from '@/services/sap'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
+import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 
 interface ModalLancamentoProps {
   open: boolean
@@ -425,7 +426,8 @@ export function ModalLancamento({
       return
     }
 
-    const valorNumerico = parseFloat(valor.replace(/\./g, '').replace(',', '.'))
+    // T4 — parse monetário único (lib/monetario): "1.234,56" e "1234.56" → 1234.56
+    const valorNumerico = valorDeTextoMonetarioBR(valor)
     if (!valorNumerico || valorNumerico <= 0) {
       return
     }
@@ -483,7 +485,7 @@ export function ModalLancamento({
 
     if (tipo === 'despesa') {
       if (modalidadeSaida === 'compra_compartilhada') {
-        const vpNum = parseFloat(valorProprio.replace(/\./g, '').replace(',', '.'))
+        const vpNum = valorDeTextoMonetarioBR(valorProprio)
         if (!vpNum || isNaN(vpNum) || vpNum <= 0) {
           setErroValorProprio('Informe o Valor Próprio maior que zero.')
           return
@@ -1593,6 +1595,22 @@ export function ModalLancamento({
                       )}
                     </div>
 
+                    {/* T3 — Filtro FORA do Select: o input vive no DOM estável do
+                        formulário (nunca dentro do portal gerenciado pelo Radix),
+                        então o gerenciamento de foco do Select não derruba o
+                        teclado do celular a cada tecla digitada. */}
+                    <Input
+                      id="lan-filtro-subcat"
+                      type="text"
+                      inputMode="text"
+                      value={buscaSubcategoria}
+                      onChange={(e) => setBuscaSubcategoria(e.target.value)}
+                      placeholder="Filtrar categoria ou subcategoria..."
+                      title="Digite para filtrar a lista pela categoria ou subcategoria"
+                      className="mt-1 h-9 text-xs bg-white text-slate-900 border-slate-300"
+                      autoComplete="off"
+                    />
+
                     <Select value={subcategoriaId} onValueChange={handleSelecionarSubcategoria}>
                       <SelectTrigger
                         id="lan-subcat"
@@ -1601,32 +1619,11 @@ export function ModalLancamento({
                         <SelectValue placeholder="Selecione a subcategoria obrigatória (*)" />
                       </SelectTrigger>
                       <SelectContent className="max-h-72 bg-white text-slate-900 border-slate-200">
-                        {/* Campo de filtro DIGITÁVEL — T2: input montado e ESTÁVEL
-                            fora da lista filtrada (id fixo, sem key mutável) para
-                            o teclado do celular não recolher ao digitar. */}
-                        <div
-                          id="lan-filtro-subcat-wrapper"
-                          className="p-2 border-b border-slate-100 sticky top-0 bg-white z-10"
-                        >
-                          <div className="relative">
-                            <Input
-                              id="lan-filtro-subcat"
-                              type="text"
-                              value={buscaSubcategoria}
-                              onChange={(e) => setBuscaSubcategoria(e.target.value)}
-                              placeholder="Filtrar categoria ou subcategoria..."
-                              title="Digite para filtrar a lista pela categoria ou subcategoria"
-                              className="h-8 text-xs bg-slate-50 text-slate-900 border-slate-200"
-                              autoComplete="off"
-                              onClick={(e) => e.stopPropagation()}
-                              onKeyDown={(e) => e.stopPropagation()}
-                            />
-                          </div>
-                        </div>
-
                         {subcategoriasFiltradas.length === 0 ? (
                           <div className="p-3 text-center text-xs text-slate-400">
-                            Nenhuma subcategoria encontrada
+                            {buscaSubcategoria.trim()
+                              ? 'Nenhuma subcategoria encontrada para o filtro digitado'
+                              : 'Nenhuma subcategoria encontrada'}
                           </div>
                         ) : (
                           subcategoriasFiltradas.map((s) => (
