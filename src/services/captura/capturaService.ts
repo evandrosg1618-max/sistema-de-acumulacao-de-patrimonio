@@ -452,6 +452,97 @@ export const capturaService = {
   },
 
   /**
+   * TESTE CAPTURA 4 / T1 — INSERE a linha de um item novo (candidato de
+   * AGRUPAMENTO ou item MANUAL) e devolve o registro com o ID REAL do banco.
+   * O grupo/manuais deixam de existir só no estado do front: a partir daqui
+   * atualizarItem/vincularLancamento/marcarErroItem/continuarRevisao operam
+   * sobre linhas reais e "Salvar no item" a partir do 2º salvamento funciona.
+   */
+  async inserirItem(
+    sessaoId: string,
+    workspaceId: string,
+    item: {
+      descricao: string
+      valor: number
+      status?: string
+      confianca?: string
+      data?: string | null
+      meio_pagamento_id?: string | null
+      meio_pagamento_tipo?: string | null
+      meio_pagamento_nome?: string | null
+      categoria_id?: string | null
+      subcategoria_id?: string | null
+      modalidade_saida?: string | null
+      valor_proprio?: number | null
+      valor_terceiros?: number | null
+      afeta_resultado?: boolean | null
+      afeta_orcamento?: boolean | null
+      observacao?: string | null
+    },
+  ): Promise<CapturaSessaoItem> {
+    const { data: ultima, error: errOrdem } = await db
+      .from('captura_sessao_itens')
+      .select('ordem')
+      .eq('sessao_id', sessaoId)
+      .eq('workspace_id', workspaceId)
+      .order('ordem', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (errOrdem) throw errOrdem
+
+    const { data, error } = await db
+      .from('captura_sessao_itens')
+      .insert({
+        sessao_id: sessaoId,
+        workspace_id: workspaceId,
+        ordem: (ultima?.ordem ?? 0) + 1,
+        selecionado: true,
+        descricao: item.descricao,
+        valor: Number(item.valor.toFixed(2)),
+        status: item.status || 'pronto',
+        confianca: item.confianca || 'alta',
+        repetido_entre_capturas: false,
+        data: item.data || null,
+        meio_pagamento_id: item.meio_pagamento_id || null,
+        meio_pagamento_tipo: item.meio_pagamento_tipo || null,
+        meio_pagamento_nome: item.meio_pagamento_nome || null,
+        categoria_id: item.categoria_id || null,
+        subcategoria_id: item.subcategoria_id || null,
+        modalidade_saida: item.modalidade_saida || 'compra_propria',
+        valor_proprio: item.valor_proprio ?? null,
+        valor_terceiros: item.valor_terceiros ?? null,
+        afeta_resultado: item.afeta_resultado ?? true,
+        afeta_orcamento: item.afeta_orcamento ?? true,
+        observacao: item.observacao || null,
+      })
+      .select('*')
+      .single()
+    if (error) throw error
+    await this.atualizarSessao(sessaoId, workspaceId, {})
+    return data as CapturaSessaoItem
+  },
+
+  /**
+   * TESTE CAPTURA 4 / T1 — guarda o ID real do candidato de agrupamento para
+   * rastreabilidade (idsOriginais) sem depender de estado local.
+   */
+  async marcarGrupo(
+    itemId: string,
+    sessaoId: string,
+    workspaceId: string,
+    idsOriginais: string[],
+  ): Promise<void> {
+    try {
+      await this.registrarAuditoria(workspaceId, sessaoId, 'agrupar_itens', {
+        item_grupo: itemId,
+        ids_originais: idsOriginais,
+      })
+    } catch {
+      /* rastreia sem bloquear o fluxo */
+    }
+  },
+
+  /**
    * IMPORTAÇÃO DEFINITIVA: vincula o item ao lançamento criado pelo service
    * financeiro existente (rastreabilidade sessão → candidato → lançamento,
    * BLOCO 23). O lançamento é criado pelo lancamentoService; aqui só registra.
@@ -478,9 +569,16 @@ export const capturaService = {
     workspaceId: string,
     mensagem: string,
   ): Promise<void> {
+    // T2 — item em erro é REIMPORTÁVEL: limpa qualquer vínculo antigo de
+    // lançamento ("se houve erro então não foi importado").
     const { error } = await db
       .from('captura_sessao_itens')
-      .update({ status: 'erro', mensagem_erro: mensagem })
+      .update({
+        status: 'erro',
+        mensagem_erro: mensagem,
+        lancamento_criado_id: null,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', itemId)
       .eq('sessao_id', sessaoId)
       .eq('workspace_id', workspaceId)

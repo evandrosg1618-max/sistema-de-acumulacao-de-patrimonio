@@ -498,67 +498,93 @@ function CapturarNfceConteudo() {
     setLoteAberto(false)
   }
 
-  const agrupar = (descricao: string, valor: number) => {
+  // TESTE CAPTURA 4 / T1 — o grupo é INSERIDO no banco (nova linha real em
+  // captura_sessao_itens) e SÓ DEPOIS os originais são excluídos. Estado e
+  // banco ficam alinhados: atualizarItem/vincularLancamento/marcarErroItem e
+  // continuarRevisao operam sobre linhas reais (bug 3 e 5 resolvidos na raiz).
+  const agrupar = async (descricao: string, valor: number) => {
     const selecionados = itens.filter((i) => i.selecionado)
-    if (selecionados.length === 0) return
+    if (selecionados.length === 0 || !sessao) return
     const primeiro = selecionados[0]
-    const grupo: CapturaItemRevisao = {
-      id: `grupo_${Date.now()}`,
-      selecionado: true,
-      descricao,
-      valor,
-      status: 'pronto',
-      confianca: 'alta',
-      agrupado: true,
-      idsOriginais: selecionados.map((i) => i.id),
-      data: primeiro.data,
-      meio_pagamento_id: primeiro.meio_pagamento_id,
-      meio_pagamento_tipo: primeiro.meio_pagamento_tipo,
-      meio_pagamento_nome: primeiro.meio_pagamento_nome,
-      categoria_id: primeiro.categoria_id,
-      subcategoria_id: primeiro.subcategoria_id,
-      modalidade_saida: primeiro.modalidade_saida || 'compra_propria',
-      valor_proprio: valor,
-      valor_terceiros: 0,
-      afeta_resultado: primeiro.afeta_resultado,
-      afeta_orcamento: primeiro.afeta_orcamento,
-      observacao: null,
-    }
-    // Exclusivo: remove os individuais agrupados (do estado e, quando já
-    // persistidos, do banco) e mantém apenas o candidato do grupo.
-    for (const s of selecionados) {
-      if (sessao && !s.id.startsWith('manual_') && !s.id.startsWith('grupo_')) {
-        capturaService.excluirItem(s.id, sessao.id, sessao.workspace_id).catch(() => undefined)
+    const idsOriginais = selecionados.map((i) => i.id)
+    try {
+      const grupoDb = await capturaService.inserirItem(sessao.id, sessao.workspace_id, {
+        descricao,
+        valor,
+        status: 'pronto',
+        confianca: 'alta',
+        data: primeiro.data,
+        meio_pagamento_id: primeiro.meio_pagamento_id,
+        meio_pagamento_tipo: primeiro.meio_pagamento_tipo,
+        meio_pagamento_nome: primeiro.meio_pagamento_nome,
+        categoria_id: primeiro.categoria_id,
+        subcategoria_id: primeiro.subcategoria_id,
+        modalidade_saida: primeiro.modalidade_saida || 'compra_propria',
+        valor_proprio: valor,
+        valor_terceiros: 0,
+        afeta_resultado: primeiro.afeta_resultado,
+        afeta_orcamento: primeiro.afeta_orcamento,
+        observacao: null,
+      })
+      await capturaService.marcarGrupo(grupoDb.id, sessao.id, sessao.workspace_id, idsOriginais)
+      // Originais removidos SOMENTE após o insert do grupo ter sucesso.
+      for (const s of selecionados) {
+        await capturaService
+          .excluirItem(s.id, sessao.id, sessao.workspace_id)
+          .catch(() => undefined)
       }
+      const grupo: CapturaItemRevisao = {
+        ...itemDbParaRevisao(grupoDb),
+        selecionado: true,
+        agrupado: true,
+        idsOriginais,
+      }
+      setItens((prev) => [...prev.filter((i) => !i.selecionado), grupo])
+      setAgruparAberto(false)
+      toast({
+        title: 'Itens agrupados',
+        description: `${selecionados.length} item(ns) agora formam 1 candidato salvo no banco.`,
+      })
+      carregarHistorico()
+    } catch (e: any) {
+      // Erro orientado ao usuário: NADA é removido — originais permanecem.
+      toast({
+        title: 'Não foi possível agrupar',
+        description:
+          e?.message ||
+          'O agrupamento não foi salvo no banco. Seus itens continuam na lista — tente novamente.',
+        variant: 'destructive',
+      })
     }
-    setItens((prev) => [...prev.filter((i) => !i.selecionado), grupo])
-    setAgruparAberto(false)
-    toast({
-      title: 'Itens agrupados',
-      description: `${selecionados.length} item(ns) agora formam 1 candidato.`,
-    })
   }
 
-  const addItemManual = () => {
+  // TESTE CAPTURA 4 / T1 — item manual também é PERSISTIDO no banco (a sessão
+  // sempre existe na revisão), garantindo continuarRevisao e importação id.
+  const addItemManual = async () => {
     const valor = Number(valManual.replace(/\./g, '').replace(',', '.'))
     if (!descManual.trim() || !(valor > 0)) {
       toast({ title: 'Preencha descrição e valor', variant: 'destructive' })
       return
     }
-    const meio = meios.find((m) => m.id === sessao?.meio_pagamento_id)
-    setItens((prev) => [
-      ...prev,
-      {
-        id: `manual_${Date.now()}`,
-        selecionado: true,
+    if (!sessao) {
+      toast({
+        title: 'Sessão não encontrada',
+        description: 'Reabra a revisão da captura e tente de novo.',
+        variant: 'destructive',
+      })
+      return
+    }
+    const meio = meios.find((m) => m.id === sessao.meio_pagamento_id)
+    try {
+      const manualDb = await capturaService.inserirItem(sessao.id, sessao.workspace_id, {
         descricao: descManual.trim(),
         valor,
         status: 'pronto',
         confianca: 'alta',
-        data: sessao?.data_documento || getTodayDateString(),
-        meio_pagamento_id: sessao?.meio_pagamento_id || null,
-        meio_pagamento_tipo: sessao?.meio_pagamento_tipo || null,
-        meio_pagamento_nome: sessao?.meio_pagamento_nome || meio?.nome || null,
+        data: sessao.data_documento || getTodayDateString(),
+        meio_pagamento_id: sessao.meio_pagamento_id || null,
+        meio_pagamento_tipo: sessao.meio_pagamento_tipo || null,
+        meio_pagamento_nome: sessao.meio_pagamento_nome || meio?.nome || null,
         categoria_id: null,
         subcategoria_id: null,
         modalidade_saida: 'compra_propria',
@@ -567,11 +593,19 @@ function CapturarNfceConteudo() {
         afeta_resultado: true,
         afeta_orcamento: true,
         observacao: null,
-      },
-    ])
-    setDescManual('')
-    setValManual('')
-    setItemManualAberto(false)
+      })
+      setItens((prev) => [...prev, itemDbParaRevisao(manualDb)])
+      setDescManual('')
+      setValManual('')
+      setItemManualAberto(false)
+      carregarHistorico()
+    } catch (e: any) {
+      toast({
+        title: 'Não foi possível adicionar o item',
+        description: e?.message || 'Erro ao salvar no banco. Tente novamente.',
+        variant: 'destructive',
+      })
+    }
   }
 
   const importar = async () => {
