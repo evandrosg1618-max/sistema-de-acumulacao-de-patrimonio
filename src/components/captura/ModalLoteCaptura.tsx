@@ -1,6 +1,15 @@
 /**
  * Modal da edição em lote da revisão de NFC-e: o usuário marca QUAIS campos
  * alterar e aplica SOMENTE os marcados nos itens selecionados (BLOCO 14).
+ *
+ * TESTE CAPTURA 5 / T4 — "Afeta Resultado" e "Afeta Orçamento" SAÍRAM do lote:
+ * essas flags são DERIVADAS das subcategorias (e do modalidade_saida) e não
+ * devem ser editáveis em lote. Entram no lugar:
+ * - toggle "Pago" — visível/aplicável só quando o "Pago com" escolhido é
+ *   conta bancária ou dinheiro;
+ * - botão "Repetir" — visível/aplicável só quando o meio é cartão (e similares);
+ * - campo de texto "Observações".
+ * Data/valor e demais campos NÃO marcados permanecem intactos nos itens.
  */
 import { useState } from 'react'
 import {
@@ -13,7 +22,6 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
@@ -37,18 +45,33 @@ export function ModalLoteCaptura({ aberto, onFechar, onAplicar, meiosPagamento }
   const [data, setData] = useState('')
   const [meioId, setMeioId] = useState('')
   const [modalidade, setModalidade] = useState('compra_propria')
-  const [afetaResultado, setAfetaResultado] = useState('true')
-  const [afetaOrcamento, setAfetaOrcamento] = useState('true')
+  const [pago, setPago] = useState(true)
+  const [repetir, setRepetir] = useState(true)
+  const [observacao, setObservacao] = useState('')
 
   const marcar = (campo: string, v: boolean) => setCampos((p) => ({ ...p, [campo]: v }))
+
+  // T4 — tipo do meio escolhido define qual controle extra aparece:
+  // conta/dinheiro → "Pago"; cartão (e similares) → "Repetir".
+  const meioSelecionado = meiosPagamento.find((m) => m.id === meioId) as any
+  const tipoMeio = String(meioSelecionado?.tipo || '').toUpperCase()
+  const meioEhCartao = tipoMeio.includes('CARTAO') || tipoMeio.includes('CARTÃO')
+  const meioEhContaDinheiro = tipoMeio === 'CONTA' || tipoMeio === 'DINHEIRO'
 
   const aplicar = () => {
     const patch: PatchLoteCaptura = {}
     if (campos.data && data) patch.data = data
-    if (campos.meio_pagamento && meioId) patch.meioPagamentoId = meioId
+    if (campos.meio_pagamento && meioId) {
+      patch.meioPagamentoId = meioId
+      // Tipo/nome acompanham o meio escolhido: a importação roteia por
+      // meio_pagamento_tipo (CONTA → conta_origem, CARTAO → cartão).
+      patch.meioPagamentoTipo = meioSelecionado?.tipo ?? null
+      patch.meioPagamentoNome = meioSelecionado?.nome ?? null
+      if (meioEhContaDinheiro && campos.pago) patch.pago = pago
+      if (meioEhCartao && campos.repetir) patch.repetir = repetir
+    }
     if (campos.modalidade) patch.modalidade = modalidade
-    if (campos.afeta_resultado) patch.afetaResultado = afetaResultado === 'true'
-    if (campos.afeta_orcamento) patch.afetaOrcamento = afetaOrcamento === 'true'
+    if (campos.observacao) patch.observacao = observacao.trim()
     if (Object.keys(patch).length === 0) {
       onFechar()
       return
@@ -105,6 +128,34 @@ export function ModalLoteCaptura({ aberto, onFechar, onAplicar, meiosPagamento }
               </Select>
             )}
           </div>
+          {/* T4 — "Pago": apenas quando o meio escolhido é conta ou dinheiro. */}
+          {campos.meio_pagamento && meioEhContaDinheiro && (
+            <div>
+              <OpcaoCampo id="pago" rotulo="Pago" />
+              {campos.pago && (
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer py-0.5">
+                  <Checkbox checked={pago} onCheckedChange={(v) => setPago(v === true)} />
+                  Lançamento já pago
+                </label>
+              )}
+            </div>
+          )}
+          {/* T4 — "Repetir": apenas quando o meio escolhido é cartão. */}
+          {campos.meio_pagamento && meioEhCartao && (
+            <div>
+              <OpcaoCampo id="repetir" rotulo="Repetir" />
+              {campos.repetir && (
+                <Button
+                  type="button"
+                  variant={repetir ? 'default' : 'outline'}
+                  onClick={() => setRepetir((v) => !v)}
+                  className={`h-9 ${repetir ? 'bg-indigo-600 hover:bg-indigo-700' : ''}`}
+                >
+                  {repetir ? 'Repetir: Sim' : 'Repetir: Não'}
+                </Button>
+              )}
+            </div>
+          )}
           <div>
             <OpcaoCampo id="modalidade" rotulo="Modalidade de saída" />
             {campos.modalidade && (
@@ -122,31 +173,14 @@ export function ModalLoteCaptura({ aberto, onFechar, onAplicar, meiosPagamento }
             )}
           </div>
           <div>
-            <OpcaoCampo id="afeta_resultado" rotulo="Afeta Resultado" />
-            {campos.afeta_resultado && (
-              <Select value={afetaResultado} onValueChange={setAfetaResultado}>
-                <SelectTrigger className="h-9 bg-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  <SelectItem value="true">Sim</SelectItem>
-                  <SelectItem value="false">Não</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-          <div>
-            <OpcaoCampo id="afeta_orcamento" rotulo="Afeta Orçamento" />
-            {campos.afeta_orcamento && (
-              <Select value={afetaOrcamento} onValueChange={setAfetaOrcamento}>
-                <SelectTrigger className="h-9 bg-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  <SelectItem value="true">Sim</SelectItem>
-                  <SelectItem value="false">Não</SelectItem>
-                </SelectContent>
-              </Select>
+            <OpcaoCampo id="observacao" rotulo="Observações" />
+            {campos.observacao && (
+              <Input
+                value={observacao}
+                onChange={(e) => setObservacao(e.target.value)}
+                placeholder="Observação para os itens selecionados"
+                className="h-9"
+              />
             )}
           </div>
         </div>
