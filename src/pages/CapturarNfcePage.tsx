@@ -497,8 +497,43 @@ function CapturarNfceConteudo() {
     setItens((prev) => prev.map((i) => (i.status !== 'importado' ? { ...i, selecionado: v } : i)))
 
   const aplicarLote = (patch: PatchLoteCaptura) => {
-    const ids = itens.filter((i) => i.selecionado).map((i) => i.id)
+    const selecionados = itens.filter((i) => i.selecionado)
+    const ids = selecionados.map((i) => i.id)
     setItens((prev) => aplicarPatchLote(prev, ids, patch))
+    // TESTE CAPTURA 5 / T4 — os itens são linhas reais (T1): persiste SÓ os
+    // campos marcados no patch. Data/valor e demais campos ficam intocados.
+    if (sessao) {
+      for (const item of selecionados) {
+        if (item.status === 'importado') continue
+        // candidatos ainda sem linha no banco ('cand_'/'manual_' legados) não
+        // têm para onde persistir — o estado local já foi atualizado acima.
+        if (item.id.startsWith('cand_') || item.id.startsWith('manual_')) continue
+        const updates: Partial<{
+          data: string | null
+          meio_pagamento_id: string | null
+          meio_pagamento_tipo: string | null
+          meio_pagamento_nome: string | null
+          marcado_pago: boolean
+          marcado_repetir: boolean
+          modalidade_saida: string | null
+          observacao: string | null
+        }> = {}
+        if (patch.data !== undefined) updates.data = patch.data
+        if (patch.meioPagamentoId !== undefined) {
+          updates.meio_pagamento_id = patch.meioPagamentoId
+          updates.meio_pagamento_tipo = patch.meioPagamentoTipo ?? null
+          updates.meio_pagamento_nome = patch.meioPagamentoNome ?? null
+        }
+        if (patch.pago !== undefined) updates.marcado_pago = patch.pago
+        if (patch.repetir !== undefined) updates.marcado_repetir = patch.repetir
+        if (patch.modalidade !== undefined) updates.modalidade_saida = patch.modalidade
+        if (patch.observacao !== undefined) updates.observacao = patch.observacao
+        if (Object.keys(updates).length === 0) continue
+        capturaService
+          .atualizarItem(item.id, sessao.id, sessao.workspace_id, updates)
+          .catch(() => undefined)
+      }
+    }
     toast({ title: 'Lote aplicado', description: 'Somente os campos marcados foram alterados.' })
     setLoteAberto(false)
   }
@@ -681,6 +716,24 @@ function CapturarNfceConteudo() {
       const idempotencyKey = `captura:${sessao.id}:${item.id}`
       try {
         const tipoMeio = (item.meio_pagamento_tipo || 'DINHEIRO') as 'CONTA' | 'CARTAO' | 'DINHEIRO'
+        // TESTE CAPTURA 5 / T4 — a importação RESPEITA o toggle Pago do Lote:
+        // • CONTA/DINHEIRO: Pago marcado (item.marcado_pago) → status 'pago'
+        //   com data_pagamento; sem marcação → 'pendente' sem data_pagamento.
+        // • CARTAO: permanece 'pendente' (a compra entra na fatura; o pagamento
+        //   é da fatura, não do item) — salvo marcação explícita de pago.
+        const pagoNoLote = Boolean(item.marcado_pago)
+        const statusPagamento: 'pago' | 'pendente' =
+          tipoMeio === 'CARTAO'
+            ? pagoNoLote
+              ? 'pago'
+              : 'pendente'
+            : pagoNoLote
+              ? 'pago'
+              : 'pendente'
+        // TESTE CAPTURA 5 / T4 — "Repetir" marcado no Lote (cartão) → o
+        // lançamento entra como recorrente: regime 'fixo' (marcação só de
+        // intenção; a série fixa completa segue sendo criada pelo fluxo normal).
+        const regime: 'unico' | 'fixo' = item.marcado_repetir ? 'fixo' : 'unico'
         const criado = await lancamentoService.create({
           // T4 — created_by é OBRIGATÓRIO (insert + auditoriaService.registrar):
           // sem ele a criação falha e o item vira tarja vermelha de erro.
@@ -689,15 +742,15 @@ function CapturarNfceConteudo() {
           idempotency_key: idempotencyKey,
           workspace_id: workspaceId,
           tipo: 'despesa',
-          regime: 'unico',
+          regime,
           data: item.data || getTodayDateString(),
           descricao: item.descricao,
           valor: item.valor,
           meio_pagamento_tipo: tipoMeio,
           conta_origem_id: tipoMeio === 'CONTA' ? item.meio_pagamento_id : null,
           cartao_id: tipoMeio === 'CARTAO' ? item.meio_pagamento_id : null,
-          status_pagamento: 'pago',
-          data_pagamento: getTodayDateString(),
+          status_pagamento: statusPagamento,
+          data_pagamento: statusPagamento === 'pago' ? getTodayDateString() : null,
           subcategoria_id: item.subcategoria_id || null,
           modalidade_saida: (item.modalidade_saida || 'compra_propria') as any,
           valor_proprio:
@@ -1334,6 +1387,7 @@ function CapturarNfceConteudo() {
         onFechar={() => setLoteAberto(false)}
         onAplicar={aplicarLote}
         meiosPagamento={meios}
+        tiposMeioSelecionados={selecionados.map((i) => i.meio_pagamento_tipo)}
       />
       <ModalAgruparCaptura
         aberto={agruparAberto}

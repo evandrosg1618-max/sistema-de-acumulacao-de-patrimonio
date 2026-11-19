@@ -74,6 +74,9 @@ export interface CapturaSessaoItem {
   afeta_resultado: boolean
   afeta_orcamento: boolean
   observacao: string | null
+  /** T4 — marcações do lote persistidas (pago/repetir) — false quando a coluna ainda não existe. */
+  marcado_pago?: boolean | null
+  marcado_repetir?: boolean | null
   lancamento_criado_id: string | null
   mensagem_erro: string | null
   created_at: string
@@ -430,6 +433,9 @@ export const capturaService = {
       afeta_resultado: boolean
       afeta_orcamento: boolean
       observacao: string | null
+      /** T4 — marcações do lote (pago/repetir); omitido = intocado no banco. */
+      marcado_pago?: boolean | null
+      marcado_repetir?: boolean | null
     }>,
   ): Promise<void> {
     const { error } = await db
@@ -514,6 +520,8 @@ export const capturaService = {
         afeta_resultado: item.afeta_resultado ?? true,
         afeta_orcamento: item.afeta_orcamento ?? true,
         observacao: item.observacao || null,
+        marcado_pago: false,
+        marcado_repetir: false,
       })
       .select('*')
       .single()

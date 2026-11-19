@@ -38,9 +38,18 @@ interface Props {
   onFechar: () => void
   onAplicar: (patch: PatchLoteCaptura) => void
   meiosPagamento: MeioPagamento[]
+  /** T4 — tipos de meio dos itens SELECIONADOS (distintos, já em maiúsculas):
+   * define a visibilidade de Pago/Repetir quando nenhum novo meio é escolhido. */
+  tiposMeioSelecionados?: string[]
 }
 
-export function ModalLoteCaptura({ aberto, onFechar, onAplicar, meiosPagamento }: Props) {
+export function ModalLoteCaptura({
+  aberto,
+  onFechar,
+  onAplicar,
+  meiosPagamento,
+  tiposMeioSelecionados,
+}: Props) {
   const [campos, setCampos] = useState<Record<string, boolean>>({})
   const [data, setData] = useState('')
   const [meioId, setMeioId] = useState('')
@@ -53,20 +62,41 @@ export function ModalLoteCaptura({ aberto, onFechar, onAplicar, meiosPagamento }
 
   // T4 — tipo do meio escolhido define qual controle extra aparece:
   // conta/dinheiro → "Pago"; cartão (e similares) → "Repetir".
-  const meioSelecionado = meiosPagamento.find((m) => m.id === meioId) as any
-  const tipoMeio = String(meioSelecionado?.tipo || '').toUpperCase()
-  const meioEhCartao = tipoMeio.includes('CARTAO') || tipoMeio.includes('CARTÃO')
-  const meioEhContaDinheiro = tipoMeio === 'CONTA' || tipoMeio === 'DINHEIRO'
+  // Sem meio escolhido no modal, vale o tipo COMUM dos itens selecionados
+  // (tipos divergentes → nenhum dos dois controles aparece).
+  const meioSelecionado = meiosPagamento.find((m) => m.id === meioId)
+  const tipoMeioEscolhido = String(meioSelecionado?.tipo || '').toUpperCase()
+  const tiposItens = Array.from(
+    new Set((tiposMeioSelecionados || []).map((t) => String(t || '').toUpperCase())),
+  )
+  const tipoComumItens = tiposItens.length === 1 ? tiposItens[0] : null
+  const tipoEfetivo = tipoMeioEscolhido || tipoComumItens || ''
+  const meioEhCartao = tipoEfetivo.includes('CARTAO') || tipoEfetivo.includes('CARTÃO')
+  const meioEhContaDinheiro = tipoEfetivo === 'CONTA' || tipoEfetivo === 'DINHEIRO'
+
+  /** T4 — ao trocar o meio no Lote, as marcações pago/repetir voltam ao padrão. */
+  const trocarMeio = (id: string) => {
+    setMeioId(id)
+    setPago(true)
+    setRepetir(true)
+    setCampos((p) => ({ ...p, pago: false, repetir: false }))
+  }
 
   const aplicar = () => {
     const patch: PatchLoteCaptura = {}
     if (campos.data && data) patch.data = data
-    if (campos.meio_pagamento && meioId) {
+    if (campos.meio_pagamento && meioId && meioSelecionado) {
       patch.meioPagamentoId = meioId
       // Tipo/nome acompanham o meio escolhido: a importação roteia por
       // meio_pagamento_tipo (CONTA → conta_origem, CARTAO → cartão).
-      patch.meioPagamentoTipo = meioSelecionado?.tipo ?? null
-      patch.meioPagamentoNome = meioSelecionado?.nome ?? null
+      patch.meioPagamentoTipo = meioSelecionado.tipo
+      patch.meioPagamentoNome = meioSelecionado.nome
+      if (meioEhContaDinheiro && campos.pago) patch.pago = pago
+      if (meioEhCartao && campos.repetir) patch.repetir = repetir
+    }
+    // T4 — Pago/Repetir marcáveis também SEM reescolher o meio, quando os
+    // itens selecionados já têm um tipo comum (conta/dinheiro ou cartão).
+    if (!campos.meio_pagamento) {
       if (meioEhContaDinheiro && campos.pago) patch.pago = pago
       if (meioEhCartao && campos.repetir) patch.repetir = repetir
     }
@@ -112,7 +142,7 @@ export function ModalLoteCaptura({ aberto, onFechar, onAplicar, meiosPagamento }
           <div>
             <OpcaoCampo id="meio_pagamento" rotulo="Pago com" />
             {campos.meio_pagamento && (
-              <Select value={meioId} onValueChange={setMeioId}>
+              <Select value={meioId} onValueChange={trocarMeio}>
                 <SelectTrigger className="h-9 bg-white">
                   <SelectValue placeholder="Selecione..." />
                 </SelectTrigger>
@@ -128,8 +158,9 @@ export function ModalLoteCaptura({ aberto, onFechar, onAplicar, meiosPagamento }
               </Select>
             )}
           </div>
-          {/* T4 — "Pago": apenas quando o meio escolhido é conta ou dinheiro. */}
-          {campos.meio_pagamento && meioEhContaDinheiro && (
+          {/* T4 — "Pago": visível quando o meio (escolhido OU o comum dos
+              itens selecionados) é conta ou dinheiro. */}
+          {meioEhContaDinheiro && (
             <div>
               <OpcaoCampo id="pago" rotulo="Pago" />
               {campos.pago && (
@@ -140,8 +171,9 @@ export function ModalLoteCaptura({ aberto, onFechar, onAplicar, meiosPagamento }
               )}
             </div>
           )}
-          {/* T4 — "Repetir": apenas quando o meio escolhido é cartão. */}
-          {campos.meio_pagamento && meioEhCartao && (
+          {/* T4 — "Repetir": visível quando o meio (escolhido OU o comum dos
+              itens selecionados) é cartão. */}
+          {meioEhCartao && (
             <div>
               <OpcaoCampo id="repetir" rotulo="Repetir" />
               {campos.repetir && (

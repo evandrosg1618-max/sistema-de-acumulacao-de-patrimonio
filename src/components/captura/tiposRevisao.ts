@@ -38,19 +38,29 @@ export interface CapturaItemRevisao {
   afeta_resultado: boolean
   afeta_orcamento: boolean
   observacao: string | null
+  /** T4 — marcações do lote persistidas (pago/repetir). */
+  marcado_pago: boolean
+  marcado_repetir: boolean
   /** T2 — ID do lançamento já criado para o item (null = não importado). */
   lancamento_criado_id: string | null
   /** T5 — mensagem de erro de importação do item (null = sem erro). */
   mensagem_erro?: string | null
 }
 
-/** Patch da edição em lote: SOMENTE os campos marcados no modal chegam aqui. */
+/** Patch da edição em lote: SOMENTE os campos marcados no modal chegam aqui.
+ * T4 — campo ausente (undefined) = NÃO marcado: fica intacto no item. */
 export interface PatchLoteCaptura {
   data?: string
   meioPagamentoId?: string
+  /** Tipo/nome do meio escolhido acompanham o id (importação roteia pelo tipo). */
+  meioPagamentoTipo?: string
+  meioPagamentoNome?: string
+  /** Toggle "Pago" (apenas conta/dinheiro): undefined = não marcado. */
+  pago?: boolean
+  /** Botão "Repetir" (apenas cartão): undefined = não marcado. */
+  repetir?: boolean
   modalidade?: string
-  afetaResultado?: boolean
-  afetaOrcamento?: boolean
+  observacao?: string
 }
 
 let seq = 0
@@ -85,6 +95,8 @@ export function candidatoDeItem(
     afeta_resultado: true,
     afeta_orcamento: true,
     observacao: null,
+    marcado_pago: false,
+    marcado_repetir: false,
     lancamento_criado_id: null,
     mensagem_erro: null,
   }
@@ -111,6 +123,8 @@ export function itemDbParaRevisao(i: CapturaSessaoItem): CapturaItemRevisao {
     afeta_resultado: i.afeta_resultado !== false,
     afeta_orcamento: i.afeta_orcamento !== false,
     observacao: i.observacao,
+    marcado_pago: Boolean(i.marcado_pago),
+    marcado_repetir: Boolean(i.marcado_repetir),
     lancamento_criado_id: i.lancamento_criado_id || null,
     mensagem_erro: i.mensagem_erro || null,
   }
@@ -135,6 +149,8 @@ export function revisaoParaItemDb(i: CapturaItemRevisao) {
     afeta_resultado: i.afeta_resultado,
     afeta_orcamento: i.afeta_orcamento,
     observacao: i.observacao,
+    marcado_pago: Boolean(i.marcado_pago),
+    marcado_repetir: Boolean(i.marcado_repetir),
   }
 }
 
@@ -164,9 +180,16 @@ export function aplicarPatchLote(
           ...(patch.meioPagamentoId !== undefined
             ? { meio_pagamento_id: patch.meioPagamentoId }
             : {}),
+          ...(patch.meioPagamentoTipo !== undefined
+            ? { meio_pagamento_tipo: patch.meioPagamentoTipo }
+            : {}),
+          ...(patch.meioPagamentoNome !== undefined
+            ? { meio_pagamento_nome: patch.meioPagamentoNome }
+            : {}),
+          ...(patch.pago !== undefined ? { marcado_pago: patch.pago } : {}),
+          ...(patch.repetir !== undefined ? { marcado_repetir: patch.repetir } : {}),
           ...(patch.modalidade !== undefined ? { modalidade_saida: patch.modalidade } : {}),
-          ...(patch.afetaResultado !== undefined ? { afeta_resultado: patch.afetaResultado } : {}),
-          ...(patch.afetaOrcamento !== undefined ? { afeta_orcamento: patch.afetaOrcamento } : {}),
+          ...(patch.observacao !== undefined ? { observacao: patch.observacao } : {}),
           atualizado: true,
         }
       : i,
