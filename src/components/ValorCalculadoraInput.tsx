@@ -3,6 +3,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Calculator, Delete, X } from 'lucide-react'
 import { useIsMobile } from '@/hooks/use-mobile'
+import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 
 interface ValorCalculadoraInputProps {
   id?: string
@@ -33,7 +34,8 @@ export function ValorCalculadoraInput({
 
   // Ao abrir o popover no mobile ou alternar
   const abrirCalc = () => {
-    setExpression(value ? value.replace(/\./g, '').replace(',', '.') : '')
+    // T4 — parse normalizado: aceita "1.234,56" e "1234.56"; o visor exibe vírgula
+    setExpression(value ? String(valorDeTextoMonetarioBR(value)) : '')
     setShowCalc(!showCalc)
   }
 
@@ -82,10 +84,15 @@ export function ValorCalculadoraInput({
     // Se o usuário apertar Enter ou '=', tenta avaliar a expressão contida no input
     if (e.key === 'Enter' || e.key === '=') {
       const valAtual = value || ''
-      // Se tiver operador aritmético, calcula
+      // Se tiver operador aritmético, calcula (parse normalizado: vírgula OK)
       if (/[+\-*/]/.test(valAtual)) {
         e.preventDefault()
-        const res = calcularExpressao(valAtual)
+        // T4 — normaliza vírgula decimal antes de avaliar "12,5+3"
+        const expressaoNormalizada = valAtual.replace(
+          /(\d),(\d)/g,
+          (_m, a: string, b: string) => `${a}.${b}`,
+        )
+        const res = calcularExpressao(expressaoNormalizada)
         if (res !== null) {
           onChange(res)
         }
@@ -114,7 +121,8 @@ export function ValorCalculadoraInput({
       }
       if (/^[0-9+\-*/.,]$/.test(e.key)) {
         e.preventDefault()
-        handleAppend(e.key === ',' ? '.' : e.key)
+        // T4 — o PONTO do teclado físico também vira vírgula no visor
+        handleAppend(e.key === '.' ? ',' : e.key)
       }
     }
 
@@ -331,10 +339,10 @@ export function ValorCalculadoraInput({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => handleAppend('.')}
+              onClick={() => handleAppend(',')}
               className="bg-slate-800 hover:bg-slate-900 text-white font-bold border-slate-900 text-sm"
             >
-              .
+              ,
             </Button>
             <Button
               type="button"

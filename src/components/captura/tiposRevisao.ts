@@ -38,6 +38,10 @@ export interface CapturaItemRevisao {
   afeta_resultado: boolean
   afeta_orcamento: boolean
   observacao: string | null
+  /** T2 — ID do lançamento já criado para o item (null = não importado). */
+  lancamento_criado_id: string | null
+  /** T5 — mensagem de erro de importação do item (null = sem erro). */
+  mensagem_erro?: string | null
 }
 
 /** Patch da edição em lote: SOMENTE os campos marcados no modal chegam aqui. */
@@ -81,6 +85,8 @@ export function candidatoDeItem(
     afeta_resultado: true,
     afeta_orcamento: true,
     observacao: null,
+    lancamento_criado_id: null,
+    mensagem_erro: null,
   }
 }
 
@@ -105,6 +111,8 @@ export function itemDbParaRevisao(i: CapturaSessaoItem): CapturaItemRevisao {
     afeta_resultado: i.afeta_resultado !== false,
     afeta_orcamento: i.afeta_orcamento !== false,
     observacao: i.observacao,
+    lancamento_criado_id: i.lancamento_criado_id || null,
+    mensagem_erro: i.mensagem_erro || null,
   }
 }
 

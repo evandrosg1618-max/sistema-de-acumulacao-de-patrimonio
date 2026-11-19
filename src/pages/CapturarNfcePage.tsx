@@ -640,13 +640,31 @@ function CapturarNfceConteudo() {
     setImportando(true)
     let ok = 0
     let falhas = 0
+    let vinculosPendentes = 0
     for (const item of paraImportar) {
+      // T2 — item já vinculado a um lançamento NUNCA é reimportado.
+      if (item.lancamento_criado_id) {
+        setItens((prev) =>
+          prev.map((i) =>
+            i.id === item.id ? { ...i, status: 'importado', selecionado: false } : i,
+          ),
+        )
+        ok++
+        continue
+      }
+      // T2 — idempotência: chave ESTÁVEL por item. Um retry de importação
+      // (duplo toque, falha de rede, "Continuar Revisão") reusa a MESMA chave;
+      // o lancamentoService.create devolve o lançamento já existente em vez de
+      // criar uma segunda cópia.
+      const idempotencyKey = `captura:${sessao.id}:${item.id}`
       try {
         const tipoMeio = (item.meio_pagamento_tipo || 'DINHEIRO') as 'CONTA' | 'CARTAO' | 'DINHEIRO'
         const criado = await lancamentoService.create({
           // T4 — created_by é OBRIGATÓRIO (insert + auditoriaService.registrar):
           // sem ele a criação falha e o item vira tarja vermelha de erro.
           created_by: user?.id || profile?.id || null,
+          // T2 — chave de idempotência estável por item de captura.
+          idempotency_key: idempotencyKey,
           workspace_id: workspaceId,
           tipo: 'despesa',
           regime: 'unico',
@@ -672,12 +690,27 @@ function CapturarNfceConteudo() {
           afeta_orcamento: item.afeta_orcamento,
           observacao: item.observacao || null,
         })
-        await capturaService.vincularLancamento(
-          item.id,
-          sessao.id,
-          sessao.workspace_id,
-          (criado as any)?.id || '',
-        )
+        const lancamentoId = (criado as any)?.id || ''
+        try {
+          await capturaService.vincularLancamento(
+            item.id,
+            sessao.id,
+            sessao.workspace_id,
+            lancamentoId,
+          )
+        } catch {
+          // T2 — o LANÇAMENTO FOI CRIADO mas o vínculo no item falhou:
+          // tratamos como "importado com vínculo pendente" (toast discreto),
+          // NUNCA como erro — o retry NÃO recria o lançamento (mesma chave).
+          vinculosPendentes++
+          setItens((prev) =>
+            prev.map((i) =>
+              i.id === item.id ? { ...i, status: 'importado', selecionado: false } : i,
+            ),
+          )
+          ok++
+          continue
+        }
         setItens((prev) =>
           prev.map((i) =>
             i.id === item.id ? { ...i, status: 'importado', selecionado: false } : i,
@@ -718,6 +751,15 @@ function CapturarNfceConteudo() {
         { ok, falhas },
         user?.id,
       )
+    }
+    // T2 — vínculo pendente é tratado com toast discreto (o lançamento existe;
+    // só a amarração no item falhou). Erro real (create falhou) segue vermelho.
+    if (vinculosPendentes > 0) {
+      toast({
+        title: `${vinculosPendentes} lançamento(s) criado(s) com vínculo pendente`,
+        description:
+          'O lançamento foi criado, mas a ligação com o item da captura falhou. Você pode importar os itens restantes sem criar duplicados.',
+      })
     }
     toast({
       title: falhas === 0 ? `${ok} lançamento(s) criado(s)` : `${ok} criado(s), ${falhas} com erro`,

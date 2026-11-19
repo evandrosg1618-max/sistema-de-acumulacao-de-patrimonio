@@ -2957,7 +2957,23 @@ export const lancamentoService = {
     afeta_orcamento?: boolean | null
     subtipo_ajuste?: 'ajuste_fatura_banco' | 'ajuste_tecnico_sap' | string | null
     efeito_fatura?: 'aumenta' | 'reduz' | string | null
+    /** T2 — chave de idempotência (ex.: captura:sessionId:itemId). Retry com a
+     * mesma chave devolve o lançamento já existente em vez de duplicar. */
+    idempotency_key?: string | null
   }): Promise<any> {
+    // T2 — IDEMPOTÊNCIA: se já existe lançamento com esta chave, devolve-o
+    // SEM criar cópia (retry de importação de captura nunca duplica).
+    if (dados.idempotency_key) {
+      const { data: existente } = await db
+        .from('lancamentos')
+        .select('*')
+        .eq('workspace_id', dados.workspace_id)
+        .eq('idempotency_key', dados.idempotency_key)
+        .is('deleted_at', null)
+        .maybeSingle()
+      if (existente) return existente
+    }
+
     const valorNum = Number(dados.valor)
     if (valorNum <= 0) throw new Error('O valor do lançamento deve ser maior que zero')
 
@@ -3106,6 +3122,8 @@ export const lancamentoService = {
           afeta_orcamento: afetaOrcamentoFinal,
           subtipo_ajuste: dados.tipo === 'ajuste' ? dados.subtipo_ajuste : null,
           efeito_fatura: dados.tipo === 'ajuste' ? dados.efeito_fatura : null,
+          // T2 — persiste a chave para o retry devolver o MESMO lançamento
+          idempotency_key: dados.idempotency_key || null,
         })
         .select()
         .single()
@@ -3284,6 +3302,8 @@ export const lancamentoService = {
           total_parcelas: qtdParcelas,
           conciliado: false,
           created_by: dados.created_by,
+          // T2 — persiste a chave só no PAI da série (idempotência por operação)
+          idempotency_key: dados.idempotency_key || null,
         })
         .select()
         .single()
@@ -3408,6 +3428,8 @@ export const lancamentoService = {
         valor_terceiros: valorTerceirosFinal,
         afeta_resultado: afetaResultadoFinal,
         afeta_orcamento: afetaOrcamentoFinal,
+        // T2 — persiste a chave só no PAI da série (idempotência por operação)
+        idempotency_key: dados.idempotency_key || null,
       })
       .select()
       .single()
