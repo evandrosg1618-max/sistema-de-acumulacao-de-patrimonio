@@ -10,7 +10,7 @@
  * processar (OCR → candidatos) → revisão editável → importar (services
  * existentes; NUNCA cria lançamento sem confirmação).
  */
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/use-auth'
 import { toast } from '@/hooks/use-toast'
@@ -45,6 +45,7 @@ import { processarCapturasNfce } from '@/services/captura/processarCapturas'
 import type { TrilhaCaptura } from '@/services/captura/nfceParser'
 import { lancamentoService, meioPagamentoService, categoriaService } from '@/services/sap'
 import { formatMoneyBRL, getTodayDateString } from '@/lib/formatters'
+import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 import { ModalDetalheSessaoCaptura } from '@/components/captura/ModalDetalheSessaoCaptura'
 import { LinhaRevisaoCaptura } from '@/components/captura/LinhaRevisaoCaptura'
 import {
@@ -440,15 +441,12 @@ function CapturarNfceConteudo() {
   const atualizarItem = (id: string, patch: Partial<CapturaItemRevisao>) =>
     setItens((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)))
 
-  // T1 — digitação do Valor total da NFC-e sem travar (estado local de texto)
+  // T4 — digitação do Valor total da NFC-e sem travar: parse ÚNICO do app
+  // (valorDeTextoMonetarioBR) aceita "1.234,56", "1234,56" e "1234.56".
   const aoDigitarValorNfce = (texto: string) => {
     setValorNfceTexto(texto)
-    const limpo = texto
-      .replace(/\./g, '')
-      .replace(',', '.')
-      .replace(/[^\d.]/g, '')
-    const n = Number(limpo)
-    setValorNfceInformado(texto.trim() === '' || !isFinite(n) ? null : n)
+    const n = valorDeTextoMonetarioBR(texto)
+    setValorNfceInformado(texto.trim() === '' || n <= 0 ? null : n)
   }
 
   // T5 — Continuar Revisão: recarrega do banco sessão + imagens + itens da
@@ -485,7 +483,13 @@ function CapturarNfceConteudo() {
 
   // R6 — Detalhes: abre a janela do Novo Lançamento em MODO CAPTURA
   const abrirDetalhes = (item: CapturaItemRevisao) => setItemDetalheId(item.id)
-  const itemDetalhe = itens.find((i) => i.id === itemDetalheId) || null
+  // T3 — itemDetalhe MEMOIZADO: sem isto, cada render da página cria um novo
+  // objeto e o ModalLancamento (Detalhes) re-recebe initialData novo, o que
+  // remonta o input do filtro e faz o teclado do Chrome Android recolher.
+  const itemDetalhe = useMemo(
+    () => itens.find((i) => i.id === itemDetalheId) || null,
+    [itens, itemDetalheId],
+  )
 
   // R5 — seleção em massa atua SOMENTE nos itens ainda não importados
   const selecionarTodos = (v: boolean) =>
@@ -561,7 +565,8 @@ function CapturarNfceConteudo() {
   // TESTE CAPTURA 4 / T1 — item manual também é PERSISTIDO no banco (a sessão
   // sempre existe na revisão), garantindo continuarRevisao e importação id.
   const addItemManual = async () => {
-    const valor = Number(valManual.replace(/\./g, '').replace(',', '.'))
+    // T4 — mesmo parse ÚNICO (vírgula ou ponto).
+    const valor = valorDeTextoMonetarioBR(valManual)
     if (!descManual.trim() || !(valor > 0)) {
       toast({ title: 'Preencha descrição e valor', variant: 'destructive' })
       return
