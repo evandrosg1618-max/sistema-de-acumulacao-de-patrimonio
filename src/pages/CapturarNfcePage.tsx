@@ -775,6 +775,19 @@ function CapturarNfceConteudo() {
         return { ...norm, status: 'pronto' as StatusCandidato, mensagem_erro: null }
       }),
     )
+    // TESTE CAPTURA 6 / A3 — o reset erro→pronto vale TAMBÉM no banco: sem
+    // isto, "Continuar Revisão" reabria o item com status/mensagem_erro
+    // antigos. Idempotência preservada: lancamento_criado_id não é tocado.
+    for (const item of paraImportar) {
+      if (item.status !== 'erro') continue
+      if (item.id.startsWith('cand_') || item.id.startsWith('manual_')) continue
+      capturaService
+        .atualizarItem(item.id, sessao.id, sessao.workspace_id, {
+          status: 'pronto',
+          mensagem_erro: null,
+        })
+        .catch(() => undefined)
+    }
     const semMeio = paraImportar.find(
       (i) => !resolverMeioValido(i.meio_pagamento_id, i.meio_pagamento_nome),
     )
@@ -1597,6 +1610,7 @@ function CapturarNfceConteudo() {
           cartoes={cartoes}
           categorias={categorias}
           subcategorias={subcategorias}
+          meiosValidados={meiosReais}
           userId={user?.id}
           onGravado={(id, patch) => atualizarItem(id, patch)}
         />
