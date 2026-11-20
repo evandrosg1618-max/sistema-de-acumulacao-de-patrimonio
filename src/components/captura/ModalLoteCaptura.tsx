@@ -1,15 +1,13 @@
 /**
- * Modal da edição em lote da revisão de NFC-e: o usuário marca QUAIS campos
- * alterar e aplica SOMENTE os marcados nos itens selecionados (BLOCO 14).
- *
- * TESTE CAPTURA 5 / T4 — "Afeta Resultado" e "Afeta Orçamento" SAÍRAM do lote:
- * essas flags são DERIVADAS das subcategorias (e do modalidade_saida) e não
- * devem ser editáveis em lote. Entram no lugar:
- * - toggle "Pago" — visível/aplicável só quando o "Pago com" escolhido é
- *   conta bancária ou dinheiro;
- * - botão "Repetir" — visível/aplicável só quando o meio é cartão (e similares);
- * - campo de texto "Observações".
- * Data/valor e demais campos NÃO marcados permanecem intactos nos itens.
+ * T3 (TESTE CAPTURA 5 v2) — Lote = Detalhes: o Lote abre a MESMA configuração
+ * de lançamento do Detalhes, com descrição, data, valor, categoria e
+ * subcategoria DESABILITADOS (são do conteúdo de cada item) e editáveis
+ * apenas os campos comuns do lote:
+ *  - "Pago com" (T1): lista de meios com ids REAIS de contas/cartoes
+ *    (meiosReais da página) — id de meios_pagamento nunca sai daqui;
+ *  - toggle "Pago" (conta/dinheiro) e botão "Repetir" (cartão);
+ *  - "Observações".
+ * O patch segue parcial: só o que o usuário marcar/preencher é aplicado.
  */
 import { useState } from 'react'
 import {
@@ -22,6 +20,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
@@ -30,17 +29,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { MeioPagamento } from '@/types/sap'
 import { PatchLoteCaptura } from '@/components/captura/tiposRevisao'
+import { formatMoneyBRL } from '@/lib/formatters'
+
+/** Meio do lote: id REAL de contas/cartoes (ou linha dinheiro), já validado. */
+export interface MeioLoteCaptura {
+  id: string
+  nome: string
+  tipo: string
+  ativo: boolean
+}
+
+/** Resumo comum dos itens selecionados (campos desabilitados). */
+export interface ResumoLoteCaptura {
+  descricao: string | null
+  data: string | null
+  valor: number
+  categoria: string | null
+  subcategoria: string | null
+}
 
 interface Props {
   aberto: boolean
   onFechar: () => void
   onAplicar: (patch: PatchLoteCaptura) => void
-  meiosPagamento: MeioPagamento[]
-  /** T4 — tipos de meio dos itens SELECIONADOS (distintos, já em maiúsculas):
-   * define a visibilidade de Pago/Repetir quando nenhum novo meio é escolhido. */
+  meiosPagamento: MeioLoteCaptura[]
+  /** Tipos de meio dos itens SELECIONADOS (distintos, em maiúsculas). */
   tiposMeioSelecionados?: string[]
+  quantidadeItens: number
+  resumo: ResumoLoteCaptura | null
 }
 
 export function ModalLoteCaptura({
@@ -49,20 +66,17 @@ export function ModalLoteCaptura({
   onAplicar,
   meiosPagamento,
   tiposMeioSelecionados,
+  quantidadeItens,
+  resumo,
 }: Props) {
-  const [campos, setCampos] = useState<Record<string, boolean>>({})
-  const [data, setData] = useState('')
   const [meioId, setMeioId] = useState('')
-  const [modalidade, setModalidade] = useState('compra_propria')
   const [pago, setPago] = useState(true)
   const [repetir, setRepetir] = useState(true)
   const [observacao, setObservacao] = useState('')
 
-  const marcar = (campo: string, v: boolean) => setCampos((p) => ({ ...p, [campo]: v }))
-
-  // T4 — tipo do meio escolhido define qual controle extra aparece:
+  // Tipo do meio escolhido define qual controle extra aparece:
   // conta/dinheiro → "Pago"; cartão (e similares) → "Repetir".
-  // Sem meio escolhido no modal, vale o tipo COMUM dos itens selecionados
+  // Sem meio escolhido, vale o tipo COMUM dos itens selecionados
   // (tipos divergentes → nenhum dos dois controles aparece).
   const meioSelecionado = meiosPagamento.find((m) => m.id === meioId)
   const tipoMeioEscolhido = String(meioSelecionado?.tipo || '').toUpperCase()
@@ -74,146 +88,149 @@ export function ModalLoteCaptura({
   const meioEhCartao = tipoEfetivo.includes('CARTAO') || tipoEfetivo.includes('CARTÃO')
   const meioEhContaDinheiro = tipoEfetivo === 'CONTA' || tipoEfetivo === 'DINHEIRO'
 
-  /** T4 — ao trocar o meio no Lote, as marcações pago/repetir voltam ao padrão. */
+  /** Ao trocar o meio no Lote, as marcações pago/repetir voltam ao padrão. */
   const trocarMeio = (id: string) => {
     setMeioId(id)
     setPago(true)
     setRepetir(true)
-    setCampos((p) => ({ ...p, pago: false, repetir: false }))
   }
 
   const aplicar = () => {
     const patch: PatchLoteCaptura = {}
-    if (campos.data && data) patch.data = data
-    if (campos.meio_pagamento && meioId && meioSelecionado) {
-      patch.meioPagamentoId = meioId
-      // Tipo/nome acompanham o meio escolhido: a importação roteia por
-      // meio_pagamento_tipo (CONTA → conta_origem, CARTAO → cartão).
+    if (meioSelecionado) {
+      // T1 — o id do meio vai VALIDADO (lista meiosReais da página: ids reais
+      // de contas/cartoes). Tipo/nome acompanham: a importação roteia por tipo.
+      patch.meioPagamentoId = meioSelecionado.id
       patch.meioPagamentoTipo = meioSelecionado.tipo
       patch.meioPagamentoNome = meioSelecionado.nome
-      if (meioEhContaDinheiro && campos.pago) patch.pago = pago
-      if (meioEhCartao && campos.repetir) patch.repetir = repetir
+      if (meioEhContaDinheiro) patch.pago = pago
+      if (meioEhCartao) patch.repetir = repetir
     }
-    // T4 — Pago/Repetir marcáveis também SEM reescolher o meio, quando os
-    // itens selecionados já têm um tipo comum (conta/dinheiro ou cartão).
-    if (!campos.meio_pagamento) {
-      if (meioEhContaDinheiro && campos.pago) patch.pago = pago
-      if (meioEhCartao && campos.repetir) patch.repetir = repetir
+    // Pago/Repetir aplicáveis também SEM reescolher o meio, quando os itens
+    // selecionados já têm um tipo comum (conta/dinheiro ou cartão).
+    if (!meioSelecionado) {
+      if (meioEhContaDinheiro) patch.pago = pago
+      if (meioEhCartao) patch.repetir = repetir
     }
-    if (campos.modalidade) patch.modalidade = modalidade
-    if (campos.observacao) patch.observacao = observacao.trim()
+    if (observacao.trim()) patch.observacao = observacao.trim()
     if (Object.keys(patch).length === 0) {
       onFechar()
       return
     }
     onAplicar(patch)
-    setCampos({})
   }
-
-  const OpcaoCampo = ({ id, rotulo }: { id: string; rotulo: string }) => (
-    <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer py-0.5">
-      <Checkbox checked={!!campos[id]} onCheckedChange={(v) => marcar(id, v === true)} />
-      {rotulo}
-    </label>
-  )
 
   return (
     <Dialog open={aberto} onOpenChange={(o) => !o && onFechar()}>
       <DialogContent className="max-w-md bg-white">
         <DialogHeader>
-          <DialogTitle className="text-slate-900">Alterar em lote</DialogTitle>
+          <DialogTitle className="text-slate-900">Lote — {quantidadeItens} item(ns)</DialogTitle>
           <DialogDescription>
-            Marque os campos a alterar. SOMENTE os marcados serão aplicados aos itens selecionados.
+            Mesma configuração dos Detalhes. Descrição, data, valor, categoria e subcategoria são de
+            cada item (desabilitados); o lote define o meio de pagamento e as marcações comuns.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          <div>
-            <OpcaoCampo id="data" rotulo="Data" />
-            {campos.data && (
+          {/* Campos de CONTEÚDO — desabilitados (vêm de cada item) */}
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-600">Descrição</Label>
+            <Input
+              value={resumo?.descricao ?? '(diverge entre itens)'}
+              disabled
+              className="h-9 bg-slate-50 text-slate-500"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Data</Label>
               <Input
-                type="date"
-                value={data}
-                onChange={(e) => setData(e.target.value)}
-                className="h-9"
+                value={resumo?.data ?? '(diverge)'}
+                disabled
+                className="h-9 bg-slate-50 text-slate-500"
               />
-            )}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Valor (soma)</Label>
+              <Input
+                value={formatMoneyBRL(resumo?.valor ?? 0)}
+                disabled
+                className="h-9 bg-slate-50 text-slate-500"
+              />
+            </div>
           </div>
-          <div>
-            <OpcaoCampo id="meio_pagamento" rotulo="Pago com" />
-            {campos.meio_pagamento && (
-              <Select value={meioId} onValueChange={trocarMeio}>
-                <SelectTrigger className="h-9 bg-white">
-                  <SelectValue placeholder="Selecione..." />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  {meiosPagamento
-                    .filter((m) => m.ativo)
-                    .map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.nome}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            )}
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Categoria</Label>
+              <Input
+                value={resumo?.categoria ?? '(diverge)'}
+                disabled
+                className="h-9 bg-slate-50 text-slate-500"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Subcategoria</Label>
+              <Input
+                value={resumo?.subcategoria ?? '(diverge)'}
+                disabled
+                className="h-9 bg-slate-50 text-slate-500"
+              />
+            </div>
           </div>
-          {/* T4 — "Pago": visível quando o meio (escolhido OU o comum dos
-              itens selecionados) é conta ou dinheiro. */}
+
+          {/* "Pago com" — ids REAIS de contas/cartoes (T1) */}
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-600">Pago com (aplicado a todos)</Label>
+            <Select value={meioId} onValueChange={trocarMeio}>
+              <SelectTrigger className="h-9 bg-white">
+                <SelectValue placeholder="Selecione..." />
+              </SelectTrigger>
+              <SelectContent className="bg-white">
+                {meiosPagamento
+                  .filter((m) => m.ativo)
+                  .map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.nome}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* "Pago": visível quando o meio (escolhido OU o comum dos itens) é
+              conta ou dinheiro. */}
           {meioEhContaDinheiro && (
-            <div>
-              <OpcaoCampo id="pago" rotulo="Pago" />
-              {campos.pago && (
-                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer py-0.5">
-                  <Checkbox checked={pago} onCheckedChange={(v) => setPago(v === true)} />
-                  Lançamento já pago
-                </label>
-              )}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Status</Label>
+              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer py-0.5">
+                <Checkbox checked={pago} onCheckedChange={(v) => setPago(v === true)} />
+                Pago (lançamento já quitado)
+              </label>
             </div>
           )}
-          {/* T4 — "Repetir": visível quando o meio (escolhido OU o comum dos
-              itens selecionados) é cartão. */}
+          {/* "Repetir": visível quando o meio é cartão. */}
           {meioEhCartao && (
-            <div>
-              <OpcaoCampo id="repetir" rotulo="Repetir" />
-              {campos.repetir && (
-                <Button
-                  type="button"
-                  variant={repetir ? 'default' : 'outline'}
-                  onClick={() => setRepetir((v) => !v)}
-                  className={`h-9 ${repetir ? 'bg-indigo-600 hover:bg-indigo-700' : ''}`}
-                >
-                  {repetir ? 'Repetir: Sim' : 'Repetir: Não'}
-                </Button>
-              )}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Repetição</Label>
+              <Button
+                type="button"
+                variant={repetir ? 'default' : 'outline'}
+                onClick={() => setRepetir((v) => !v)}
+                className={`h-9 ${repetir ? 'bg-indigo-600 hover:bg-indigo-700' : ''}`}
+              >
+                {repetir ? 'Repetir: Sim' : 'Repetir: Não'}
+              </Button>
             </div>
           )}
-          <div>
-            <OpcaoCampo id="modalidade" rotulo="Modalidade de saída" />
-            {campos.modalidade && (
-              <Select value={modalidade} onValueChange={setModalidade}>
-                <SelectTrigger className="h-9 bg-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-white">
-                  <SelectItem value="compra_propria">Compra própria</SelectItem>
-                  <SelectItem value="compra_compartilhada">Compra compartilhada</SelectItem>
-                  <SelectItem value="compra_terceiros">Compra a terceiros</SelectItem>
-                  <SelectItem value="emprestimo_terceiros">Empréstimo a terceiros</SelectItem>
-                </SelectContent>
-              </Select>
-            )}
-          </div>
-          <div>
-            <OpcaoCampo id="observacao" rotulo="Observações" />
-            {campos.observacao && (
-              <Input
-                value={observacao}
-                onChange={(e) => setObservacao(e.target.value)}
-                placeholder="Observação para os itens selecionados"
-                className="h-9"
-              />
-            )}
+
+          <div className="space-y-1">
+            <Label className="text-xs text-slate-600">Observações</Label>
+            <Input
+              value={observacao}
+              onChange={(e) => setObservacao(e.target.value)}
+              placeholder="Observação para os itens selecionados (opcional)"
+              className="h-9"
+            />
           </div>
         </div>
 
@@ -222,7 +239,7 @@ export function ModalLoteCaptura({
             Cancelar
           </Button>
           <Button onClick={aplicar} className="h-9 bg-indigo-600 hover:bg-indigo-700">
-            Aplicar aos selecionados
+            Salvar no lote
           </Button>
         </DialogFooter>
       </DialogContent>

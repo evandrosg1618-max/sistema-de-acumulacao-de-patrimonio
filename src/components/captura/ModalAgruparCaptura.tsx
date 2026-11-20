@@ -49,6 +49,9 @@ interface Props {
   somaSelecionados: number
   categorias: Categoria[]
   subcategorias: Subcategoria[]
+  /** T4 — durante o processamento o botão Agrupar fica indisponível
+      (anti duplo clique: um segundo clique nunca dispara outro agrupamento). */
+  processando?: boolean
 }
 
 export function ModalAgruparCaptura({
@@ -59,6 +62,7 @@ export function ModalAgruparCaptura({
   somaSelecionados,
   categorias,
   subcategorias,
+  processando = false,
 }: Props) {
   const [descricao, setDescricao] = useState('')
   const [valor, setValor] = useState<number>(0)
@@ -167,10 +171,10 @@ export function ModalAgruparCaptura({
           </Button>
           <Button
             onClick={confirmar}
-            disabled={!descricao.trim() || !(valor > 0)}
+            disabled={processando || !descricao.trim() || !(valor > 0)}
             className="h-9 bg-indigo-600 hover:bg-indigo-700"
           >
-            Agrupar
+            {processando ? 'Agrupando...' : 'Agrupar'}
           </Button>
         </DialogFooter>
       </DialogContent>
