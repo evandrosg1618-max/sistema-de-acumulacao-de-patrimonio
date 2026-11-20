@@ -75,6 +75,14 @@ interface ModalLancamentoProps {
    */
   modoCaptura?: boolean
   onSalvarCaptura?: (payload: any) => void | Promise<void>
+  /**
+   * TESTE CAPTURA 6 — Parte A (aditivo): quando true, trava os campos
+   * Descrição, Valor, Data e Subcategoria (+ filtro) — visíveis como
+   * desabilitados. Só usado pelo ModalLoteCaptura: quando omitido (default
+   * false), ModalLancamento normal e Detalhes de item permanecem 100%
+   * inalterados.
+   */
+  camposTravadosCaptura?: boolean
 }
 
 export function ModalLancamento({
@@ -92,6 +100,7 @@ export function ModalLancamento({
   dataPadrao,
   modoCaptura = false,
   onSalvarCaptura,
+  camposTravadosCaptura = false,
 }: ModalLancamentoProps) {
   const { isProcessing } = useGlobalLoading()
   const [tipo, setTipo] = useState<TipoLancamento>(tipoPadrao)
@@ -745,6 +754,7 @@ export function ModalLancamento({
                     className="mt-1"
                     required
                     autoFocus
+                    disabled={camposTravadosCaptura}
                   />
                 </div>
 
@@ -759,6 +769,7 @@ export function ModalLancamento({
                       onChange={setValor}
                       placeholder="0,00"
                       required
+                      disabled={camposTravadosCaptura}
                     />
                   </div>
                 </div>
@@ -944,6 +955,7 @@ export function ModalLancamento({
                       value={data}
                       onChange={(e) => setData(e.target.value)}
                       required
+                      disabled={camposTravadosCaptura}
                       className="text-xs pr-10 text-slate-900 bg-white border-slate-300 font-medium focus:border-slate-500 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-80"
                     />
                     <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 bg-slate-100 p-1 rounded border border-slate-200">
@@ -1609,9 +1621,14 @@ export function ModalLancamento({
                       title="Digite para filtrar a lista pela categoria ou subcategoria"
                       className="mt-1 h-9 text-xs bg-white text-slate-900 border-slate-300"
                       autoComplete="off"
+                      disabled={camposTravadosCaptura}
                     />
 
-                    <Select value={subcategoriaId} onValueChange={handleSelecionarSubcategoria}>
+                    <Select
+                      value={subcategoriaId}
+                      onValueChange={handleSelecionarSubcategoria}
+                      disabled={camposTravadosCaptura}
+                    >
                       <SelectTrigger
                         id="lan-subcat"
                         className="mt-1 text-xs bg-white text-slate-900 border-slate-300 font-medium"

@@ -148,6 +148,7 @@ export function ModalLoteCaptura({
         dataPadrao={resumo?.data || undefined}
         modoCaptura
         onSalvarCaptura={async () => undefined}
+        camposTravadosCaptura
       />
 
       {/* Painel de marcações do LOTE — sobreposto ao modal (o corpo é a tela
