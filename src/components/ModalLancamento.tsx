@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Dialog,
   DialogContent,
@@ -83,6 +83,13 @@ interface ModalLancamentoProps {
    * inalterados.
    */
   camposTravadosCaptura?: boolean
+  /**
+   * P1 (A.2) — notifica o pai quando o painel de opções de repetição
+   * (fixo/parcelado) abre/fecha. O ModalLoteCaptura usa isso para esconder o
+   * painel fixo do Lote enquanto as opções estão abertas (ele sobrepõe o
+   * painel dentro do Dialog em telas mobile). Opcional: sem ele, nada muda.
+   */
+  onOpcoesRepeticaoChange?: (aberto: boolean) => void
 }
 
 export function ModalLancamento({
@@ -101,6 +108,7 @@ export function ModalLancamento({
   modoCaptura = false,
   onSalvarCaptura,
   camposTravadosCaptura = false,
+  onOpcoesRepeticaoChange,
 }: ModalLancamentoProps) {
   const { isProcessing } = useGlobalLoading()
   const [tipo, setTipo] = useState<TipoLancamento>(tipoPadrao)
@@ -136,6 +144,28 @@ export function ModalLancamento({
   const [fixoPrazo, setFixoPrazo] = useState<PrazoFixo>('indeterminado')
   const [fixoOcorrencias, setFixoOcorrencias] = useState<number>(12)
   const [fixoPeriodicidade, setFixoPeriodicidade] = useState<PeriodicidadeFixo>('mensal')
+
+  // P1 (A.2) — o painel de opções fixo/parcelado é o ÚNICO bloco que muda de
+  // altura quando o usuário toca em "Repetir". O ref aponta para ele: ao abrir,
+  // o painel rola para dentro da área visível do Dialog (mobile: sem isso ele
+  // nasce abaixo da dobra e parece que "nada aconteceu").
+  const painelRepeticaoRef = useRef<HTMLDivElement | null>(null)
+
+  // P1 (A.2) — notifica o pai (ModalLoteCaptura) a cada mudança do painel:
+  // o painel fixo do Lote se esconde enquanto as opções estão abertas.
+  useEffect(() => {
+    onOpcoesRepeticaoChange?.(mostrarOpcoesRepeticao)
+  }, [mostrarOpcoesRepeticao, onOpcoesRepeticaoChange])
+
+  // P1 (A.2) — ao abrir as opções, garante o painel VISÍVEL no Dialog.
+  useEffect(() => {
+    if (mostrarOpcoesRepeticao && open) {
+      const t = setTimeout(() => {
+        painelRepeticaoRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }, 80)
+      return () => clearTimeout(t)
+    }
+  }, [mostrarOpcoesRepeticao, open])
 
   const [categoriaId, setCategoriaId] = useState('')
   const [subcategoriaId, setSubcategoriaId] = useState('')
@@ -1335,7 +1365,10 @@ export function ModalLancamento({
 
               {/* PAINEL EXPANSÍVEL: REPETIR DESPESA / LANÇAMENTO (OCR OrganiZe Página 2) */}
               {mostrarOpcoesRepeticao && (
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+                <div
+                  ref={painelRepeticaoRef}
+                  className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-4"
+                >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
                       Repetir{' '}

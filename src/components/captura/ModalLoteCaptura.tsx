@@ -68,6 +68,13 @@ export function ModalLoteCaptura({
   const [observacao, setObservacao] = useState('')
   const [meioId, setMeioId] = useState('')
 
+  // P1 (A.2) — quando o painel de opções de repetição (fixo/parcelado) do
+  // ModalLancamento está aberto, o painel fixo do Lote SE ESCONDE: ele é
+  // position:fixed bottom-0 e sobrepõe o painel dentro do Dialog em telas
+  // mobile (o toque em "Repetir" parecia não fazer nada). Ao fechar as opções,
+  // o painel do Lote volta.
+  const [opcoesRepeticaoAbertas, setOpcoesRepeticaoAbertas] = useState(false)
+
   // Reset ao abrir: nada marcado (patch parcial — só o marcado é aplicado).
   useEffect(() => {
     if (aberto) {
@@ -149,89 +156,99 @@ export function ModalLoteCaptura({
         modoCaptura
         onSalvarCaptura={async () => undefined}
         camposTravadosCaptura
+        onOpcoesRepeticaoChange={setOpcoesRepeticaoAbertas}
       />
 
       {/* Painel de marcações do LOTE — sobreposto ao modal (o corpo é a tela
           do Detalhes com os campos de conteúdo travados; aqui só o que é
           comum ao lote é editável). */}
-      <div className="fixed inset-x-0 bottom-0 z-[70] border-t border-slate-200 bg-white p-3 shadow-2xl">
-        <div className="max-w-md mx-auto space-y-2">
-          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-            Lote — {quantidadeItens} item(ns) • {formatMoneyBRL(resumo?.valor ?? 0)}
-          </p>
+      {opcoesRepeticaoAbertas && (
+        <div className="fixed inset-x-0 bottom-0 z-[70] flex justify-center p-3 pointer-events-none">
+          <span className="pointer-events-auto rounded-full bg-slate-900/80 px-3 py-1 text-[11px] font-semibold text-white shadow-lg">
+            Escolha Fixo ou Parcelado — feche para voltar ao Lote
+          </span>
+        </div>
+      )}
+      {!opcoesRepeticaoAbertas && (
+        <div className="fixed inset-x-0 bottom-0 z-[70] border-t border-slate-200 bg-white p-3 shadow-2xl">
+          <div className="max-w-md mx-auto space-y-2">
+            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+              Lote — {quantidadeItens} item(ns) • {formatMoneyBRL(resumo?.valor ?? 0)}
+            </p>
 
-          {/* "Pago com" — ids REAIS de contas/cartoes (T1) */}
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-600">Pago com (aplicado a todos)</Label>
-            <select
-              value={meioId}
-              onChange={(e) => setMeioId(e.target.value)}
-              className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900"
-            >
-              <option value="">Selecione...</option>
-              {meiosPagamento
-                .filter((m) => m.ativo)
-                .map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.nome}
-                  </option>
-                ))}
-            </select>
-          </div>
-
-          {/* "Pago": visível quando o meio (escolhido OU o comum dos itens) é
-              conta ou dinheiro. Indeterminado = não marcado (não aplica). */}
-          {meioEhContaDinheiro && (
-            <div className="flex items-center justify-between gap-2">
-              <Label className="text-xs text-slate-600">Pago (lançamento já quitado)</Label>
-              <Switch checked={pago === true} onCheckedChange={(v) => setPago(v)} />
-            </div>
-          )}
-          {/* "Repetir": visível quando o meio é cartão. */}
-          {meioEhCartao && (
-            <div className="flex items-center justify-between gap-2">
-              <Label className="text-xs text-slate-600">Repetir</Label>
-              <Button
-                type="button"
-                variant="outline"
-                className="h-8 text-[11px]"
-                onClick={() => setRepetir((v) => !(v === true))}
+            {/* "Pago com" — ids REAIS de contas/cartoes (T1) */}
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Pago com (aplicado a todos)</Label>
+              <select
+                value={meioId}
+                onChange={(e) => setMeioId(e.target.value)}
+                className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900"
               >
-                {repetir === true ? 'Repetir: Sim' : 'Repetir: Não'}
+                <option value="">Selecione...</option>
+                {meiosPagamento
+                  .filter((m) => m.ativo)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.nome}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            {/* "Pago": visível quando o meio (escolhido OU o comum dos itens) é
+              conta ou dinheiro. Indeterminado = não marcado (não aplica). */}
+            {meioEhContaDinheiro && (
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs text-slate-600">Pago (lançamento já quitado)</Label>
+                <Switch checked={pago === true} onCheckedChange={(v) => setPago(v)} />
+              </div>
+            )}
+            {/* "Repetir": visível quando o meio é cartão. */}
+            {meioEhCartao && (
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs text-slate-600">Repetir</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 text-[11px]"
+                  onClick={() => setRepetir((v) => !(v === true))}
+                >
+                  {repetir === true ? 'Repetir: Sim' : 'Repetir: Não'}
+                </Button>
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <Label className="text-xs text-slate-600">Observações</Label>
+              <Input
+                value={observacao}
+                onChange={(e) => setObservacao(e.target.value)}
+                placeholder="Observação para os itens selecionados (opcional)"
+                className="h-9"
+              />
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="h-9 flex-1" onClick={onFechar}>
+                Cancelar
+              </Button>
+              <Button
+                className="h-9 flex-1 bg-indigo-600 hover:bg-indigo-700"
+                onClick={aplicar}
+                disabled={!temTipoComum && !observacao.trim() && !meioSelecionado}
+              >
+                Salvar no lote
               </Button>
             </div>
-          )}
-
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-600">Observações</Label>
-            <Input
-              value={observacao}
-              onChange={(e) => setObservacao(e.target.value)}
-              placeholder="Observação para os itens selecionados (opcional)"
-              className="h-9"
-            />
+            {!temTipoComum && (
+              <p className="text-[10px] text-amber-700">
+                Itens selecionados têm meios de tipos diferentes — escolha o "Pago com" para aplicar
+                Pago/Repetir.
+              </p>
+            )}
           </div>
-
-          <div className="flex gap-2 pt-1">
-            <Button variant="outline" className="h-9 flex-1" onClick={onFechar}>
-              Cancelar
-            </Button>
-            <Button
-              className="h-9 flex-1 bg-indigo-600 hover:bg-indigo-700"
-              onClick={aplicar}
-              disabled={!temTipoComum && !observacao.trim() && !meioSelecionado}
-            >
-              Salvar no lote
-            </Button>
-          </div>
-          {!temTipoComum && (
-            <p className="text-[10px] text-amber-700">
-              Itens selecionados têm meios de tipos diferentes — escolha o "Pago com" para aplicar
-              Pago/Repetir.
-            </p>
-          )}
         </div>
-      </div>
+      )}
     </>
   )
 }

@@ -882,6 +882,15 @@ function CapturarNfceConteudo() {
           cartao_id: tipoMeio === 'CARTAO' ? meioResolvido : null,
           status_pagamento: statusPagamento,
           data_pagamento: statusPagamento === 'pago' ? getTodayDateString() : null,
+          // P3 (A.2) — categoria GRAVADA no lançamento (como a importação de
+          // fatura homologada): sem ela o chip de categoria não aparece na
+          // Fatura do Cartão. Subcategoria determina a categoria quando o item
+          // só tem a sub (cascata sub → item → null), mesmo critério dos
+          // Detalhes (ModalDetalheItemCaptura).
+          categoria_id:
+            item.categoria_id ||
+            subcategorias.find((s) => s.id === item.subcategoria_id)?.categoria_id ||
+            null,
           subcategoria_id: item.subcategoria_id || null,
           modalidade_saida: (item.modalidade_saida || 'compra_propria') as any,
           valor_proprio:
