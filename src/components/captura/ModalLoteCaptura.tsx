@@ -1,36 +1,24 @@
 /**
- * T3 (TESTE CAPTURA 5 v2) — Lote = Detalhes: o Lote abre a MESMA configuração
- * de lançamento do Detalhes, com descrição, data, valor, categoria e
- * subcategoria DESABILITADOS (são do conteúdo de cada item) e editáveis
- * apenas os campos comuns do lote:
+ * A1 (TESTE CAPTURA 6) — Lote = Detalhes: o Lote abre a MESMA tela do
+ * Detalhes (ModalLancamento em modoCaptura), com descrição, data, valor,
+ * categoria e subcategoria DESABILITADOS (são do conteúdo de cada item) e
+ * editáveis apenas os campos comuns do lote:
  *  - "Pago com" (T1): lista de meios com ids REAIS de contas/cartoes
  *    (meiosReais da página) — id de meios_pagamento nunca sai daqui;
  *  - toggle "Pago" (conta/dinheiro) e botão "Repetir" (cartão);
  *  - "Observações".
- * O patch segue parcial: só o que o usuário marcar/preencher é aplicado.
+ * O patch segue parcial: só o que o usuário marcar/preencher é aplicado
+ * (aplicarLote da página já faz patch campo a campo via aplicarPatchLote).
  */
-import { useState } from 'react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+import { useEffect, useState } from 'react'
+import { ModalLancamento } from '@/components/ModalLancamento'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Checkbox } from '@/components/ui/checkbox'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { PatchLoteCaptura } from '@/components/captura/tiposRevisao'
-import { formatMoneyBRL } from '@/lib/formatters'
+import { formatMoneyBRL, getTodayDateString } from '@/lib/formatters'
+import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 
 /** Meio do lote: id REAL de contas/cartoes (ou linha dinheiro), já validado. */
 export interface MeioLoteCaptura {
@@ -58,6 +46,9 @@ interface Props {
   tiposMeioSelecionados?: string[]
   quantidadeItens: number
   resumo: ResumoLoteCaptura | null
+  /** Lista de categorias/subcategorias para o seletor DESABILITADO do lote. */
+  categorias?: any[]
+  subcategorias?: any[]
 }
 
 export function ModalLoteCaptura({
@@ -68,11 +59,24 @@ export function ModalLoteCaptura({
   tiposMeioSelecionados,
   quantidadeItens,
   resumo,
+  categorias = [],
+  subcategorias = [],
 }: Props) {
-  const [meioId, setMeioId] = useState('')
-  const [pago, setPago] = useState(true)
-  const [repetir, setRepetir] = useState(true)
+  // Marcações do lote (o que o usuário de fato marcar é o que aplica).
+  const [pago, setPago] = useState<boolean | undefined>(undefined)
+  const [repetir, setRepetir] = useState<boolean | undefined>(undefined)
   const [observacao, setObservacao] = useState('')
+  const [meioId, setMeioId] = useState('')
+
+  // Reset ao abrir: nada marcado (patch parcial — só o marcado é aplicado).
+  useEffect(() => {
+    if (aberto) {
+      setPago(undefined)
+      setRepetir(undefined)
+      setObservacao('')
+      setMeioId('')
+    }
+  }, [aberto])
 
   // Tipo do meio escolhido define qual controle extra aparece:
   // conta/dinheiro → "Pago"; cartão (e similares) → "Repetir".
@@ -88,13 +92,6 @@ export function ModalLoteCaptura({
   const meioEhCartao = tipoEfetivo.includes('CARTAO') || tipoEfetivo.includes('CARTÃO')
   const meioEhContaDinheiro = tipoEfetivo === 'CONTA' || tipoEfetivo === 'DINHEIRO'
 
-  /** Ao trocar o meio no Lote, as marcações pago/repetir voltam ao padrão. */
-  const trocarMeio = (id: string) => {
-    setMeioId(id)
-    setPago(true)
-    setRepetir(true)
-  }
-
   const aplicar = () => {
     const patch: PatchLoteCaptura = {}
     if (meioSelecionado) {
@@ -103,122 +100,103 @@ export function ModalLoteCaptura({
       patch.meioPagamentoId = meioSelecionado.id
       patch.meioPagamentoTipo = meioSelecionado.tipo
       patch.meioPagamentoNome = meioSelecionado.nome
-      if (meioEhContaDinheiro) patch.pago = pago
-      if (meioEhCartao) patch.repetir = repetir
     }
-    // Pago/Repetir aplicáveis também SEM reescolher o meio, quando os itens
-    // selecionados já têm um tipo comum (conta/dinheiro ou cartão).
-    if (!meioSelecionado) {
-      if (meioEhContaDinheiro) patch.pago = pago
-      if (meioEhCartao) patch.repetir = repetir
-    }
+    if (pago !== undefined) patch.pago = pago
+    if (repetir !== undefined) patch.repetir = repetir
     if (observacao.trim()) patch.observacao = observacao.trim()
     if (Object.keys(patch).length === 0) {
       onFechar()
       return
     }
     onAplicar(patch)
+    onFechar()
   }
 
-  return (
-    <Dialog open={aberto} onOpenChange={(o) => !o && onFechar()}>
-      <DialogContent className="max-w-md bg-white">
-        <DialogHeader>
-          <DialogTitle className="text-slate-900">Lote — {quantidadeItens} item(ns)</DialogTitle>
-          <DialogDescription>
-            Mesma configuração dos Detalhes. Descrição, data, valor, categoria e subcategoria são de
-            cada item (desabilitados); o lote define o meio de pagamento e as marcações comuns.
-          </DialogDescription>
-        </DialogHeader>
+  const temTipoComum = meioEhCartao || meioEhContaDinheiro
 
-        <div className="space-y-3">
-          {/* Campos de CONTEÚDO — desabilitados (vêm de cada item) */}
-          <div className="space-y-1">
-            <Label className="text-xs text-slate-600">Descrição</Label>
-            <Input
-              value={resumo?.descricao ?? '(diverge entre itens)'}
-              disabled
-              className="h-9 bg-slate-50 text-slate-500"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Data</Label>
-              <Input
-                value={resumo?.data ?? '(diverge)'}
-                disabled
-                className="h-9 bg-slate-50 text-slate-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Valor (soma)</Label>
-              <Input
-                value={formatMoneyBRL(resumo?.valor ?? 0)}
-                disabled
-                className="h-9 bg-slate-50 text-slate-500"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Categoria</Label>
-              <Input
-                value={resumo?.categoria ?? '(diverge)'}
-                disabled
-                className="h-9 bg-slate-50 text-slate-500"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Subcategoria</Label>
-              <Input
-                value={resumo?.subcategoria ?? '(diverge)'}
-                disabled
-                className="h-9 bg-slate-50 text-slate-500"
-              />
-            </div>
-          </div>
+  return (
+    <>
+      {/* Corpo do lote = MESMA tela do Detalhes (ModalLancamento modoCaptura)
+          com campos de CONTEÚDO desabilitados. onSalvarCaptura é ignorado:
+          o salvamento do lote é o botão "Salvar no lote" (patch parcial). */}
+      <ModalLancamento
+        open={aberto}
+        onOpenChange={(o) => {
+          if (!o) onFechar()
+        }}
+        onSave={async () => undefined}
+        initialData={
+          {
+            id: 'lote',
+            descricao: resumo?.descricao ?? '(diverge entre itens)',
+            valor: resumo?.valor ?? 0,
+            data: resumo?.data || getTodayDateString(),
+            tipo: 'despesa',
+            regime: 'unico',
+            categoria_id: null,
+            subcategoria_id: null,
+            modalidade_saida: 'compra_propria',
+            meio_pagamento_tipo: (tipoComumItens || 'DINHEIRO') as any,
+            observacao: null,
+          } as any
+        }
+        tipoPadrao="despesa"
+        contas={[]}
+        cartoes={[]}
+        categorias={categorias}
+        workspaceId="lote"
+        dataPadrao={resumo?.data || undefined}
+        modoCaptura
+        onSalvarCaptura={async () => undefined}
+      />
+
+      {/* Painel de marcações do LOTE — sobreposto ao modal (o corpo é a tela
+          do Detalhes com os campos de conteúdo travados; aqui só o que é
+          comum ao lote é editável). */}
+      <div className="fixed inset-x-0 bottom-0 z-[70] border-t border-slate-200 bg-white p-3 shadow-2xl">
+        <div className="max-w-md mx-auto space-y-2">
+          <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
+            Lote — {quantidadeItens} item(ns) • {formatMoneyBRL(resumo?.valor ?? 0)}
+          </p>
 
           {/* "Pago com" — ids REAIS de contas/cartoes (T1) */}
           <div className="space-y-1">
             <Label className="text-xs text-slate-600">Pago com (aplicado a todos)</Label>
-            <Select value={meioId} onValueChange={trocarMeio}>
-              <SelectTrigger className="h-9 bg-white">
-                <SelectValue placeholder="Selecione..." />
-              </SelectTrigger>
-              <SelectContent className="bg-white">
-                {meiosPagamento
-                  .filter((m) => m.ativo)
-                  .map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.nome}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+            <select
+              value={meioId}
+              onChange={(e) => setMeioId(e.target.value)}
+              className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900"
+            >
+              <option value="">Selecione...</option>
+              {meiosPagamento
+                .filter((m) => m.ativo)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.nome}
+                  </option>
+                ))}
+            </select>
           </div>
 
           {/* "Pago": visível quando o meio (escolhido OU o comum dos itens) é
-              conta ou dinheiro. */}
+              conta ou dinheiro. Indeterminado = não marcado (não aplica). */}
           {meioEhContaDinheiro && (
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Status</Label>
-              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer py-0.5">
-                <Checkbox checked={pago} onCheckedChange={(v) => setPago(v === true)} />
-                Pago (lançamento já quitado)
-              </label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs text-slate-600">Pago (lançamento já quitado)</Label>
+              <Switch checked={pago === true} onCheckedChange={(v) => setPago(v)} />
             </div>
           )}
           {/* "Repetir": visível quando o meio é cartão. */}
           {meioEhCartao && (
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Repetição</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs text-slate-600">Repetir</Label>
               <Button
                 type="button"
-                variant={repetir ? 'default' : 'outline'}
-                onClick={() => setRepetir((v) => !v)}
-                className={`h-9 ${repetir ? 'bg-indigo-600 hover:bg-indigo-700' : ''}`}
+                variant="outline"
+                className="h-8 text-[11px]"
+                onClick={() => setRepetir((v) => !(v === true))}
               >
-                {repetir ? 'Repetir: Sim' : 'Repetir: Não'}
+                {repetir === true ? 'Repetir: Sim' : 'Repetir: Não'}
               </Button>
             </div>
           )}
@@ -232,17 +210,27 @@ export function ModalLoteCaptura({
               className="h-9"
             />
           </div>
-        </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onFechar} className="h-9">
-            Cancelar
-          </Button>
-          <Button onClick={aplicar} className="h-9 bg-indigo-600 hover:bg-indigo-700">
-            Salvar no lote
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <div className="flex gap-2 pt-1">
+            <Button variant="outline" className="h-9 flex-1" onClick={onFechar}>
+              Cancelar
+            </Button>
+            <Button
+              className="h-9 flex-1 bg-indigo-600 hover:bg-indigo-700"
+              onClick={aplicar}
+              disabled={!temTipoComum && !observacao.trim() && !meioSelecionado}
+            >
+              Salvar no lote
+            </Button>
+          </div>
+          {!temTipoComum && (
+            <p className="text-[10px] text-amber-700">
+              Itens selecionados têm meios de tipos diferentes — escolha o "Pago com" para aplicar
+              Pago/Repetir.
+            </p>
+          )}
+        </div>
+      </div>
+    </>
   )
 }

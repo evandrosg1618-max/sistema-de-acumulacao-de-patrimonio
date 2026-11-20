@@ -1854,11 +1854,7 @@ export const orcamentoService = {
     subcategoria_id?: string | null
     modo?: 'anterior' | 'atual'
   }): Promise<{
-    competencia_anterior: string
     competencia_alvo?: string
-    modo?: string
-    data_inicio: string
-    data_fim: string
     total: number
     lancamentos: any[]
   }> {
@@ -1871,7 +1867,22 @@ export const orcamentoService = {
     })
 
     if (error) throw error
-    return data as any
+    // A4 (TESTE CAPTURA 6) — a RPC viva retorna TABLE de linhas (não um jsonb
+    // {lancamentos, total}): o front recebe um ARRAY puro. Adaptamos aqui:
+    // lancamentos = as linhas; total = SOMA dos valores (a RPC já ordena por
+    // data). Totais exibidos na tela não mudam de semântica.
+    const linhas = (Array.isArray(data) ? data : []) as any[]
+    const lancamentos = linhas.map((l, idx) => ({
+      ...l,
+      // Chave estável para o render quando a RPC não traz id útil.
+      __ordem: idx,
+    }))
+    const total = lancamentos.reduce((s, l) => s + (Number(l?.valor) || 0), 0)
+    return {
+      competencia_alvo: (lancamentos[0] as any)?.competencia_alvo || undefined,
+      total,
+      lancamentos,
+    }
   },
 
   // Compatibilidade legada (usada em ModalLancamento e Dashboard):

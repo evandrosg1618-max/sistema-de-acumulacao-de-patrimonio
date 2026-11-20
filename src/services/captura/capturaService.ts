@@ -436,6 +436,9 @@ export const capturaService = {
       /** T4 — marcações do lote (pago/repetir); omitido = intocado no banco. */
       marcado_pago?: boolean | null
       marcado_repetir?: boolean | null
+      /** T0/A3 — mensagem de erro de importação; null LIMPA o erro (reset
+          erro→pronto persistido, mesmo do marcarErroItem). */
+      mensagem_erro?: string | null
     }>,
   ): Promise<void> {
     const { error } = await db
