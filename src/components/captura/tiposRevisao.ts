@@ -63,6 +63,41 @@ export interface PatchLoteCaptura {
   observacao?: string
 }
 
+/**
+ * T1 (TESTE CAPTURA 5 v2) — Resolve o id REAL (contas/cartoes) de um meio de
+ * pagamento. Fonte do bug da FK (lancamentos_cartao_id_fkey): o seletor
+ * gravava o id da LINHA de meios_pagamento, que não existe em
+ * public.cartoes/public.contas → "Cartão inválido" na importação.
+ *
+ * Regra:
+ * - DINHEIRO não vira FK: devolve o próprio id da linha (nunca nula na FK).
+ * - Linha vinculada (cartao_id/conta_id preenchidos): devolve esse id REAL.
+ * - Linha SEM vínculo: se `idsContasCartoes` foi informado, o id só é aceito
+ *   quando existe em contas/cartoes (id órfão → null = "valor vazio").
+ */
+export interface MeioReferenciaCaptura {
+  id?: string | null
+  tipo?: string | null
+  conta_id?: string | null
+  cartao_id?: string | null
+  nome?: string | null
+}
+
+export function idRealDeMeio(
+  meio: MeioReferenciaCaptura | null | undefined,
+  idsContasCartoes?: Set<string> | null,
+): string | null {
+  if (!meio) return null
+  const tipo = String(meio.tipo || '').toUpperCase()
+  if (tipo === 'DINHEIRO') return meio.id || null
+  const real = meio.cartao_id || meio.conta_id || null
+  if (real) return real
+  const id = meio.id || null
+  if (!id) return null
+  if (idsContasCartoes) return idsContasCartoes.has(id) ? id : null
+  return id
+}
+
 let seq = 0
 function novoId(): string {
   seq += 1
