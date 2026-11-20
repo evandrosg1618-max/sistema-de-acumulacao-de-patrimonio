@@ -52,8 +52,10 @@ import { LinhaRevisaoCaptura } from '@/components/captura/LinhaRevisaoCaptura'
 import {
   CapturaItemRevisao,
   PatchLoteCaptura,
+  StatusCandidato,
   candidatoDeItem,
   candidatoEstaCompleto,
+  idRealDeMeio,
   itemDbParaRevisao,
   revisaoParaItemDb,
   aplicarPatchLote,
@@ -111,6 +113,9 @@ function CapturarNfceConteudo() {
   const [importando, setImportando] = useState(false)
   const [loteAberto, setLoteAberto] = useState(false)
   const [agruparAberto, setAgruparAberto] = useState(false)
+  // T4(d) — Agrupar indisponível (disabled + spinner) do clique ao fim do
+  // processamento — anti duplo clique.
+  const [agrupando, setAgrupando] = useState(false)
   const [itemManualAberto, setItemManualAberto] = useState(false)
 
   const [descManual, setDescManual] = useState('')
@@ -128,6 +133,72 @@ function CapturarNfceConteudo() {
   // T7 — confirmação antes de importar: 'confirmar' (todos Prontos) ou 'bloqueado'
   const [avisoImportar, setAvisoImportar] = useState<'confirmar' | 'bloqueado' | null>(null)
   const workspaceId = currentWorkspace?.workspace_id || currentWorkspace?.id || ''
+
+  // ── T1 (TESTE CAPTURA 5 v2) — ids REAIS de contas/cartões ──────────────
+  // A fonte do bug da FK (lancamentos_cartao_id_fkey): a aba Lote e a sessão
+  // gravavam o id da LINHA de meios_pagamento, que não existe em
+  // public.cartoes/public.contas. Daqui em diante o seletor e a importação
+  // só usam ids validados contra as listas carregadas do banco.
+  const idsContasCartoes = useMemo(
+    () => new Set<string>([...contas.map((c) => c.id), ...cartoes.map((k) => k.id)]),
+    [contas, cartoes],
+  )
+
+  const meiosReais = useMemo(() => {
+    const lista: Array<{ id: string; nome: string; tipo: string; ativo: boolean }> = []
+    const vistos = new Set<string>()
+    for (const m of meios) {
+      const tipo = String(m.tipo || '').toUpperCase()
+      const real = idRealDeMeio(m)
+      if (!real || vistos.has(real)) continue
+      // DINHEIRO não vira FK (conta_origem/cartao ficam nulos); os demais só
+      // entram se o id real existir em contas/cartoes — órfão fica de fora.
+      if (tipo !== 'DINHEIRO' && !idsContasCartoes.has(real)) continue
+      vistos.add(real)
+      lista.push({ id: real, nome: m.nome, tipo, ativo: m.ativo !== false })
+    }
+    return lista
+  }, [meios, idsContasCartoes])
+
+  const idsMeiosValidos = useMemo(() => {
+    const s = new Set<string>(idsContasCartoes)
+    meios.forEach((m) => {
+      if (String(m.tipo || '').toUpperCase() === 'DINHEIRO' && m.id) s.add(m.id)
+    })
+    return s
+  }, [idsContasCartoes, meios])
+
+  // T1 — id que não existe no banco é tratado como vazio; tenta deduzir pelo
+  // nome do meio (conta/cartão real com o mesmo nome).
+  const resolverMeioValido = useCallback(
+    (id: string | null, nome: string | null | undefined): string | null => {
+      if (id && idsMeiosValidos.has(id)) return id
+      const n = String(nome || '')
+        .trim()
+        .toLowerCase()
+      if (n) {
+        const achou = [...contas, ...cartoes].find(
+          (x) =>
+            String(x.nome || '')
+              .trim()
+              .toLowerCase() === n,
+        )
+        if (achou) return achou.id
+      }
+      return null
+    },
+    [idsMeiosValidos, contas, cartoes],
+  )
+
+  const normalizarMeioItem = useCallback(
+    (i: CapturaItemRevisao): CapturaItemRevisao => {
+      if (!i.meio_pagamento_id) return i
+      const valido = resolverMeioValido(i.meio_pagamento_id, i.meio_pagamento_nome)
+      if (valido === i.meio_pagamento_id) return i
+      return { ...i, meio_pagamento_id: valido }
+    },
+    [resolverMeioValido],
+  )
 
   const carregarHistorico = useCallback(async () => {
     if (!workspaceId) return
@@ -198,13 +269,16 @@ function CapturarNfceConteudo() {
       return
     }
     try {
-      const meioPadrao = meios.find((m) => m.ativo) || null
+      // T1 — a sessão guarda o id REAL (contas/cartoes), nunca o id da linha
+      // de meios_pagamento (fonte do id órfão que derrubava a FK na importação).
+      const meioPadraoRaw = meios.find((m) => m.ativo) || null
+      const meioPadraoId = idRealDeMeio(meioPadraoRaw)
       const s = await capturaService.criarSessao(workspaceId, {
         tipo_documento: 'nfce',
         trilha: t,
-        meio_pagamento_id: meioPadrao?.id || null,
-        meio_pagamento_tipo: meioPadrao?.tipo || null,
-        meio_pagamento_nome: meioPadrao?.nome || null,
+        meio_pagamento_id: meioPadraoId,
+        meio_pagamento_tipo: meioPadraoRaw?.tipo || null,
+        meio_pagamento_nome: meioPadraoRaw?.nome || null,
         data_documento: getTodayDateString(),
         created_by: user?.id || profile?.id || null,
       })
@@ -378,15 +452,16 @@ function CapturarNfceConteudo() {
           ? resultado.totalDocumento.toFixed(2).replace('.', ',')
           : '',
       )
-      const meioSessao = meios.find((m) => m.id === sessao.meio_pagamento_id)
+      const meioSessao = meiosReais.find((m) => m.id === sessao.meio_pagamento_id)
       const candidatos: CapturaItemRevisao[] = resultado.itens.map((it) => {
         const c = candidatoDeItem(it, dataSugerida || getTodayDateString())
-        return {
+        // T1 — id órfão herdado da sessão vira vazio/deduzido pelo nome.
+        return normalizarMeioItem({
           ...c,
           meio_pagamento_id: sessao.meio_pagamento_id,
           meio_pagamento_tipo: sessao.meio_pagamento_tipo,
           meio_pagamento_nome: sessao.meio_pagamento_nome || meioSessao?.nome || null,
-        }
+        })
       })
       setItens(candidatos)
       const linhasDb = await capturaService.substituirItens(
@@ -459,7 +534,7 @@ function CapturarNfceConteudo() {
       const listaItens = await capturaService.listarItens(s.id, s.workspace_id)
       setTrilha((sDb.trilha || 'papel') as TrilhaCaptura)
       setSessao(sDb)
-      setItens(listaItens.map((row) => itemDbParaRevisao(row)))
+      setItens(listaItens.map((row) => normalizarMeioItem(itemDbParaRevisao(row))))
       setTotalDocumento(sDb.valor_total_documento ?? null)
       setValorNfceInformado(sDb.valor_total_documento ?? null)
       setValorNfceTexto(
@@ -549,9 +624,12 @@ function CapturarNfceConteudo() {
     subcategoriaId: string | null,
   ) => {
     const selecionados = itens.filter((i) => i.selecionado)
-    if (selecionados.length === 0 || !sessao) return
+    if (selecionados.length === 0 || !sessao || agrupando) return
     const primeiro = selecionados[0]
     const idsOriginais = selecionados.map((i) => i.id)
+    // T1 — o grupo herda o meio do primeiro item SÓ se o id existir no banco.
+    const meioGrupoId = resolverMeioValido(primeiro.meio_pagamento_id, primeiro.meio_pagamento_nome)
+    setAgrupando(true)
     // TESTE CAPTURA 5 / T3 — categoria/subcategoria ESCOLHIDAS no modal de
     // agrupamento têm prioridade; sem escolha, herda do primeiro selecionado.
     const categoriaFinal = categoriaId ?? primeiro.categoria_id
@@ -563,7 +641,7 @@ function CapturarNfceConteudo() {
         status: 'pronto',
         confianca: 'alta',
         data: primeiro.data,
-        meio_pagamento_id: primeiro.meio_pagamento_id,
+        meio_pagamento_id: meioGrupoId,
         meio_pagamento_tipo: primeiro.meio_pagamento_tipo,
         meio_pagamento_nome: primeiro.meio_pagamento_nome,
         categoria_id: categoriaFinal,
@@ -596,6 +674,7 @@ function CapturarNfceConteudo() {
         ),
         grupo,
       ])
+      setAgrupando(false)
       setAgruparAberto(false)
       toast({
         title: 'Itens agrupados',
@@ -604,6 +683,7 @@ function CapturarNfceConteudo() {
       carregarHistorico()
     } catch (e: any) {
       // Erro orientado ao usuário: NADA é removido — originais permanecem.
+      setAgrupando(false)
       toast({
         title: 'Não foi possível agrupar',
         description:
@@ -631,7 +711,9 @@ function CapturarNfceConteudo() {
       })
       return
     }
-    const meio = meios.find((m) => m.id === sessao.meio_pagamento_id)
+    // T1 — id do meio validado contra as listas reais do banco.
+    const meioIdManual = resolverMeioValido(sessao.meio_pagamento_id, sessao.meio_pagamento_nome)
+    const meio = meiosReais.find((m) => m.id === meioIdManual)
     try {
       const manualDb = await capturaService.inserirItem(sessao.id, sessao.workspace_id, {
         descricao: descManual.trim(),
@@ -639,7 +721,7 @@ function CapturarNfceConteudo() {
         status: 'pronto',
         confianca: 'alta',
         data: sessao.data_documento || getTodayDateString(),
-        meio_pagamento_id: sessao.meio_pagamento_id || null,
+        meio_pagamento_id: meioIdManual,
         meio_pagamento_tipo: sessao.meio_pagamento_tipo || null,
         meio_pagamento_nome: sessao.meio_pagamento_nome || meio?.nome || null,
         categoria_id: null,
@@ -684,9 +766,25 @@ function CapturarNfceConteudo() {
       })
       return
     }
-    const semMeio = paraImportar.find((i) => !i.meio_pagamento_id)
+    // T1/T2 — meios órfãos viram vazio (item volta a "Revisar") e itens com
+    // erro anterior são RESETADOS: status/mensagem limpos, reimportáveis.
+    setItens((prev) =>
+      prev.map((i) => {
+        if (!paraImportar.some((p) => p.id === i.id)) return i
+        const norm = normalizarMeioItem(i)
+        return { ...norm, status: 'pronto' as StatusCandidato, mensagem_erro: null }
+      }),
+    )
+    const semMeio = paraImportar.find(
+      (i) => !resolverMeioValido(i.meio_pagamento_id, i.meio_pagamento_nome),
+    )
     if (semMeio) {
-      toast({ title: 'Defina o "Pago com" dos itens selecionados', variant: 'destructive' })
+      toast({
+        title: 'Defina o "Pago com" dos itens selecionados',
+        description:
+          'Item com meio de pagamento inválido voltou a "Revisar" — selecione nos Detalhes.',
+        variant: 'destructive',
+      })
       return
     }
     const semData = paraImportar.find((i) => !i.data)
@@ -716,6 +814,26 @@ function CapturarNfceConteudo() {
       const idempotencyKey = `captura:${sessao.id}:${item.id}`
       try {
         const tipoMeio = (item.meio_pagamento_tipo || 'DINHEIRO') as 'CONTA' | 'CARTAO' | 'DINHEIRO'
+        // T1 — o id que vai para a FK é validado contra contas/cartoes reais.
+        const meioResolvido = resolverMeioValido(item.meio_pagamento_id, item.meio_pagamento_nome)
+        const meioOk =
+          tipoMeio === 'CARTAO'
+            ? !!meioResolvido && cartoes.some((k) => k.id === meioResolvido)
+            : tipoMeio === 'CONTA'
+              ? !!meioResolvido && contas.some((c) => c.id === meioResolvido)
+              : true
+        if (!meioOk) {
+          falhas++
+          const msg =
+            'Meio de pagamento inválido — abra os Detalhes do item e selecione o "Pago com" novamente.'
+          try {
+            await capturaService.marcarErroItem(item.id, sessao.id, sessao.workspace_id, msg)
+          } catch {
+            /* item sem linha no banco */
+          }
+          setItens((prev) => prev.map((i) => (i.id === item.id ? { ...i, status: 'erro' } : i)))
+          continue
+        }
         // TESTE CAPTURA 5 / T4 — a importação RESPEITA o toggle Pago do Lote:
         // • CONTA/DINHEIRO: Pago marcado (item.marcado_pago) → status 'pago'
         //   com data_pagamento; sem marcação → 'pendente' sem data_pagamento.
@@ -747,8 +865,8 @@ function CapturarNfceConteudo() {
           descricao: item.descricao,
           valor: item.valor,
           meio_pagamento_tipo: tipoMeio,
-          conta_origem_id: tipoMeio === 'CONTA' ? item.meio_pagamento_id : null,
-          cartao_id: tipoMeio === 'CARTAO' ? item.meio_pagamento_id : null,
+          conta_origem_id: tipoMeio === 'CONTA' ? meioResolvido : null,
+          cartao_id: tipoMeio === 'CARTAO' ? meioResolvido : null,
           status_pagamento: statusPagamento,
           data_pagamento: statusPagamento === 'pago' ? getTodayDateString() : null,
           subcategoria_id: item.subcategoria_id || null,
@@ -851,6 +969,23 @@ function CapturarNfceConteudo() {
 
   const selecionados = itens.filter((i) => i.selecionado)
   const somaSelecionados = selecionados.reduce((s, i) => s + i.valor, 0)
+  // T3 — resumo comum dos selecionados: alimenta os campos DESABILITADOS do
+  // Lote (= Detalhes). Valor exibe a soma; campo divergente exibe "—".
+  const resumoSelecao = useMemo(() => {
+    const sel = itens.filter((i) => i.selecionado)
+    if (sel.length === 0) return null
+    const mesmo = (vals: Array<string | null | undefined>) =>
+      new Set(vals.map((v) => String(v ?? ''))).size === 1 ? (vals[0] ?? null) : null
+    const catId = mesmo(sel.map((i) => i.categoria_id))
+    const subId = mesmo(sel.map((i) => i.subcategoria_id))
+    return {
+      descricao: mesmo(sel.map((i) => i.descricao)),
+      data: mesmo(sel.map((i) => i.data)),
+      valor: sel.reduce((s, i) => s + i.valor, 0),
+      categoria: catId ? categorias.find((c) => c.id === catId)?.nome || null : null,
+      subcategoria: subId ? subcategorias.find((x) => x.id === subId)?.nome || null : null,
+    }
+  }, [itens, categorias, subcategorias])
   const pendentes = itens.filter((i) => i.status !== 'importado')
   const somaItens = pendentes.reduce((s, i) => s + i.valor, 0)
   // R5 — itens já importados ficam numa seção recolhida; a revisão mostra só pendentes
@@ -1242,7 +1377,7 @@ function CapturarNfceConteudo() {
               item={item}
               indice={i}
               categorias={categorias}
-              meiosPagamento={meios}
+              meiosPagamento={meiosReais}
               onEditar={atualizarItem}
               onAlternarSelecao={(id) =>
                 setItens((prev) =>
@@ -1382,17 +1517,22 @@ function CapturarNfceConteudo() {
         </DialogContent>
       </Dialog>
 
+      {/* T3 — Lote = Detalhes: mesma configuração do lançamento, campos de
+          conteúdo desabilitados; só meio/pago/repetir/observações editáveis. */}
       <ModalLoteCaptura
         aberto={loteAberto}
         onFechar={() => setLoteAberto(false)}
         onAplicar={aplicarLote}
-        meiosPagamento={meios}
+        meiosPagamento={meiosReais}
         tiposMeioSelecionados={selecionados.map((i) => i.meio_pagamento_tipo)}
+        quantidadeItens={selecionados.length}
+        resumo={resumoSelecao}
       />
       <ModalAgruparCaptura
         aberto={agruparAberto}
         onFechar={() => setAgruparAberto(false)}
         onConfirmar={agrupar}
+        processando={agrupando}
         quantidadeItens={selecionados.length}
         somaSelecionados={somaSelecionados}
         categorias={categorias}
