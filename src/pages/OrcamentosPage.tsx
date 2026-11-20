@@ -340,16 +340,21 @@ export default function OrcamentosPage() {
     )
     setModalLancamentosTotal(totalGastoRef)
     setModalLancamentosLista([])
-    setModalLancamentosCompetenciaAlvo(
-      modo === 'atual' ? anoMes : consolidado?.competencia_anterior || '',
-    )
+    // TESTE CAPTURA 6 / P2 — a competência ENVIADA à RPC precisa ser a MESMA
+    // exibida no subtítulo: no modo 'anterior' é a competência anterior (e não
+    // `anoMes`). Enviar `anoMes` aqui era o bug: a RPC versão TABLE usa o mês
+    // da competência pedida e 'atual'/'anterior' passou a ser ignorado, então
+    // o drill-down listava o mês errado (a linha "R$ 142,83" não abria os
+    // lançamentos de 20/11). O 'atual' continua recebendo o mês corrente.
+    const competenciaAlvo = modo === 'atual' ? anoMes : consolidado?.competencia_anterior || anoMes
+    setModalLancamentosCompetenciaAlvo(competenciaAlvo)
     setModalLancamentosOpen(true)
     setModalLancamentosLoading(true)
 
     try {
       const res = await orcamentoService.listarLancamentosPeriodoAnterior({
         workspace_id: wsId,
-        competencia: anoMes,
+        competencia: competenciaAlvo,
         categoria_id: categoriaId,
         subcategoria_id: subcategoriaId || null,
         modo,
