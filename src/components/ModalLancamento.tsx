@@ -1180,13 +1180,17 @@ export function ModalLancamento({
                     Data *
                   </Label>
                   <div className="relative mt-1">
+                    {/* C.7 — a DATA é EDITÁVEL no modoCaptura (Detalhes e Lote):
+                        o disabled só existia aqui; os demais campos de conteúdo
+                        continuam travados via camposTravadosCaptura. A data que
+                        o usuário define vence (última configuração) — o Lote a
+                        devolve no patch e a página persiste nos itens. */}
                     <Input
                       id="lan-data"
                       type="date"
                       value={data}
                       onChange={(e) => setData(e.target.value)}
                       required
-                      disabled={camposTravadosCaptura}
                       className="text-xs pr-10 text-slate-900 bg-white border-slate-300 font-medium focus:border-slate-500 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-80"
                     />
                     <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 bg-slate-100 p-1 rounded border border-slate-200">

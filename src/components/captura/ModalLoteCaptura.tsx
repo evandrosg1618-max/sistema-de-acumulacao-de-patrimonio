@@ -1,9 +1,10 @@
 /**
  * A.4 (TESTE CAPTURA 6) — Lote = UMA tela só: o ModalLancamento em modoCaptura
- * com os campos de CONTEÚDO travados (descrição, data, valor, categoria,
- * subcategoria — camposTravadosCaptura) e editáveis apenas o que é comum ao
- * lote: "Pago com" (ids reais de contas/cartoes), toggle "Lançamento pago",
- * painel Repetir (Fixo/Indeterminado/Parcelado) e "Observações".
+ * com os campos de CONTEÚDO travados (descrição, valor, categoria,
+ * subcategoria — camposTravadosCaptura; a DATA passou a ser EDITÁVEL na C.7)
+ * e editáveis apenas o que é comum ao lote: data, "Pago com" (ids reais de
+ * contas/cartoes), toggle "Lançamento pago", painel Repetir
+ * (Fixo/Indeterminado/Parcelado) e "Observações".
  *
  * O botão "Salvar no lote" devolve o ESTADO do formulário e AQUI o estado é
  * traduzido para PatchLoteCaptura (parcial: só o que o usuário marcou é
@@ -80,10 +81,14 @@ export function ModalLoteCaptura({
   // de fato marcou/preencheu é aplicado; o resto fica intacto nos itens.
   const salvarNoLote = async (payload: any) => {
     const patch: PatchLoteCaptura = {}
+    // C.7/T2 — a DATA definida no Lote (editável desde a 0.0.143) vai para o
+    // patch e a página aplica aos selecionados: última configuração vence.
+    if (payload?.data) patch.data = payload.data
     // A.6/T2 — sem "Pago com" escolhido o lote NÃO aplica nada de meio: o
-    // ModalLancamento (A.6/T1) já orienta com toast em modoCaptura.
+    // ModalLancamento (A.6/T1) já orienta com toast em modoCaptura. A DATA
+    // (patch.data) já foi levada acima e ainda assim é aplicada.
     if (!payload?.meio_pagamento_tipo) {
-      await onAplicar({})
+      await onAplicar(patch)
       return
     }
     if (payload?.meio_pagamento_tipo === 'CARTAO' && payload?.cartao_id) {
