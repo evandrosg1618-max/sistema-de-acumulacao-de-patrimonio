@@ -196,9 +196,9 @@ export function revisaoParaItemDb(i: CapturaItemRevisao) {
  */
 export function candidatoEstaCompleto(i: CapturaItemRevisao): boolean {
   if (!i.descricao.trim() || !(i.valor > 0) || !i.data || !i.meio_pagamento_id) return false
-  const dispensaSubcategoria =
-    i.modalidade_saida === 'compra_terceiros' || i.modalidade_saida === 'emprestimo_terceiros'
-  return dispensaSubcategoria || Boolean(i.subcategoria_id)
+  // A.6 — em captura a subcategoria NÃO é obrigatória (já vem pré-configurada
+  // em "Detalhes" ou "Agrupamento"): o Pronto não a exige.
+  return true
 }
 
 /** Aplica a edição em lote SOMENTE nos campos marcados (PatchLoteCaptura). */

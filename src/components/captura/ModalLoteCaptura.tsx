@@ -63,17 +63,29 @@ export function ModalLoteCaptura({
   cartoes = [],
   workspaceId,
 }: Props) {
-  // Tipo do meio comum dos itens SELECIONADOS (distintos → "—" no "Pago com").
+  // A.6/T2 — tipo do meio comum dos itens SELECIONADOS. Quando os itens NÃO
+  // têm meio gravado (regra do usuário: nasce vazio), o "Pago com" do Lote
+  // abre VAZIO (placeholder "Selecione…") — NUNCA 'DINHEIRO' pré-marcado.
+  // Tipo comum só existe se TODOS os selecionados têm o MESMO tipo gravado
+  // (última alteração vence); tipos divergentes também abrem vazio.
   const tiposItens = Array.from(
     new Set((tiposMeioSelecionados || []).map((t) => String(t || '').toUpperCase())),
   )
-  const tipoComumItens = tiposItens.length === 1 ? tiposItens[0] : 'DINHEIRO'
+  const temItemSemMeio = (tiposMeioSelecionados || []).length === 0
+  const tipoComumItens: string | null =
+    temItemSemMeio || tiposItens.length !== 1 ? null : tiposItens[0]
 
   // A.4 — o ESTADO do formulário do ModalLancamento (payload validado) é
   // traduzido AQUI para PatchLoteCaptura. Patch PARCIAL: só o que o usuário
   // de fato marcou/preencheu é aplicado; o resto fica intacto nos itens.
   const salvarNoLote = async (payload: any) => {
     const patch: PatchLoteCaptura = {}
+    // A.6/T2 — sem "Pago com" escolhido o lote NÃO aplica nada de meio: o
+    // ModalLancamento (A.6/T1) já orienta com toast em modoCaptura.
+    if (!payload?.meio_pagamento_tipo) {
+      await onAplicar({})
+      return
+    }
     if (payload?.meio_pagamento_tipo === 'CARTAO' && payload?.cartao_id) {
       patch.meioPagamentoId = payload.cartao_id // id REAL — página mapeia para a linha
       patch.meioPagamentoTipo = 'CARTAO'
@@ -136,7 +148,7 @@ export function ModalLoteCaptura({
           categoria_id: null,
           subcategoria_id: null,
           modalidade_saida: 'compra_propria',
-          meio_pagamento_tipo: tipoComumItens as any,
+          meio_pagamento_tipo: (tipoComumItens || null) as any,
           observacao: null,
         } as any
       }
@@ -151,6 +163,7 @@ export function ModalLoteCaptura({
       camposTravadosCaptura
       tituloCaptura={tituloLote}
       rotuloBotaoCaptura="Salvar no lote"
+      modoCapturaTemMeioGravado={false}
     />
   )
 }

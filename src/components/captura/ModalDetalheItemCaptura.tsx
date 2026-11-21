@@ -51,35 +51,34 @@ export function ModalDetalheItemCaptura({
   // Pré-preenchimento: candidato → formato Lancamento esperado pelo modal.
   const initialData = useMemo(() => {
     if (!item) return null
-    // A2 — o meio gravado no Lote é a REFERÊNCIA: se o item não tem meio
-    // (ou tem id órfão), herda o meio validado da SESSÃO — o campo "Pago com"
-    // do Detalhes NUNCA abre em branco.
-    const tipoHerda = String(item.meio_pagamento_tipo || '').toUpperCase()
-    // A.3 — o candidato grava o id da LINHA de meios_pagamento; para apenas
-    // PRÉ-SELECIONAR o "Pago com" do modal, a linha é traduzida ao id real
-    // (cartao_id/conta_id) — o que volta no payload é mapeado de volta para a
-    // linha em gravarNoCandidato.
+    // A.6/T2 — REGRA DO USUÁRIO: "Pago com" e "Pago" nascem VAZIOS/DESLIGADOS.
+    // Só aparece marcado o que o usuário de fato GRAVOU no candidato (última
+    // alteração vence): meio gravado = id da LINHA de meios_pagamento existente
+    // no cadastro validado. Sem meio gravado/linha órfã → vazio, sem herança
+    // da sessão nem prefill chutado.
     const linhaMeio = (meiosValidados || []).find((m) => m?.id === item.meio_pagamento_id)
     const idValido = Boolean(item.meio_pagamento_id && linhaMeio)
+    const linhaMeioValida = idValido
     const meioRef: { tipo: string | null; id: string | null } = idValido
       ? {
           tipo: item.meio_pagamento_tipo,
           id: linhaMeio!.cartao_id || linhaMeio!.conta_id || null,
         }
       : { tipo: null, id: null }
-    const meioPagamento = meioRef.tipo || item.meio_pagamento_tipo
+    const meioPagamento = idValido ? meioRef.tipo : null
     const resolveMeio = (): { tipo: string; id: string | null } => {
       if (meioPagamento === 'CARTAO') return { tipo: 'cartao', id: meioRef.id }
       if (meioPagamento === 'CONTA') return { tipo: 'conta', id: meioRef.id }
-      if (meioRef.id && tipoHerda === 'DINHEIRO') return { tipo: 'dinheiro', id: meioRef.id }
-      return { tipo: 'dinheiro', id: null }
+      if (meioPagamento === 'DINHEIRO') return { tipo: 'dinheiro', id: null }
+      return { tipo: '', id: null }
     }
     const meio = resolveMeio()
     const cat = categorias.find((c) => c.id === item.categoria_id)
-    // Subcategoria pelo id do candidato; se ausente, herda a primeira da categoria.
+    // A.6/T2 — subcategoria SÓ a gravada no candidato (última alteração vence):
+    // NUNCA herdar a primeira da categoria — o Detalhes não inventa classificação.
     const sub = item.subcategoria_id
       ? subcategorias.find((s) => s.id === item.subcategoria_id)
-      : (cat?.subcategorias || [])[0] || null
+      : null
 
     return {
       id: item.id,
@@ -92,10 +91,10 @@ export function ModalDetalheItemCaptura({
       valor: item.valor,
       data: item.data,
       regime: 'unico' as const,
-      meio_pagamento_tipo: (meioPagamento || 'DINHEIRO') as MeioPagamentoTipo,
+      meio_pagamento_tipo: (meioPagamento || null) as any,
       cartao_id: meio.tipo === 'cartao' ? meio.id : null,
       conta_origem_id: meio.tipo === 'conta' ? meio.id : null,
-      categoria_id: item.categoria_id || cat?.id || null,
+      categoria_id: item.categoria_id || null,
       subcategoria_id: sub?.id || null,
       modalidade_saida: item.modalidade_saida || 'compra_propria',
       valor_proprio: item.valor_proprio,
@@ -103,7 +102,11 @@ export function ModalDetalheItemCaptura({
       afeta_resultado: item.afeta_resultado,
       afeta_orcamento: item.afeta_orcamento,
       observacao: item.observacao,
-      status_pagamento: (meioPagamento === 'CARTAO' ? 'pendente' : 'pago') as StatusPagamento,
+      // A.6/T2 — "Pago" nasce DESLIGADO quando não há meio gravado; com meio
+      // gravado, reflete o estado gravado (última alteração vence).
+      status_pagamento: !meioPagamento
+        ? 'pendente'
+        : ((item.meio_pagamento_tipo === 'CARTAO' ? 'pendente' : 'pago') as StatusPagamento),
     }
   }, [item, categorias, subcategorias, meiosValidados, contas, cartoes])
 
@@ -206,6 +209,7 @@ export function ModalDetalheItemCaptura({
       userId={userId}
       dataPadrao={item?.data || undefined}
       modoCaptura
+      modoCapturaTemMeioGravado={Boolean(linhaMeioValida)}
       onSalvarCaptura={gravarNoCandidato}
     />
   )

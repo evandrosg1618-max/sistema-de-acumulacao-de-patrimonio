@@ -53,6 +53,7 @@ import { orcamentoService, faturaService, fixoService } from '@/services/sap'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
 import { valorDeTextoMonetarioBR } from '@/lib/monetario'
+import { toast } from '@/hooks/use-toast'
 
 interface ModalLancamentoProps {
   open: boolean
@@ -100,6 +101,19 @@ interface ModalLancamentoProps {
    * "Salvar no lote"). Opcional: sem ele, Detalhes continua "Salvar no item".
    */
   rotuloBotaoCaptura?: string
+  /**
+   * A.6/T2 — modoCaptura: sinaliza que o item JÁ TEM meio gravado (última
+   * alteração vence). Com true, o prefill de "Pago com" e "Pago" do item é
+   * preservado; com false/omitido, o formulário abre com "Pago com" VAZIO e
+   * "Pago" desligado. Sem efeito fora do modoCaptura.
+   */
+  modoCapturaTemMeioGravado?: boolean
+  /**
+   * A.6/T2 — modoCaptura: tipo do meio REAL gravado no item (CARTAO/CONTA/
+   * DINHEIRO). Só usado quando modoCapturaTemMeioGravado é true — mantém o
+   * "Pago com" no tipo correto sem inventar prefill.
+   */
+  modoCapturaMeioTipoGravado?: string
 }
 
 export function ModalLancamento({
@@ -121,6 +135,8 @@ export function ModalLancamento({
   onOpcoesRepeticaoChange,
   tituloCaptura,
   rotuloBotaoCaptura,
+  modoCapturaTemMeioGravado = false,
+  modoCapturaMeioTipoGravado,
 }: ModalLancamentoProps) {
   const { isProcessing } = useGlobalLoading()
   const [tipo, setTipo] = useState<TipoLancamento>(tipoPadrao)
@@ -203,6 +219,21 @@ export function ModalLancamento({
     if (cartoes.length > 0) return `cartao:${cartoes[0].id}`
     return 'dinheiro:principal'
   }
+
+  // A.6/T2 — em modoCaptura (Lote e Detalhes) "Pago com" NUNCA nasce
+  // pré-marcado: abre VAZIO (placeholder "Selecione…") e a escolha é MANUAL.
+  // Exceção: quando o item já tem meio gravado (última alteração vence), o
+  // prefill real do item vence — preservado fora destes guards. Detalhes
+  // sinaliza o meio REAL gravado via prop (id é de meios_pagamento — nunca
+  // igualar a ids de contas/cartoes).
+  const guardModoCaptura = (valorPadrao: string): string =>
+    modoCaptura && !modoCapturaTemMeioGravado ? '' : valorPadrao
+  const guardModoCapturaPago = (valorPadrao: boolean): boolean =>
+    modoCaptura && !modoCapturaTemMeioGravado ? false : valorPadrao
+  const guardModoCapturaEstado = (estado: 'vazio' | 'cheio'): 'vazio' | 'cheio' =>
+    modoCaptura && !modoCapturaTemMeioGravado ? 'vazio' : estado
+  const guardModoCapturaMeioTipo = (tipoPadrao: string): string =>
+    modoCaptura && !modoCapturaTemMeioGravado ? '' : tipoPadrao
 
   // Lista de todas as subcategorias para o tipo atual ('despesa' ou 'receita'), ordenadas alfabeticamente
   // REGRA: Subcategorias arquivadas NÃO devem aparecer normalmente como opção para novos lançamentos;
@@ -287,7 +318,13 @@ export function ModalLancamento({
       }
       setErroValorProprio(null)
 
-      if (initialData.cartao_id || initialData.meio_pagamento_tipo === 'CARTAO') {
+      // A.6/T2 — o prefill do "Pago com" no modoCaptura SÓ acontece quando o
+      // item tem meio REAL gravado (prop modoCapturaTemMeioGravado); caso
+      // contrário o campo abre VAZIO ("Selecione…") — nunca cartoes[0]/contas[0]
+      // chutado (bug do print: "Bradesco Conta Corrente"/"Dinheiro" pré-marcados).
+      if (modoCaptura && !modoCapturaTemMeioGravado) {
+        setPagoComDestino('')
+      } else if (initialData.cartao_id || initialData.meio_pagamento_tipo === 'CARTAO') {
         const cId =
           initialData.cartao_id || cartaoPadraoId || (cartoes.length > 0 ? cartoes[0].id : '')
         // Se for empréstimo a terceiros, não permite cartão!
@@ -301,9 +338,9 @@ export function ModalLancamento({
         const cOrigem = initialData.conta_origem_id || (contas.length > 0 ? contas[0].id : '')
         setPagoComDestino(`conta:${cOrigem}`)
       } else if (initialData.meio_pagamento_tipo === 'DINHEIRO') {
-        setPagoComDestino('dinheiro:principal')
+        setPagoComDestino(guardModoCaptura('dinheiro:principal'))
       } else {
-        setPagoComDestino(getValorPadraoOrigem())
+        setPagoComDestino(guardModoCaptura(getValorPadraoOrigem()))
       }
 
       setContaOrigemId(initialData.conta_origem_id || (contas.length > 0 ? contas[0].id : ''))
@@ -313,7 +350,11 @@ export function ModalLancamento({
         initialData.subcategoria_id ||
           (initialData.categoria_id ? `cat-fallback-${initialData.categoria_id}` : ''),
       )
-      setPago(initialData.status_pagamento === 'pago')
+      // A.6/T2 — "Lançamento pago" nasce DESLIGADO no modoCaptura sem meio
+      // gravado; com meio gravado (última alteração vence), preserva o estado.
+      setPago(
+        modoCaptura && !modoCapturaTemMeioGravado ? false : initialData.status_pagamento === 'pago',
+      )
       setObservacao(initialData.observacao || '')
       // Se for lançamento com parcelas, limpa eventual sufixo '(x/y)' do título
       const descLimpa = (initialData.descricao || '').replace(/\s*\(\d+\/\d+\)$/, '').trim()
@@ -359,7 +400,9 @@ export function ModalLancamento({
       setModalidadeSaida('compra_propria')
       setValorProprio('')
       setErroValorProprio(null)
-      if (cartaoPadraoId) {
+      if (modoCaptura) {
+        setPagoComDestino('')
+      } else if (cartaoPadraoId) {
         setPagoComDestino(`cartao:${cartaoPadraoId}`)
       } else {
         setPagoComDestino(getValorPadraoOrigem())
@@ -368,7 +411,7 @@ export function ModalLancamento({
       setContaDestinoId(contas.length > 1 ? contas[1].id : '')
       setCategoriaId('')
       setSubcategoriaId('')
-      setPago(true)
+      setPago(guardModoCapturaPago(true))
       setObservacao('')
       setQuantidadeParcelas(1)
       setMostrarOpcoesRepeticao(false)
@@ -449,6 +492,15 @@ export function ModalLancamento({
     e.preventDefault()
 
     if (!descricao.trim()) {
+      // A.6/T1 — em modoCaptura NENHUMA validação aborta em silêncio: toast
+      // orientado (fora do modoCaptura, Novo Lançamento segue intacto).
+      if (modoCaptura) {
+        toast({
+          title: 'Informe a descrição',
+          description: 'A descrição do item é obrigatória para salvar.',
+          variant: 'destructive',
+        })
+      }
       return
     }
 
@@ -458,7 +510,18 @@ export function ModalLancamento({
       (tipo === 'despesa' &&
         (modalidadeSaida === 'compra_terceiros' || modalidadeSaida === 'emprestimo_terceiros'))
 
-    if (tipo !== 'transferencia' && tipo !== 'ajuste' && !dispensaSubcategoria && !subcategoriaId) {
+    // A.6/T1 — em modoCaptura (Lote e Detalhes) a subcategoria NUNCA é exigida:
+    // ela já vem pré-configurada via "Detalhes" ou "Agrupamento" e o seletor
+    // está desabilitado (camposTravadosCaptura) — exigir aqui abortava o submit
+    // EM SILÊNCIO (o "Salvar no lote" clicava e nada gravava). Fora do
+    // modoCaptura (Novo Lançamento), a validação permanece INTACTA.
+    if (
+      !modoCaptura &&
+      tipo !== 'transferencia' &&
+      tipo !== 'ajuste' &&
+      !dispensaSubcategoria &&
+      !subcategoriaId
+    ) {
       return
     }
 
@@ -470,7 +533,11 @@ export function ModalLancamento({
     const estaPago = initialData?.status_pagamento === 'pago'
     const ehCartao =
       initialData?.meio_pagamento_tipo === 'CARTAO' || pagoComDestino.startsWith('cartao:')
-    if (initialData?.id && estaPago && !ehCartao && ehUnico) {
+    // A.6/T3 — REGRA BLOCO B vale para lançamento REAL pago (Novo Lançamento /
+    // edição). No modoCaptura o "lançamento" é um CANDIDATO da revisão (o
+    // wrapper nasce com status 'pago' por padrão) — bloquear aqui impedia o
+    // submit dos Detalhes. Não se aplica.
+    if (!modoCaptura && initialData?.id && estaPago && !ehCartao && ehUnico) {
       setAvisoBloqueioPago(
         'Este lançamento está pago. É necessário desfazer o pagamento para alterar ou excluir.',
       )
@@ -480,16 +547,40 @@ export function ModalLancamento({
     // T4 — parse monetário único (lib/monetario): "1.234,56" e "1234.56" → 1234.56
     const valorNumerico = valorDeTextoMonetarioBR(valor)
     if (!valorNumerico || valorNumerico <= 0) {
+      // A.6/T1 — em modoCaptura NENHUMA validação é muda: toast orientado.
+      if (modoCaptura) {
+        toast({
+          title: 'Informe o valor',
+          description: 'O valor do item precisa ser maior que zero para salvar.',
+          variant: 'destructive',
+        })
+      }
       return
     }
 
     if (tipo === 'transferencia') {
-      if (!contaOrigemId || !contaDestinoId) {
+      if (!contaOrigemId || !contaDestinoId || contaOrigemId === contaDestinoId) {
+        if (modoCaptura) {
+          toast({
+            title: 'Contas da transferência',
+            description: 'Selecione contas de origem e destino diferentes.',
+            variant: 'destructive',
+          })
+        }
         return
       }
-      if (contaOrigemId === contaDestinoId) {
-        return
-      }
+    }
+
+    // A.6/T1 — modoCaptura: "Pago com" é o único campo editável essencial do
+    // Lote; se o usuário abrir o Lote sem nada selecionado, o submit orienta
+    // em vez de abortar em silêncio.
+    if (modoCaptura && tipo === 'despesa' && !pagoComDestino) {
+      toast({
+        title: 'Selecione o meio de pagamento',
+        description: 'Escolha "Pago com" para aplicar no(s) item(ns) do lote.',
+        variant: 'destructive',
+      })
+      return
     }
 
     // Decompor o seletor unificado "Pago com" / "Recebido em"
@@ -556,6 +647,13 @@ export function ModalLancamento({
         afetaOrcamentoFinal = false
       } else if (modalidadeSaida === 'emprestimo_terceiros') {
         if (meioFinal === 'CARTAO') {
+          if (modoCaptura) {
+            toast({
+              title: 'Meio não permitido',
+              description: 'Empréstimo a Terceiros não pode ser pago com cartão de crédito.',
+              variant: 'destructive',
+            })
+          }
           return
         }
         valorProprioFinal = 0
@@ -1125,14 +1223,16 @@ export function ModalLancamento({
                       htmlFor="lan-recebido-em"
                       className="text-xs font-semibold text-slate-700 flex items-center justify-between"
                     >
-                      <span>Recebido em *</span>
+                      <span>Recebido em{!modoCaptura ? ' *' : ''}</span>
                       <span className="text-[10px] text-slate-400 font-normal">
                         vincula meio automaticamente
                       </span>
                     </Label>
                     <Select value={pagoComDestino} onValueChange={setPagoComDestino}>
                       <SelectTrigger id="lan-recebido-em" className="mt-1 text-xs">
-                        <SelectValue placeholder="Selecione conta ou dinheiro" />
+                        <SelectValue
+                          placeholder={modoCaptura ? 'Selecione…' : 'Selecione conta ou dinheiro'}
+                        />
                       </SelectTrigger>
                       <SelectContent className="max-h-64">
                         {contas.map((c) => (
@@ -1174,14 +1274,18 @@ export function ModalLancamento({
                       htmlFor="lan-pago-com-despesa"
                       className="text-xs font-semibold text-slate-700 flex items-center justify-between"
                     >
-                      <span>Pago com *</span>
+                      <span>Pago com{!modoCaptura ? ' *' : ''}</span>
                       <span className="text-[10px] text-slate-400 font-normal">
                         vincula meio automaticamente
                       </span>
                     </Label>
                     <Select value={pagoComDestino} onValueChange={setPagoComDestino}>
                       <SelectTrigger id="lan-pago-com-despesa" className="mt-1 text-xs bg-white">
-                        <SelectValue placeholder="Selecione conta, cartão ou dinheiro" />
+                        <SelectValue
+                          placeholder={
+                            modoCaptura ? 'Selecione…' : 'Selecione conta, cartão ou dinheiro'
+                          }
+                        />
                       </SelectTrigger>
                       <SelectContent className="max-h-64">
                         {/* Grupo: Contas Bancárias (filtra cartões) */}
@@ -1640,7 +1744,7 @@ export function ModalLancamento({
                   <div>
                     <div className="flex items-center justify-between">
                       <Label htmlFor="lan-subcat" className="text-xs font-semibold text-slate-700">
-                        Subcategoria *
+                        Subcategoria{!modoCaptura ? ' *' : ''}
                       </Label>
                       {categoriaId && (
                         <span className="text-[11px] text-slate-500 font-medium">
@@ -1678,7 +1782,13 @@ export function ModalLancamento({
                         id="lan-subcat"
                         className="mt-1 text-xs bg-white text-slate-900 border-slate-300 font-medium"
                       >
-                        <SelectValue placeholder="Selecione a subcategoria obrigatória (*)" />
+                        <SelectValue
+                          placeholder={
+                            modoCaptura
+                              ? 'Definida nos Detalhes/Agrupamento'
+                              : 'Selecione a subcategoria obrigatória (*)'
+                          }
+                        />
                       </SelectTrigger>
                       <SelectContent className="max-h-72 bg-white text-slate-900 border-slate-200">
                         {subcategoriasFiltradas.length === 0 ? (
@@ -1705,7 +1815,7 @@ export function ModalLancamento({
                         )}
                       </SelectContent>
                     </Select>
-                    {!subcategoriaId && (
+                    {!subcategoriaId && !modoCaptura && (
                       <p className="text-[11px] text-rose-500 mt-1">
                         * Campo obrigatório para categorização do fluxo financeiro
                       </p>
