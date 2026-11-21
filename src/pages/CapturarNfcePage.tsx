@@ -58,6 +58,8 @@ import {
   itemDbParaRevisao,
   revisaoParaItemDb,
   aplicarPatchLote,
+  itemEhGrupo,
+  ROTULO_OBSERVACAO_GRUPO as ROTULO_GRUPO,
 } from '@/components/captura/tiposRevisao'
 import type { Categoria, Subcategoria } from '@/types/sap'
 import { contaService, cartaoService } from '@/services/sap'
@@ -531,7 +533,16 @@ function CapturarNfceConteudo() {
       const listaItens = await capturaService.listarItens(s.id, s.workspace_id)
       setTrilha((sDb.trilha || 'papel') as TrilhaCaptura)
       setSessao(sDb)
-      setItens(listaItens.map((row) => normalizarMeioItem(itemDbParaRevisao(row))))
+      // C.6/T3 — o badge "Pronto p/ importar" é reconstruído da observação
+      // persistida no banco (itemEhGrupo): o grupo sobrevive a Continuar
+      // Revisão com o rótulo correto.
+      setItens(
+        listaItens.map((row) => {
+          const item = normalizarMeioItem(itemDbParaRevisao(row))
+          if (!itemEhGrupo(row)) return item
+          return { ...item, agrupado: true, selecionado: false }
+        }),
+      )
       setTotalDocumento(sDb.valor_total_documento ?? null)
       setValorNfceInformado(sDb.valor_total_documento ?? null)
       setValorNfceTexto(
@@ -763,19 +774,29 @@ function CapturarNfceConteudo() {
         agrupado: true,
         idsOriginais,
       }
+      // C.6/T3 — marca o grupo NO BANCO com a observação fixa do agrupamento:
+      // é por ela que o badge "Pronto p/ importar" é reconstruído depois de
+      // "Continuar Revisão" (a tabela não tem coluna agrupado; flag de tela).
+      try {
+        await capturaService.atualizarItem(grupoDb.id, sessao.id, sessao.workspace_id, {
+          observacao: ROTULO_GRUPO,
+        })
+        grupo.observacao = ROTULO_GRUPO
+      } catch {
+        /* badge imediato já está correto via agrupado:true */
+      }
       setItens((prev) => [
-        // C.3/T4 — os originais SAEM da lista local assim que a exclusão
-        // deles teve sucesso no banco (antes: só desmarcava e o item
-        // "fantasma" continuava aparecendo na revisão). Em erro de exclusão,
-        // o item permanece na lista — nada some.
-        ...prev.filter(
-          (i) => !(i.selecionado && i.status !== 'importado' && excluidos.includes(i.id)),
-        ),
-        ...prev.map((i) =>
-          i.selecionado && i.status !== 'importado' && !excluidos.includes(i.id)
-            ? { ...i, selecionado: false }
-            : i,
-        ),
+        // C.6/T1 — UMA única passagem sobre prev: filter→map encadeados.
+        // (Antes: filter + map sobre o prev INTEIRO re-adicionava os itens
+        // excluídos — fantasma garantido.) Os originais SAEM da lista local
+        // assim que a exclusão deles teve sucesso no banco; em erro de
+        // exclusão o item permanece (sem fantasma, C.5) e os remanescentes
+        // selecionados não importados ficam desmarcados.
+        ...prev
+          .filter((i) => !(i.selecionado && i.status !== 'importado' && excluidos.includes(i.id)))
+          .map((i) =>
+            i.selecionado && i.status !== 'importado' ? { ...i, selecionado: false } : i,
+          ),
         grupo,
       ])
       setAgrupando(false)

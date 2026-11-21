@@ -8,6 +8,7 @@
  * na importação (lancamentoService.create).
  */
 
+import { supabase as db } from '@/lib/supabase/client'
 import type { ItemCandidatoOcr } from '@/services/captura/nfceParser'
 import type { CapturaSessaoItem } from '@/services/captura/capturaService'
 
@@ -163,7 +164,18 @@ export function itemDbParaRevisao(i: CapturaSessaoItem): CapturaItemRevisao {
     lancamento_criado_id: i.lancamento_criado_id || null,
     mensagem_erro: i.mensagem_erro || null,
   }
+  // C.6/T3 — o rótulo de grupo vem da observação persistida no banco (o grupo
+  // e os originais são gravados com ela na hora do agrupamento).
 }
+
+/** C.6/T3 — item do banco é um GRUPO quando carrega o rótulo na observação. */
+export function itemEhGrupo(i: Pick<CapturaSessaoItem, 'observacao'>): boolean {
+  return (i.observacao || '').includes(ROTULO_OBSERVACAO_GRUPO)
+}
+
+/** C.6/T3 — observação fixa que marca no banco um candidato AGRUPADO: é por
+ * ela que o badge "Pronto p/ importar" é reconstruído em Continuar Revisão. */
+export const ROTULO_OBSERVACAO_GRUPO = '__GRUPO_CAPTURA__'
 
 /** Linha editável do front → registro para persistir (snake_case do banco). */
 export function revisaoParaItemDb(i: CapturaItemRevisao) {
