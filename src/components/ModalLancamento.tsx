@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Dialog,
   DialogContent,
@@ -201,6 +202,16 @@ export function ModalLancamento({
   const [buscaSubcategoria, setBuscaSubcategoria] = useState('')
   const [listaSubcatAberta, setListaSubcatAberta] = useState(false)
   const raizSubcatRef = useRef<HTMLDivElement | null>(null)
+  // Parte C.2 — posição fixa da lista em portal (calculada do input) e ref do
+  // container portado (fecho ao clicar fora + guard de dismiss do Radix).
+  const listaSubcatPortalRef = useRef<HTMLDivElement | null>(null)
+  const [posListaSubcat, setPosListaSubcat] = useState<{
+    left: number
+    width: number
+    top?: number
+    bottom?: number
+    alturaMax: number
+  } | null>(null)
   const [pago, setPago] = useState(true)
   const [observacao, setObservacao] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -287,6 +298,10 @@ export function ModalLancamento({
   }, [categorias, tipo, initialData?.subcategoria_id, initialData?.categoria_id])
 
   // Resetar/Inicializar formulário
+  // Parte C.2 — a lista em portal NÃO desmonta junto com o DialogContent
+  // (ela vive no <body>): garantir fechamento sempre que o modal abre/fecha.
+  setListaSubcatAberta(false)
+
   useEffect(() => {
     if (!open) return
 
@@ -504,13 +519,51 @@ export function ModalLancamento({
   useEffect(() => {
     if (!listaSubcatAberta) return
     const aoClicarFora = (e: MouseEvent) => {
-      if (raizSubcatRef.current && !raizSubcatRef.current.contains(e.target as Node)) {
+      const alvo = e.target as Node
+      if (
+        raizSubcatRef.current &&
+        !raizSubcatRef.current.contains(alvo) &&
+        !listaSubcatPortalRef.current?.contains(alvo)
+      ) {
         setListaSubcatAberta(false)
       }
     }
     document.addEventListener('mousedown', aoClicarFora)
     return () => document.removeEventListener('mousedown', aoClicarFora)
   }, [listaSubcatAberta])
+
+  // Parte C.2 — a lista vive em PORTAL no <body> com posição FIXA calculada do
+  // input: dentro do DialogContent (overflow-y-auto) o dropdown absolute era
+  // CORTADO pelo scrollport no PC (Detalhes do item da captura: digitar não
+  // mostrava a lista). O input permanece no DOM estável do formulário; a lista
+  // segue o input em scroll/resize e vira para cima quando falta espaço abaixo.
+  const recalcularPosicaoListaSubcat = React.useCallback(() => {
+    const raiz = raizSubcatRef.current
+    if (!raiz) return
+    const r = raiz.getBoundingClientRect()
+    const espacoAbaixo = window.innerHeight - r.bottom
+    const abrirParaCima = espacoAbaixo < 160 && r.top > espacoAbaixo
+    setPosListaSubcat({
+      left: r.left,
+      width: r.width,
+      ...(abrirParaCima ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
+      alturaMax: Math.max(120, Math.min(288, (abrirParaCima ? r.top : espacoAbaixo) - 8)),
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!listaSubcatAberta) {
+      setPosListaSubcat(null)
+      return
+    }
+    recalcularPosicaoListaSubcat()
+    window.addEventListener('scroll', recalcularPosicaoListaSubcat, true)
+    window.addEventListener('resize', recalcularPosicaoListaSubcat)
+    return () => {
+      window.removeEventListener('scroll', recalcularPosicaoListaSubcat, true)
+      window.removeEventListener('resize', recalcularPosicaoListaSubcat)
+    }
+  }, [listaSubcatAberta, recalcularPosicaoListaSubcat])
 
   const handleSubmeter = async (e: React.FormEvent, criarOutro = false) => {
     e.preventDefault()
@@ -813,7 +866,15 @@ export function ModalLancamento({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white text-slate-900 border-slate-200 shadow-xl">
+        <DialogContent
+          className="sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white text-slate-900 border-slate-200 shadow-xl"
+          onPointerDownOutside={(e) => {
+            // Parte C.2 — a lista da subcategoria vive em portal FORA do
+            // Dialog: clicar numa opção não pode fechar o modal inteiro.
+            const alvo = ((e as any).detail?.originalTarget ?? e.target) as Node
+            if (listaSubcatPortalRef.current?.contains(alvo)) e.preventDefault()
+          }}
+        >
           <form onSubmit={(e) => handleSubmeter(e, false)}>
             <DialogHeader className="pb-2 border-b border-slate-100">
               <DialogTitle className="flex items-center gap-2 text-slate-900 font-bold text-base">
@@ -1832,58 +1893,74 @@ export function ModalLancamento({
                       )}
                     </div>
 
-                    {listaSubcatAberta && !camposTravadosCaptura && (
-                      <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-72 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                    {listaSubcatAberta &&
+                      !camposTravadosCaptura &&
+                      posListaSubcat &&
+                      createPortal(
                         <div
-                          role="option"
-                          aria-selected={!subcategoriaId}
-                          tabIndex={-1}
-                          onMouseDown={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
+                          ref={listaSubcatPortalRef}
+                          className="fixed z-[70] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
+                          style={{
+                            left: posListaSubcat.left,
+                            width: posListaSubcat.width,
+                            maxHeight: posListaSubcat.alturaMax,
+                            ...(posListaSubcat.top !== undefined
+                              ? { top: posListaSubcat.top }
+                              : { bottom: posListaSubcat.bottom }),
                           }}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setBuscaSubcategoria('')
-                            setListaSubcatAberta(false)
-                            setSubcategoriaId('')
-                          }}
-                          className="relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-2 pr-2 text-xs outline-none hover:bg-slate-100 focus:bg-slate-100 text-slate-500"
+                          onMouseDown={(e) => e.preventDefault()}
                         >
-                          — Nenhuma —
-                        </div>
-                        {subcategoriasFiltradas.length === 0 ? (
-                          <div className="p-3 text-center text-xs text-slate-400">
-                            {buscaSubcategoria.trim()
-                              ? 'Nenhuma subcategoria encontrada para o filtro digitado'
-                              : 'Nenhuma subcategoria encontrada'}
+                          <div
+                            role="option"
+                            aria-selected={!subcategoriaId}
+                            tabIndex={-1}
+                            onMouseDown={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                            }}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setBuscaSubcategoria('')
+                              setListaSubcatAberta(false)
+                              setSubcategoriaId('')
+                            }}
+                            className="relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-2 pr-2 text-xs outline-none hover:bg-slate-100 focus:bg-slate-100 text-slate-500"
+                          >
+                            — Nenhuma —
                           </div>
-                        ) : (
-                          subcategoriasFiltradas.map((s) => (
-                            <div
-                              key={s.id}
-                              role="option"
-                              aria-selected={subcategoriaId === s.id}
-                              tabIndex={-1}
-                              onMouseDown={(e) => {
-                                e.preventDefault()
-                                e.stopPropagation()
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleSelecionarSubcategoria(s.id)
-                              }}
-                              className="relative flex w-full cursor-pointer select-none items-center gap-2 rounded-sm py-1.5 pl-2 pr-2 text-xs outline-none hover:bg-slate-100 focus:bg-slate-100"
-                            >
-                              <span className="font-semibold text-slate-900">{s.nome}</span>
-                              <span className="text-[11px] text-slate-400 font-normal">
-                                ({s.categoriaNome})
-                              </span>
+                          {subcategoriasFiltradas.length === 0 ? (
+                            <div className="p-3 text-center text-xs text-slate-400">
+                              {buscaSubcategoria.trim()
+                                ? 'Nenhuma subcategoria encontrada para o filtro digitado'
+                                : 'Nenhuma subcategoria encontrada'}
                             </div>
-                          ))
-                        )}
-                      </div>
-                    )}
+                          ) : (
+                            subcategoriasFiltradas.map((s) => (
+                              <div
+                                key={s.id}
+                                role="option"
+                                aria-selected={subcategoriaId === s.id}
+                                tabIndex={-1}
+                                onMouseDown={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                }}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleSelecionarSubcategoria(s.id)
+                                }}
+                                className="relative flex w-full cursor-pointer select-none items-center gap-2 rounded-sm py-1.5 pl-2 pr-2 text-xs outline-none hover:bg-slate-100 focus:bg-slate-100"
+                              >
+                                <span className="font-semibold text-slate-900">{s.nome}</span>
+                                <span className="text-[11px] text-slate-400 font-normal">
+                                  ({s.categoriaNome})
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>,
+                        document.body,
+                      )}
                     {!subcategoriaId && !modoCaptura && (
                       <p className="text-[11px] text-rose-500 mt-1">
                         * Campo obrigatório para categorização do fluxo financeiro
