@@ -17,6 +17,12 @@ import { cn } from '@/lib/utils'
  * teclas e foco mantido até o clique na opção — o teclado do celular não
  * recolhe até a escolha. Botão X para LIMPAR (inclusive pré-preenchida pela
  * IA) e item "— Nenhuma —" preservados. Última gravação vence.
+ *
+ * C.4 — as listas em portal recebem data-lista-portal="true", pointer-events
+ * auto (o Dialog Radix põe pointer-events:none no <body>: sem isso o toque
+ * ATRAVESSA a lista e aciona o que está por baixo) e stopPropagation no
+ * pointerdown (o listener de dismissal do DismissableLayer vive no
+ * document: sem isso o Dialog fecha antes do onClick da opção rodar).
  */
 
 const PLACEHOLDER_FILTRO = 'Filtrar categoria ou subcategoria...'
@@ -229,13 +235,22 @@ export const SeletorCategoriaFatura: React.FC<SeletorCategoriaFaturaProps> = ({
         createPortal(
           <div
             ref={listaPortalRef}
+            data-lista-portal=""
             className="fixed z-[70] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
             style={{
+              // C.4 — o Dialog Radix põe pointer-events:none no <body>; sem
+              // 'auto' aqui o toque ATRAVESSA a lista e aciona o que está
+              // por baixo (ex.: botão Agrupar).
+              pointerEvents: 'auto',
               left: posLista.left,
               width: posLista.width,
               maxHeight: posLista.alturaMax,
               ...(posLista.top !== undefined ? { top: posLista.top } : { bottom: posLista.bottom }),
             }}
+            // C.4 — o pointerdown NÃO pode chegar ao listener do documento do
+            // DismissableLayer: para o Radix, a lista em portal é "fora" do
+            // Dialog e ele demitiria o modal antes do onClick da opção rodar.
+            onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.preventDefault()}
           >
             <ItemNenhum aoEscolher={limpar} />
@@ -344,13 +359,22 @@ export const SeletorSubcategoriaFatura: React.FC<SeletorSubcategoriaFaturaProps>
         createPortal(
           <div
             ref={listaPortalRef}
+            data-lista-portal=""
             className="fixed z-[70] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
             style={{
+              // C.4 — o Dialog Radix põe pointer-events:none no <body>; sem
+              // 'auto' aqui o toque ATRAVESSA a lista e aciona o que está
+              // por baixo (ex.: botão Agrupar).
+              pointerEvents: 'auto',
               left: posLista.left,
               width: posLista.width,
               maxHeight: posLista.alturaMax,
               ...(posLista.top !== undefined ? { top: posLista.top } : { bottom: posLista.bottom }),
             }}
+            // C.4 — o pointerdown NÃO pode chegar ao listener do documento do
+            // DismissableLayer: para o Radix, a lista em portal é "fora" do
+            // Dialog e ele demitiria o modal antes do onClick da opção rodar.
+            onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.preventDefault()}
           >
             <ItemNenhum aoEscolher={limpar} />

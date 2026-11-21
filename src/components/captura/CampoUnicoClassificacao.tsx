@@ -8,6 +8,11 @@
  * preservados. A lista vive em PORTAL no <body> com position fixed (mesmo
  * esquema da C.2/C.3: nunca cortada pelo DialogContent no PC); o clique na
  * lista não fecha o Dialog.
+ *
+ * C.4 — data-lista-portal="true" + pointer-events auto + stopPropagation no
+ * pointerdown na lista em portal: o Dialog Radix põe pointer-events:none no
+ * <body> (toque ATRAVESSA) e o listener de dismissal do DismissableLayer
+ * vive no document (fecharia o Dialog antes do onClick da opção rodar).
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -205,13 +210,22 @@ const CampoUnicoClassificacao: React.FC<Props> = ({
         createPortal(
           <div
             ref={listaPortalRef}
+            data-lista-portal=""
             className="fixed z-[70] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
             style={{
+              // C.4 — o Dialog Radix põe pointer-events:none no <body>; sem
+              // 'auto' aqui o toque ATRAVESSA a lista e aciona o que está
+              // por baixo (ex.: botão Agrupar).
+              pointerEvents: 'auto',
               left: pos.left,
               width: pos.width,
               maxHeight: pos.alturaMax,
               ...(pos.top !== undefined ? { top: pos.top } : { bottom: pos.bottom }),
             }}
+            // C.4 — o pointerdown NÃO pode chegar ao listener do documento do
+            // DismissableLayer: para o Radix, a lista em portal é "fora" do
+            // Dialog e ele demitiria o modal antes do onClick da opção rodar.
+            onPointerDown={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.preventDefault()}
           >
             <div

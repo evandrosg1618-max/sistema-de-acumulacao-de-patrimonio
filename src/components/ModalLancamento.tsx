@@ -868,10 +868,17 @@ export function ModalLancamento({
         <DialogContent
           className="sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white text-slate-900 border-slate-200 shadow-xl"
           onPointerDownOutside={(e) => {
-            // Parte C.2 — a lista da subcategoria vive em portal FORA do
-            // Dialog: clicar numa opção não pode fechar o modal inteiro.
-            const alvo = ((e as any).detail?.originalTarget ?? e.target) as Node
-            if (listaSubcatPortalRef.current?.contains(alvo)) e.preventDefault()
+            // C.2/C.4 — a lista da subcategoria vive em portal FORA do Dialog:
+            // clicar numa opção não pode fechar o modal inteiro. O Radix envia
+            // o evento NATIVO em detail.originalEvent (o CustomEvent em si tem
+            // target nulo — por isso o guard antigo, que lia detail.originalTarget,
+            // nunca disparava). Defesa em profundidade: a própria lista já faz
+            // stopPropagation no pointerdown.
+            const nativo = ((e as any).detail?.originalEvent ?? e) as Event
+            const alvo = ((nativo as any).target ?? (nativo as any).composedPath?.()[0]) as
+              | Node
+              | undefined
+            if (alvo && listaSubcatPortalRef.current?.contains(alvo)) e.preventDefault()
           }}
         >
           <form onSubmit={(e) => handleSubmeter(e, false)}>
@@ -1898,8 +1905,13 @@ export function ModalLancamento({
                       createPortal(
                         <div
                           ref={listaSubcatPortalRef}
+                          data-lista-portal=""
                           className="fixed z-[70] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
                           style={{
+                            // C.4 — o Dialog Radix põe pointer-events:none no
+                            // <body>; sem 'auto' aqui o toque ATRAVESSA a lista
+                            // e aciona o que está por baixo.
+                            pointerEvents: 'auto',
                             left: posListaSubcat.left,
                             width: posListaSubcat.width,
                             maxHeight: posListaSubcat.alturaMax,
@@ -1907,6 +1919,11 @@ export function ModalLancamento({
                               ? { top: posListaSubcat.top }
                               : { bottom: posListaSubcat.bottom }),
                           }}
+                          // C.4 — o pointerdown NÃO pode chegar ao listener do
+                          // documento do DismissableLayer: para o Radix, a lista
+                          // em portal é "fora" do Dialog e ele demitiria o modal
+                          // antes do onClick da opção rodar.
+                          onPointerDown={(e) => e.stopPropagation()}
                           onMouseDown={(e) => e.preventDefault()}
                         >
                           <div
