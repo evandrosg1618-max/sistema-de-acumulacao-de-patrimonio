@@ -13,7 +13,6 @@ import { useMemo } from 'react'
 import { ModalLancamento } from '@/components/ModalLancamento'
 import { toast } from '@/hooks/use-toast'
 import { capturaService } from '@/services/captura/capturaService'
-import { idRealDeMeio } from '@/components/captura/tiposRevisao'
 import type { CapturaItemRevisao } from '@/components/captura/tiposRevisao'
 import type { MeioPagamentoTipo, StatusPagamento } from '@/types/sap'
 import type { Categoria, Subcategoria } from '@/types/sap'
@@ -56,13 +55,17 @@ export function ModalDetalheItemCaptura({
     // (ou tem id órfão), herda o meio validado da SESSÃO — o campo "Pago com"
     // do Detalhes NUNCA abre em branco.
     const tipoHerda = String(item.meio_pagamento_tipo || '').toUpperCase()
-    const idValido =
-      item.meio_pagamento_id &&
-      [...(meiosValidados || []), ...contas, ...cartoes].some(
-        (m) => m?.id === item.meio_pagamento_id,
-      )
+    // A.3 — o candidato grava o id da LINHA de meios_pagamento; para apenas
+    // PRÉ-SELECIONAR o "Pago com" do modal, a linha é traduzida ao id real
+    // (cartao_id/conta_id) — o que volta no payload é mapeado de volta para a
+    // linha em gravarNoCandidato.
+    const linhaMeio = (meiosValidados || []).find((m) => m?.id === item.meio_pagamento_id)
+    const idValido = Boolean(item.meio_pagamento_id && linhaMeio)
     const meioRef: { tipo: string | null; id: string | null } = idValido
-      ? { tipo: item.meio_pagamento_tipo, id: item.meio_pagamento_id }
+      ? {
+          tipo: item.meio_pagamento_tipo,
+          id: linhaMeio!.cartao_id || linhaMeio!.conta_id || null,
+        }
       : { tipo: null, id: null }
     const meioPagamento = meioRef.tipo || item.meio_pagamento_tipo
     const resolveMeio = (): { tipo: string; id: string | null } => {
@@ -100,35 +103,35 @@ export function ModalDetalheItemCaptura({
       afeta_resultado: item.afeta_resultado,
       afeta_orcamento: item.afeta_orcamento,
       observacao: item.observacao,
-      // A2 — rastreia o meio herdado do Lote/sessão (id real) para o salvamento.
-      meio_lote_herdado_id: meioRef.id,
       status_pagamento: (meioPagamento === 'CARTAO' ? 'pendente' : 'pago') as StatusPagamento,
     }
   }, [item, categorias, subcategorias, meiosValidados, contas, cartoes])
 
   const gravarNoCandidato = async (payload: any) => {
     if (!item) return
-    // A2 — o meio escolhido no Detalhes SEMPRE vem de contas/cartoes reais
-    // (o payload do ModalLancamento é "conta:<id>"/"cartao:<id>"/"dinheiro").
-    // O meio herdado do Lote (meio_lote_herdado_id) é o fallback: gravar os
-    // Detalhes SEM tocar no "Pago com" preserva o meio do Lote — nunca vazio.
-    const meioAtualId = (initialData as any)?.meio_lote_herdado_id || item.meio_pagamento_id || null
+    // A.3 — o candidato grava o id da LINHA de meios_pagamento (FK da sessão).
+    // O payload do modal traz o id REAL (cartao_id/conta_origem_id): mapear
+    // DE VOLTA para a linha correspondente em meiosValidados. Gravar os
+    // Detalhes SEM tocar no "Pago com" devolve o mesmo id de linha já gravado
+    // (item.meio_pagamento_id) — o meio do Lote nunca se perde.
+    const tipoMeioPayload = String(payload.meio_pagamento_tipo || '').toUpperCase()
+    const linhaDeVolta =
+      tipoMeioPayload === 'CARTAO' && payload.cartao_id
+        ? (meiosValidados || []).find((m) => m?.cartao_id === payload.cartao_id)
+        : tipoMeioPayload === 'CONTA' && payload.conta_origem_id
+          ? (meiosValidados || []).find((m) => m?.conta_id === payload.conta_origem_id)
+          : null
+    const meioAtualId = item.meio_pagamento_id || null
     const nomeMeioHerado = item.meio_pagamento_nome || null
-    const meioEncontrado = [...contas, ...cartoes].find(
-      (m) => m.id === payload.conta_origem_id || m.id === payload.cartao_id,
-    )
     const patch: Partial<CapturaItemRevisao> = {
       descricao: payload.descricao || item.descricao,
       valor: Number(payload.valor) || 0,
       data: payload.data || item.data,
       meio_pagamento_tipo: payload.meio_pagamento_tipo || item.meio_pagamento_tipo || 'DINHEIRO',
-      meio_pagamento_id:
-        payload.meio_pagamento_tipo === 'CARTAO'
-          ? payload.cartao_id || meioAtualId
-          : payload.meio_pagamento_tipo === 'CONTA'
-            ? payload.conta_origem_id || meioAtualId
-            : meioAtualId,
-      meio_pagamento_nome: meioEncontrado?.nome || nomeMeioHerado,
+      // Sem linha correspondente (ex.: pagamento em dinheiro), preserva o id
+      // de linha já gravado no candidato.
+      meio_pagamento_id: linhaDeVolta?.id || meioAtualId,
+      meio_pagamento_nome: linhaDeVolta?.nome || nomeMeioHerado,
       categoria_id: payload.categoria_id || null,
       subcategoria_id: payload.subcategoria_id || null,
       modalidade_saida: payload.modalidade_saida || 'compra_propria',

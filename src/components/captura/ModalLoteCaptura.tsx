@@ -3,9 +3,10 @@
  * Detalhes (ModalLancamento em modoCaptura), com descrição, data, valor,
  * categoria e subcategoria DESABILITADOS (são do conteúdo de cada item) e
  * editáveis apenas os campos comuns do lote:
- *  - "Pago com" (T1): lista de meios com ids REAIS de contas/cartoes
- *    (meiosReais da página) — id de meios_pagamento nunca sai daqui;
- *  - toggle "Pago" (conta/dinheiro) e botão "Repetir" (cartão);
+ *  - "Pago com" (T1): lista das LINHAS de meios_pagamento (meiosReais da
+ *    página) — id de meios_pagamento nunca sai daqui;
+ *  - toggle "Pago" (conta/dinheiro); a marcação "Repetir" é do painel
+ *    Repetir do ModalLancamento (Fixo/Indeterminado/Parcelado);
  *  - "Observações".
  * O patch segue parcial: só o que o usuário marcar/preencher é aplicado
  * (aplicarLote da página já faz patch campo a campo via aplicarPatchLote).
@@ -49,6 +50,10 @@ interface Props {
   /** Lista de categorias/subcategorias para o seletor DESABILITADO do lote. */
   categorias?: any[]
   subcategorias?: any[]
+  /** Listas reais repassadas ao ModalLancamento (corpo do Lote). */
+  contas?: any[]
+  cartoes?: any[]
+  workspaceId?: string
 }
 
 export function ModalLoteCaptura({
@@ -61,10 +66,12 @@ export function ModalLoteCaptura({
   resumo,
   categorias = [],
   subcategorias = [],
+  contas = [],
+  cartoes = [],
+  workspaceId,
 }: Props) {
   // Marcações do lote (o que o usuário de fato marcar é o que aplica).
   const [pago, setPago] = useState<boolean | undefined>(undefined)
-  const [repetir, setRepetir] = useState<boolean | undefined>(undefined)
   const [observacao, setObservacao] = useState('')
   const [meioId, setMeioId] = useState('')
 
@@ -79,7 +86,6 @@ export function ModalLoteCaptura({
   useEffect(() => {
     if (aberto) {
       setPago(undefined)
-      setRepetir(undefined)
       setObservacao('')
       setMeioId('')
     }
@@ -109,7 +115,6 @@ export function ModalLoteCaptura({
       patch.meioPagamentoNome = meioSelecionado.nome
     }
     if (pago !== undefined) patch.pago = pago
-    if (repetir !== undefined) patch.repetir = repetir
     if (observacao.trim()) patch.observacao = observacao.trim()
     if (Object.keys(patch).length === 0) {
       onFechar()
@@ -148,10 +153,10 @@ export function ModalLoteCaptura({
           } as any
         }
         tipoPadrao="despesa"
-        contas={[]}
-        cartoes={[]}
+        contas={contas}
+        cartoes={cartoes}
         categorias={categorias}
-        workspaceId="lote"
+        workspaceId={workspaceId || 'lote'}
         dataPadrao={resumo?.data || undefined}
         modoCaptura
         onSalvarCaptura={async () => undefined}
@@ -162,14 +167,14 @@ export function ModalLoteCaptura({
       {/* Painel de marcações do LOTE — sobreposto ao modal (o corpo é a tela
           do Detalhes com os campos de conteúdo travados; aqui só o que é
           comum ao lote é editável). */}
-      {opcoesRepeticaoAbertas && (
+      {aberto && opcoesRepeticaoAbertas && (
         <div className="fixed inset-x-0 bottom-0 z-[70] flex justify-center p-3 pointer-events-none">
           <span className="pointer-events-auto rounded-full bg-slate-900/80 px-3 py-1 text-[11px] font-semibold text-white shadow-lg">
             Escolha Fixo ou Parcelado — feche para voltar ao Lote
           </span>
         </div>
       )}
-      {!opcoesRepeticaoAbertas && (
+      {aberto && !opcoesRepeticaoAbertas && (
         <div className="fixed inset-x-0 bottom-0 z-[70] border-t border-slate-200 bg-white p-3 shadow-2xl">
           <div className="max-w-md mx-auto space-y-2">
             <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
@@ -203,20 +208,8 @@ export function ModalLoteCaptura({
                 <Switch checked={pago === true} onCheckedChange={(v) => setPago(v)} />
               </div>
             )}
-            {/* "Repetir": visível quando o meio é cartão. */}
-            {meioEhCartao && (
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs text-slate-600">Repetir</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 text-[11px]"
-                  onClick={() => setRepetir((v) => !(v === true))}
-                >
-                  {repetir === true ? 'Repetir: Sim' : 'Repetir: Não'}
-                </Button>
-              </div>
-            )}
+            {/* "Repetir" (cartão): a marcação é do painel Repetir do
+              ModalLancamento — Fixo/Indeterminado/Parcelado. */}
 
             <div className="space-y-1">
               <Label className="text-xs text-slate-600">Observações</Label>
