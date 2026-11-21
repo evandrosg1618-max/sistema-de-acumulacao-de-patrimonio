@@ -55,7 +55,6 @@ import {
   StatusCandidato,
   candidatoDeItem,
   candidatoEstaCompleto,
-  idRealDeMeio,
   itemDbParaRevisao,
   revisaoParaItemDb,
   aplicarPatchLote,
@@ -134,42 +133,36 @@ function CapturarNfceConteudo() {
   const [avisoImportar, setAvisoImportar] = useState<'confirmar' | 'bloqueado' | null>(null)
   const workspaceId = currentWorkspace?.workspace_id || currentWorkspace?.id || ''
 
-  // ── T1 (TESTE CAPTURA 5 v2) — ids REAIS de contas/cartões ──────────────
-  // A fonte do bug da FK (lancamentos_cartao_id_fkey): a aba Lote e a sessão
-  // gravavam o id da LINHA de meios_pagamento, que não existe em
-  // public.cartoes/public.contas. Daqui em diante o seletor e a importação
-  // só usam ids validados contra as listas carregadas do banco.
-  const idsContasCartoes = useMemo(
-    () => new Set<string>([...contas.map((c) => c.id), ...cartoes.map((k) => k.id)]),
-    [contas, cartoes],
+  // ── A.3 (TESTE CAPTURA 6) — convenção do meio de pagamento da captura ──
+  // captura_sessoes/captura_sessao_itens têm FK para meios_pagamento(id):
+  // gravam o id da LINHA de meio de pagamento. A IMPORTAÇÃO carrega a linha
+  // e usa linha.cartao_id (CARTAO) / linha.conta_id (CONTA) para criar o
+  // lançamento; DINHEIRO não gera FK. Nunca gravar id de cartoes/contas
+  // direto nessas colunas.
+  const idsMeiosValidos = useMemo(
+    () => new Set<string>(meios.map((m) => m.id).filter(Boolean)),
+    [meios],
   )
 
-  const meiosReais = useMemo(() => {
-    const lista: Array<{ id: string; nome: string; tipo: string; ativo: boolean }> = []
-    const vistos = new Set<string>()
-    for (const m of meios) {
-      const tipo = String(m.tipo || '').toUpperCase()
-      const real = idRealDeMeio(m)
-      if (!real || vistos.has(real)) continue
-      // DINHEIRO não vira FK (conta_origem/cartao ficam nulos); os demais só
-      // entram se o id real existir em contas/cartoes — órfão fica de fora.
-      if (tipo !== 'DINHEIRO' && !idsContasCartoes.has(real)) continue
-      vistos.add(real)
-      lista.push({ id: real, nome: m.nome, tipo, ativo: m.ativo !== false })
-    }
-    return lista
-  }, [meios, idsContasCartoes])
-
-  const idsMeiosValidos = useMemo(() => {
-    const s = new Set<string>(idsContasCartoes)
-    meios.forEach((m) => {
-      if (String(m.tipo || '').toUpperCase() === 'DINHEIRO' && m.id) s.add(m.id)
-    })
-    return s
-  }, [idsContasCartoes, meios])
+  // Lista para os seletores: as PRÓPRIAS linhas de meios_pagamento (nome +
+  // tipo + vínculo real), validando apenas ativo.
+  const meiosReais = useMemo(
+    () =>
+      meios
+        .filter((m) => m.id)
+        .map((m) => ({
+          id: m.id as string,
+          nome: String(m.nome || ''),
+          tipo: String(m.tipo || '').toUpperCase(),
+          ativo: m.ativo !== false,
+          conta_id: (m as any).conta_id || null,
+          cartao_id: (m as any).cartao_id || null,
+        })),
+    [meios],
+  )
 
   // T1 — id que não existe no banco é tratado como vazio; tenta deduzir pelo
-  // nome do meio (conta/cartão real com o mesmo nome).
+  // nome do meio (linha de meios_pagamento com o mesmo nome).
   const resolverMeioValido = useCallback(
     (id: string | null, nome: string | null | undefined): string | null => {
       if (id && idsMeiosValidos.has(id)) return id
@@ -177,17 +170,17 @@ function CapturarNfceConteudo() {
         .trim()
         .toLowerCase()
       if (n) {
-        const achou = [...contas, ...cartoes].find(
-          (x) =>
-            String(x.nome || '')
+        const achou = meios.find(
+          (m) =>
+            String(m.nome || '')
               .trim()
               .toLowerCase() === n,
         )
-        if (achou) return achou.id
+        if (achou?.id) return achou.id
       }
       return null
     },
-    [idsMeiosValidos, contas, cartoes],
+    [idsMeiosValidos, meios],
   )
 
   const normalizarMeioItem = useCallback(
@@ -269,10 +262,10 @@ function CapturarNfceConteudo() {
       return
     }
     try {
-      // T1 — a sessão guarda o id REAL (contas/cartoes), nunca o id da linha
-      // de meios_pagamento (fonte do id órfão que derrubava a FK na importação).
+      // A.3 — a sessão guarda o id da LINHA de meios_pagamento (convenção
+      // homologada): a importação resolve cartao_id/conta_id pela linha.
       const meioPadraoRaw = meios.find((m) => m.ativo) || null
-      const meioPadraoId = idRealDeMeio(meioPadraoRaw)
+      const meioPadraoId = meioPadraoRaw?.id || null
       const s = await capturaService.criarSessao(workspaceId, {
         tipo_documento: 'nfce',
         trilha: t,
@@ -826,19 +819,24 @@ function CapturarNfceConteudo() {
       // criar uma segunda cópia.
       const idempotencyKey = `captura:${sessao.id}:${item.id}`
       try {
-        const tipoMeio = (item.meio_pagamento_tipo || 'DINHEIRO') as 'CONTA' | 'CARTAO' | 'DINHEIRO'
-        // T1 — o id que vai para a FK é validado contra contas/cartoes reais.
-        const meioResolvido = resolverMeioValido(item.meio_pagamento_id, item.meio_pagamento_nome)
-        const meioOk =
+        // A.3 — resolve pela LINHA de meios_pagamento (convenção homologada):
+        // CARTAO → linha.cartao_id; CONTA → linha.conta_id; DINHEIRO → sem FK.
+        const linhaMeio = meios.find((m) => m.id === item.meio_pagamento_id) || null
+        const tipoMeio = String(
+          linhaMeio?.tipo || item.meio_pagamento_tipo || 'DINHEIRO',
+        ).toUpperCase() as 'CONTA' | 'CARTAO' | 'DINHEIRO'
+        const fkId =
           tipoMeio === 'CARTAO'
-            ? !!meioResolvido && cartoes.some((k) => k.id === meioResolvido)
+            ? (linhaMeio as any)?.cartao_id || null
             : tipoMeio === 'CONTA'
-              ? !!meioResolvido && contas.some((c) => c.id === meioResolvido)
-              : true
+              ? (linhaMeio as any)?.conta_id || null
+              : null
+        const meioOk = tipoMeio === 'DINHEIRO' ? true : Boolean(linhaMeio && fkId)
         if (!meioOk) {
           falhas++
-          const msg =
-            'Meio de pagamento inválido — abra os Detalhes do item e selecione o "Pago com" novamente.'
+          const msg = linhaMeio
+            ? 'O cartão/conta deste meio de pagamento não foi encontrado — selecione o "Pago com" novamente nos Detalhes.'
+            : 'Meio de pagamento inválido — abra os Detalhes do item e selecione o "Pago com" novamente.'
           try {
             await capturaService.marcarErroItem(item.id, sessao.id, sessao.workspace_id, msg)
           } catch {
@@ -878,8 +876,8 @@ function CapturarNfceConteudo() {
           descricao: item.descricao,
           valor: item.valor,
           meio_pagamento_tipo: tipoMeio,
-          conta_origem_id: tipoMeio === 'CONTA' ? meioResolvido : null,
-          cartao_id: tipoMeio === 'CARTAO' ? meioResolvido : null,
+          conta_origem_id: tipoMeio === 'CONTA' ? fkId : null,
+          cartao_id: tipoMeio === 'CARTAO' ? fkId : null,
           status_pagamento: statusPagamento,
           data_pagamento: statusPagamento === 'pago' ? getTodayDateString() : null,
           // P3 (A.2) — categoria GRAVADA no lançamento (como a importação de
@@ -1546,6 +1544,9 @@ function CapturarNfceConteudo() {
         onFechar={() => setLoteAberto(false)}
         onAplicar={aplicarLote}
         meiosPagamento={meiosReais}
+        contas={contas}
+        cartoes={cartoes}
+        workspaceId={workspaceId}
         tiposMeioSelecionados={selecionados.map((i) => i.meio_pagamento_tipo)}
         quantidadeItens={selecionados.length}
         resumo={resumoSelecao}
