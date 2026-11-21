@@ -115,23 +115,25 @@ export function ModalDetalheItemCaptura({
     // Detalhes SEM tocar no "Pago com" devolve o mesmo id de linha já gravado
     // (item.meio_pagamento_id) — o meio do Lote nunca se perde.
     const tipoMeioPayload = String(payload.meio_pagamento_tipo || '').toUpperCase()
+    // A.5/T2 — último-alteração-vence: o "Pago com" do payload SEMPRE manda
+    // sobre o que já estava no candidato (Detalhes→Lote ou Lote→Detalhes,
+    // qualquer ordem). DINHEIRO resolve a LINHA DINHEIRO do cadastro (mesmo
+    // critério do caminho do Lote na página) — o item sai de "A Revisar".
     const linhaDeVolta =
       tipoMeioPayload === 'CARTAO' && payload.cartao_id
         ? (meiosValidados || []).find((m) => m?.cartao_id === payload.cartao_id)
         : tipoMeioPayload === 'CONTA' && payload.conta_origem_id
           ? (meiosValidados || []).find((m) => m?.conta_id === payload.conta_origem_id)
-          : null
-    const meioAtualId = item.meio_pagamento_id || null
-    const nomeMeioHerado = item.meio_pagamento_nome || null
+          : tipoMeioPayload === 'DINHEIRO'
+            ? (meiosValidados || []).find((m) => String(m?.tipo || '').toUpperCase() === 'DINHEIRO')
+            : null
     const patch: Partial<CapturaItemRevisao> = {
       descricao: payload.descricao || item.descricao,
       valor: Number(payload.valor) || 0,
       data: payload.data || item.data,
       meio_pagamento_tipo: payload.meio_pagamento_tipo || item.meio_pagamento_tipo || 'DINHEIRO',
-      // Sem linha correspondente (ex.: pagamento em dinheiro), preserva o id
-      // de linha já gravado no candidato.
-      meio_pagamento_id: linhaDeVolta?.id || meioAtualId,
-      meio_pagamento_nome: linhaDeVolta?.nome || nomeMeioHerado,
+      meio_pagamento_id: linhaDeVolta?.id || null,
+      meio_pagamento_nome: linhaDeVolta?.nome || null,
       categoria_id: payload.categoria_id || null,
       subcategoria_id: payload.subcategoria_id || null,
       modalidade_saida: payload.modalidade_saida || 'compra_propria',
@@ -174,8 +176,10 @@ export function ModalDetalheItemCaptura({
           observacao: patch.observacao,
         })
       } catch (e: any) {
-        // T3 — erro orientado ao usuário, MAS o patch segue em memória
-        // (onGravado sempre chamado) para a revisão não travar.
+        // A.5/T4 — erro orientado ao usuário, MAS o patch segue em memória
+        // (onGravado sempre chamado) para a revisão não travar. A gravação
+        // dos Detalhes NUNCA derruba a página no error boundary.
+        console.error('Falha ao gravar item nos Detalhes:', item.id, e)
         toast({
           title: 'Aviso: edição aplicada apenas nesta tela',
           description:

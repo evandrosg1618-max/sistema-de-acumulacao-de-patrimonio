@@ -35,7 +35,9 @@ export interface ResumoLoteCaptura {
 interface Props {
   aberto: boolean
   onFechar: () => void
-  onAplicar: (patch: PatchLoteCaptura) => void
+  /** A.5/T3 — o lote AGUARDA a Promise: "Salvar no lote" fica desabilitado
+      ("Salvando...") até TODAS as gravações do loop da página terminarem. */
+  onAplicar: (patch: PatchLoteCaptura) => void | Promise<void>
   meiosPagamento: MeioLoteCaptura[]
   /** Tipos de meio dos itens SELECIONADOS (distintos, em maiúsculas). */
   tiposMeioSelecionados?: string[]
@@ -105,7 +107,7 @@ export function ModalLoteCaptura({
       onFechar()
       return
     }
-    onAplicar(patch)
+    await onAplicar(patch)
   }
 
   const tituloLote = `Lote — ${quantidadeItens} item(ns) • ${(resumo?.valor ?? 0).toLocaleString(

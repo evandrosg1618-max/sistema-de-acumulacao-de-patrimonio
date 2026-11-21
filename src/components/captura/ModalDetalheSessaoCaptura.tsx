@@ -23,13 +23,15 @@ import {
   rotuloTipoDocumento,
 } from '@/services/captura/capturaService'
 import { formatMoneyBRL } from '@/lib/formatters'
-import { Image as ImageIcon, ListChecks, Receipt } from 'lucide-react'
+import { Image as ImageIcon, ListChecks, Loader2, Receipt } from 'lucide-react'
 
 interface Props {
   sessao: CapturaSessao | null
   onFechar: () => void
   /** R3 — abre a etapa de revisão desta sessão na página (ou avisa se já importada). */
   onContinuarRevisao?: (sessao: CapturaSessao) => void
+  /** A.5/T3 — desabilita "Continuar revisão" enquanto a sessão é recarregada. */
+  processando?: boolean
 }
 
 interface LancRelacionado {
@@ -37,7 +39,12 @@ interface LancRelacionado {
   lancamentoId: string
 }
 
-export function ModalDetalheSessaoCaptura({ sessao, onFechar, onContinuarRevisao }: Props) {
+export function ModalDetalheSessaoCaptura({
+  sessao,
+  onFechar,
+  onContinuarRevisao,
+  processando = false,
+}: Props) {
   const [urls, setUrls] = useState<string[]>([])
   const [carregando, setCarregando] = useState(false)
   const [erroImagens, setErroImagens] = useState<string | null>(null)
@@ -167,10 +174,19 @@ export function ModalDetalheSessaoCaptura({ sessao, onFechar, onContinuarRevisao
               variant={podeRetomar ? 'default' : 'outline'}
               size="sm"
               className="h-8 text-xs"
+              disabled={processando}
               onClick={abrirRevisao}
             >
-              <ListChecks className="w-3.5 h-3.5 mr-1" />
-              {podeRetomar ? 'Continuar revisão' : 'Ver itens reconhecidos'}
+              {processando ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+              ) : (
+                <ListChecks className="w-3.5 h-3.5 mr-1" />
+              )}
+              {processando
+                ? 'Abrindo…'
+                : podeRetomar
+                  ? 'Continuar revisão'
+                  : 'Ver itens reconhecidos'}
             </Button>
             <Button
               variant="outline"

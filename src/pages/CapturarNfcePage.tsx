@@ -111,6 +111,11 @@ function CapturarNfceConteudo() {
   const [progresso, setProgresso] = useState('')
   const [importando, setImportando] = useState(false)
   const [loteAberto, setLoteAberto] = useState(false)
+  // A.5/T3 — anti duplo clique no "Salvar no lote": true do clique até o fim
+  // de TODAS as gravações do loop async do lote.
+  const [loteAplicando, setLoteAplicando] = useState(false)
+  // A.5/T3 — anti duplo clique no "Continuar revisão".
+  const [continuandoRevisao, setContinuandoRevisao] = useState(false)
   const [agruparAberto, setAgruparAberto] = useState(false)
   // T4(d) — Agrupar indisponível (disabled + spinner) do clique ao fim do
   // processamento — anti duplo clique.
@@ -445,17 +450,12 @@ function CapturarNfceConteudo() {
           ? resultado.totalDocumento.toFixed(2).replace('.', ',')
           : '',
       )
-      const meioSessao = meiosReais.find((m) => m.id === sessao.meio_pagamento_id)
-      const candidatos: CapturaItemRevisao[] = resultado.itens.map((it) => {
-        const c = candidatoDeItem(it, dataSugerida || getTodayDateString())
-        // T1 — id órfão herdado da sessão vira vazio/deduzido pelo nome.
-        return normalizarMeioItem({
-          ...c,
-          meio_pagamento_id: sessao.meio_pagamento_id,
-          meio_pagamento_tipo: sessao.meio_pagamento_tipo,
-          meio_pagamento_nome: sessao.meio_pagamento_nome || meioSessao?.nome || null,
-        })
-      })
+      // A.5/T2 — itens NÃO nascem com meio de pagamento por herança da sessão:
+      // SOMENTE a data vem preenchida. O meio é configurado em Detalhes ou no
+      // Lote, e a ÚLTIMA alteração gravada é a válida (qualquer ordem).
+      const candidatos: CapturaItemRevisao[] = resultado.itens.map((it) =>
+        candidatoDeItem(it, dataSugerida || getTodayDateString()),
+      )
       setItens(candidatos)
       const linhasDb = await capturaService.substituirItens(
         sessao.id,
@@ -522,6 +522,10 @@ function CapturarNfceConteudo() {
   // sessão escolhida e cai na etapa de revisão (itens importados voltam
   // marcados como importados e NUNCA são reimportados).
   const continuarRevisao = async (s: CapturaSessao) => {
+    // A.5/T3 — anti duplo clique: enquanto a sessão/itens são recarregados um
+    // 2º clique é ignorado; falha reabilita o botão e mostra o erro (toast).
+    if (continuandoRevisao) return
+    setContinuandoRevisao(true)
     try {
       const sDb = (await capturaService.getSessao(s.id, s.workspace_id)) || s
       const listaItens = await capturaService.listarItens(s.id, s.workspace_id)
@@ -547,6 +551,8 @@ function CapturarNfceConteudo() {
         description: e?.message || 'Tente novamente.',
         variant: 'destructive',
       })
+    } finally {
+      setContinuandoRevisao(false)
     }
   }
 
@@ -564,15 +570,67 @@ function CapturarNfceConteudo() {
   const selecionarTodos = (v: boolean) =>
     setItens((prev) => prev.map((i) => (i.status !== 'importado' ? { ...i, selecionado: v } : i)))
 
-  const aplicarLote = (patch: PatchLoteCaptura) => {
-    const selecionados = itens.filter((i) => i.selecionado)
-    const ids = selecionados.map((i) => i.id)
-    setItens((prev) => aplicarPatchLote(prev, ids, patch))
-    // TESTE CAPTURA 5 / T4 — os itens são linhas reais (T1): persiste SÓ os
-    // campos marcados no patch. Data/valor e demais campos ficam intocados.
-    if (sessao) {
-      for (const item of selecionados) {
-        if (item.status === 'importado') continue
+  const aplicarLote = async (patch: PatchLoteCaptura) => {
+    // A.5/T3 — anti duplo clique: o ModalLancamento (modoCaptura) AGUARDA esta
+    // função (onSalvarCaptura) e mantém "Salvar no lote" desabilitado com
+    // feedback ("Salvando...") até TODAS as gravações do loop terminarem.
+    if (loteAplicando) return
+    setLoteAplicando(true)
+    try {
+      const alvos = itens.filter((i) => i.selecionado && i.status !== 'importado')
+      const ids = alvos.map((i) => i.id)
+      // A.5/T1 — o patch.meioPagamentoId chega como id REAL (contas/cartoes,
+      // payload do ModalLancamento via ModalLoteCaptura): mapear DE VOLTA para o
+      // id da LINHA de meios_pagamento (FK da sessão) com o MESMO critério do
+      // caminho dos Detalhes (gravarNoCandidato): CARTAO → linha.cartao_id;
+      // CONTA → linha.conta_id; DINHEIRO → linha DINHEIRO. Nunca gravar id de
+      // cartoes/contas direto (quebraria a FK da sessão).
+      let patchFinal: PatchLoteCaptura = patch
+      if (patch.meioPagamentoId !== undefined || patch.meioPagamentoTipo !== undefined) {
+        const tipo = String(patch.meioPagamentoTipo || '').toUpperCase()
+        const linha =
+          tipo === 'DINHEIRO'
+            ? meiosReais.find((m) => m.tipo === 'DINHEIRO') || null
+            : meiosReais.find(
+                (m) =>
+                  (tipo === 'CARTAO' && m.cartao_id === patch.meioPagamentoId) ||
+                  (tipo === 'CONTA' && m.conta_id === patch.meioPagamentoId),
+              ) || null
+        if (tipo !== 'DINHEIRO' && !linha) {
+          toast({
+            title: 'Meio de pagamento não encontrado',
+            description:
+              'A linha de "Pago com" escolhida não existe em Meios de Pagamento — confira o cadastro e tente novamente. Nada foi alterado.',
+            variant: 'destructive',
+          })
+          return
+        }
+        patchFinal = {
+          ...patch,
+          ...(linha
+            ? {
+                meioPagamentoId: linha.id,
+                meioPagamentoNome: patch.meioPagamentoNome || linha.nome,
+              }
+            : {}),
+        }
+      }
+      if (!sessao) {
+        toast({
+          title: 'Sessão de captura não encontrada',
+          description: 'Não há sessão aberta para gravar a alteração no banco.',
+          variant: 'destructive',
+        })
+        return
+      }
+      // Estado local primeiro (mesma convenção dos Detalhes): a edição vale na
+      // tela e a ÚLTIMA alteração gravada é a válida — Detalhes→Lote ou
+      // Lote→Detalhes, qualquer ordem.
+      setItens((prev) => aplicarPatchLote(prev, ids, patchFinal))
+      let falhas = 0
+      // TESTE CAPTURA 5 / T4 — persiste SÓ os campos marcados no patch;
+      // data/valor e demais campos ficam intocados.
+      for (const item of alvos) {
         // candidatos ainda sem linha no banco ('cand_'/'manual_' legados) não
         // têm para onde persistir — o estado local já foi atualizado acima.
         if (item.id.startsWith('cand_') || item.id.startsWith('manual_')) continue
@@ -586,24 +644,54 @@ function CapturarNfceConteudo() {
           modalidade_saida: string | null
           observacao: string | null
         }> = {}
-        if (patch.data !== undefined) updates.data = patch.data
-        if (patch.meioPagamentoId !== undefined) {
-          updates.meio_pagamento_id = patch.meioPagamentoId
-          updates.meio_pagamento_tipo = patch.meioPagamentoTipo ?? null
-          updates.meio_pagamento_nome = patch.meioPagamentoNome ?? null
+        if (patchFinal.data !== undefined) updates.data = patchFinal.data
+        if (patchFinal.meioPagamentoId !== undefined) {
+          updates.meio_pagamento_id = patchFinal.meioPagamentoId
+          updates.meio_pagamento_tipo = patchFinal.meioPagamentoTipo ?? null
+          updates.meio_pagamento_nome = patchFinal.meioPagamentoNome ?? null
         }
-        if (patch.pago !== undefined) updates.marcado_pago = patch.pago
-        if (patch.repetir !== undefined) updates.marcado_repetir = patch.repetir
-        if (patch.modalidade !== undefined) updates.modalidade_saida = patch.modalidade
-        if (patch.observacao !== undefined) updates.observacao = patch.observacao
+        if (patchFinal.pago !== undefined) updates.marcado_pago = patchFinal.pago
+        if (patchFinal.repetir !== undefined) updates.marcado_repetir = patchFinal.repetir
+        if (patchFinal.modalidade !== undefined) updates.modalidade_saida = patchFinal.modalidade
+        if (patchFinal.observacao !== undefined) updates.observacao = patchFinal.observacao
         if (Object.keys(updates).length === 0) continue
-        capturaService
-          .atualizarItem(item.id, sessao.id, sessao.workspace_id, updates)
-          .catch(() => undefined)
+        try {
+          await capturaService.atualizarItem(item.id, sessao.id, sessao.workspace_id, updates)
+        } catch (e: any) {
+          // A.5/T1/T4 — NENHUM erro silenciado: a falha é CONTADA, logada para
+          // diagnóstico e vira toast orientado ao final; a página NUNCA cai no
+          // error boundary por gravação de lote.
+          console.error('Falha ao gravar item no lote:', item.id, e)
+          falhas++
+        }
       }
+      if (falhas > 0) {
+        toast({
+          title: `${falhas} item(ns) não gravado(s)`,
+          description:
+            'A alteração vale nesta tela, mas NÃO foi salva no banco — abra o Lote e tente "Salvar no lote" de novo. Verifique sua conexão.',
+          variant: 'destructive',
+        })
+      } else {
+        toast({
+          title: 'Lote aplicado',
+          description: 'Somente os campos marcados foram alterados.',
+        })
+      }
+      setLoteAberto(false)
+    } catch (e: any) {
+      // A.5/T4 — última linha de defesa: NENHUM erro de gravação do lote derruba
+      // a página para o error boundary — vira toast orientado, botão reabilitado.
+      console.error('Erro inesperado ao aplicar o lote:', e)
+      toast({
+        title: 'Erro ao salvar o lote',
+        description:
+          e?.message || 'Não foi possível concluir a gravação. Tente "Salvar no lote" novamente.',
+        variant: 'destructive',
+      })
+    } finally {
+      setLoteAplicando(false)
     }
-    toast({ title: 'Lote aplicado', description: 'Somente os campos marcados foram alterados.' })
-    setLoteAberto(false)
   }
 
   // TESTE CAPTURA 4 / T1 — o grupo é INSERIDO no banco (nova linha real em
@@ -704,9 +792,6 @@ function CapturarNfceConteudo() {
       })
       return
     }
-    // T1 — id do meio validado contra as listas reais do banco.
-    const meioIdManual = resolverMeioValido(sessao.meio_pagamento_id, sessao.meio_pagamento_nome)
-    const meio = meiosReais.find((m) => m.id === meioIdManual)
     try {
       const manualDb = await capturaService.inserirItem(sessao.id, sessao.workspace_id, {
         descricao: descManual.trim(),
@@ -714,9 +799,11 @@ function CapturarNfceConteudo() {
         status: 'pronto',
         confianca: 'alta',
         data: sessao.data_documento || getTodayDateString(),
-        meio_pagamento_id: meioIdManual,
-        meio_pagamento_tipo: sessao.meio_pagamento_tipo || null,
-        meio_pagamento_nome: sessao.meio_pagamento_nome || meio?.nome || null,
+        // A.5/T2 — item manual TAMBÉM nasce sem meio (só a data vem cheia);
+        // o usuário configura em Detalhes/Lote e a última alteração vence.
+        meio_pagamento_id: null,
+        meio_pagamento_tipo: null,
+        meio_pagamento_nome: null,
         categoria_id: null,
         subcategoria_id: null,
         modalidade_saida: 'compra_propria',
@@ -1064,6 +1151,7 @@ function CapturarNfceConteudo() {
               historico={historico}
               onVer={(s) => setSessaoDetalhe(s)}
               onContinuar={continuarRevisao}
+              processando={continuandoRevisao}
             />
           )}
         </div>
@@ -1239,6 +1327,7 @@ function CapturarNfceConteudo() {
               historico={historico}
               onVer={(s) => setSessaoDetalhe(s)}
               onContinuar={continuarRevisao}
+              processando={continuandoRevisao}
             />
           )}
         </div>
@@ -1477,6 +1566,7 @@ function CapturarNfceConteudo() {
               historico={historico}
               onVer={(s) => setSessaoDetalhe(s)}
               onContinuar={continuarRevisao}
+              processando={continuandoRevisao}
             />
           )}
         </div>
@@ -1606,6 +1696,7 @@ function CapturarNfceConteudo() {
         sessao={sessaoDetalhe}
         onFechar={() => setSessaoDetalhe(null)}
         onContinuarRevisao={continuarRevisao}
+        processando={continuandoRevisao}
       />
 
       {/* R6 — Detalhes = janela do Novo Lançamento em MODO CAPTURA:
@@ -1635,11 +1726,14 @@ function HistoricoCapturas({
   historico,
   onVer,
   onContinuar,
+  processando = false,
 }: {
   historico: CapturaSessao[]
   onVer: (s: CapturaSessao) => void
   /** T5 — retoma a revisão da sessão (revisao/parcial) direto na página. */
   onContinuar: (s: CapturaSessao) => void
+  /** A.5/T3 — desabilita "Continuar Revisão" enquanto a sessão é recarregada. */
+  processando?: boolean
 }) {
   return (
     <Card className="border-slate-200">
@@ -1675,6 +1769,7 @@ function HistoricoCapturas({
                   <Button
                     size="sm"
                     className="h-7 text-[11px] bg-indigo-600 hover:bg-indigo-700"
+                    disabled={processando}
                     onClick={() => onContinuar(s)}
                   >
                     Continuar Revisão
