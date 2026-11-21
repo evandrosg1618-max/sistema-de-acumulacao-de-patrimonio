@@ -54,9 +54,13 @@ export function LinhaRevisaoCaptura({
     : item.status === 'erro'
       ? 'Erro'
       : item.status === 'repetido'
-        ? 'Repetido'
+        ? item.agrupado
+          ? 'Pronto p/ importar'
+          : 'Repetido'
         : completo
-          ? 'Pronto'
+          ? item.agrupado
+            ? 'Pronto p/ importar'
+            : 'Pronto'
           : 'Revisar'
   const classeStatus = importado
     ? 'bg-slate-100 text-slate-600 border-slate-200'

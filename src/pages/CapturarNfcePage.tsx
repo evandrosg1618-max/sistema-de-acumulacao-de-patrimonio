@@ -735,13 +735,25 @@ function CapturarNfceConteudo() {
         observacao: null,
       })
       await capturaService.marcarGrupo(grupoDb.id, sessao.id, sessao.workspace_id, idsOriginais)
-      // Originais removidos SOMENTE após o insert do grupo ter sucesso.
+      // C.5/T1 — Originais removidos SOMENTE após o insert do grupo ter
+      // sucesso, e NENHUM erro de exclusão é engolido (.catch(()=>undefined)
+      // fora): cada falha é LOGADA com o item e a mensagem real do banco e
+      // coletada; o item FALHO permanece na lista (sem fantasma) e um toast
+      // orientado mostra o que não foi excluído e por quê.
       const excluidos: string[] = []
+      const falhasExclusao: { id: string; descricao: string; motivo: string }[] = []
       for (const s of selecionados) {
-        await capturaService
-          .excluirItem(s.id, sessao.id, sessao.workspace_id)
-          .then(() => excluidos.push(s.id))
-          .catch(() => undefined)
+        try {
+          await capturaService.excluirItem(s.id, sessao.id, sessao.workspace_id)
+          excluidos.push(s.id)
+        } catch (err: any) {
+          console.error('Falha ao excluir item original do grupo:', s.id, err)
+          falhasExclusao.push({
+            id: s.id,
+            descricao: s.descricao || '(sem descrição)',
+            motivo: err?.message || 'Erro desconhecido do banco',
+          })
+        }
       }
       const grupo: CapturaItemRevisao = {
         ...itemDbParaRevisao(grupoDb),
@@ -768,10 +780,21 @@ function CapturarNfceConteudo() {
       ])
       setAgrupando(false)
       setAgruparAberto(false)
-      toast({
-        title: 'Itens agrupados',
-        description: `${selecionados.length} item(ns) agora formam 1 candidato salvo no banco.`,
-      })
+      if (falhasExclusao.length > 0) {
+        // C.5/T1 — exclusão FALHO para pelo menos 1 original: o grupo foi
+        // criado, mas o erro REAL do banco vem à tona (nada engolido).
+        const nomes = falhasExclusao.map((f) => f.descricao).join(', ')
+        toast({
+          title: `${falhasExclusao.length} item(ns) NÃO excluído(s) do banco`,
+          description: `${nomes} continuam na lista. Motivo (banco): ${falhasExclusao[0].motivo}`,
+          variant: 'destructive',
+        })
+      } else {
+        toast({
+          title: 'Itens agrupados',
+          description: `${selecionados.length} item(ns) agora formam 1 candidato salvo no banco.`,
+        })
+      }
       carregarHistorico()
     } catch (e: any) {
       // Erro orientado ao usuário: NADA é removido — originais permanecem.
@@ -1515,7 +1538,17 @@ function CapturarNfceConteudo() {
                 ) {
                   capturaService
                     .excluirItem(id, sessao.id, sessao.workspace_id)
-                    .catch(() => undefined)
+                    .catch((err: any) => {
+                      // C.5/T1 — NADA engolido: o erro real do banco aparece
+                      // e o item volta à lista (sem fantasma silencioso).
+                      console.error('Falha ao excluir item:', id, err)
+                      toast({
+                        title: 'Erro ao excluir item do banco',
+                        description: err?.message || 'O item continua na lista. Tente novamente.',
+                        variant: 'destructive',
+                      })
+                      setItens((prev) => (prev.some((x) => x.id === id) ? prev : [...prev, alvo]))
+                    })
                 }
                 setItens((prev) => prev.filter((x) => x.id !== id))
               }}
