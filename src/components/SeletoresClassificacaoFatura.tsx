@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Categoria, Subcategoria } from '@/types/sap'
@@ -72,17 +73,75 @@ const useSeletorLista = () => {
   const [busca, setBusca] = useState('')
   const [aberto, setAberto] = useState(false)
   const raizRef = useRef<HTMLDivElement>(null)
+  // Parte C.3 — ref do container portado (fecho ao clicar fora não fecha
+  // quando o clique é na própria lista).
+  const listaPortalRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!aberto) return
     const aoClicarFora = (e: MouseEvent) => {
-      if (raizRef.current && !raizRef.current.contains(e.target as Node)) setAberto(false)
+      const alvo = e.target as Node
+      if (
+        raizRef.current &&
+        !raizRef.current.contains(alvo) &&
+        !listaPortalRef.current?.contains(alvo)
+      )
+        setAberto(false)
     }
     document.addEventListener('mousedown', aoClicarFora)
     return () => document.removeEventListener('mousedown', aoClicarFora)
   }, [aberto])
 
-  return { busca, setBusca, aberto, setAberto, raizRef }
+  return { busca, setBusca, aberto, setAberto, raizRef, listaPortalRef }
+}
+
+// Parte C.3 — posição FIXA da lista em portal (calculada do input), no mesmo
+// esquema da C.2 no ModalLancamento: dentro do DialogContent
+// (overflow-y-auto) o dropdown absolute era CORTADO no PC. A lista vive no
+// <body> com position fixed, segue scroll/resize e vira para cima quando
+// falta espaço abaixo. API de props dos seletores NÃO muda.
+const usePosicaoListaPortal = (
+  raizRef: React.RefObject<HTMLElement | null>,
+  aberto: boolean,
+  setAberto: (v: boolean) => void,
+) => {
+  const [pos, setPos] = useState<{
+    left: number
+    width: number
+    top?: number
+    bottom?: number
+    alturaMax: number
+  } | null>(null)
+
+  const recalcular = React.useCallback(() => {
+    const raiz = raizRef.current
+    if (!raiz) return
+    const r = raiz.getBoundingClientRect()
+    const espacoAbaixo = window.innerHeight - r.bottom
+    const abrirParaCima = espacoAbaixo < 160 && r.top > espacoAbaixo
+    setPos({
+      left: r.left,
+      width: r.width,
+      ...(abrirParaCima ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
+      alturaMax: Math.max(120, Math.min(288, (abrirParaCima ? r.top : espacoAbaixo) - 8)),
+    })
+  }, [raizRef])
+
+  useEffect(() => {
+    if (!aberto) {
+      setPos(null)
+      return
+    }
+    recalcular()
+    window.addEventListener('scroll', recalcular, true)
+    window.addEventListener('resize', recalcular)
+    return () => {
+      window.removeEventListener('scroll', recalcular, true)
+      window.removeEventListener('resize', recalcular)
+    }
+  }, [aberto, recalcular])
+
+  return pos
 }
 
 const BotaoLimpar: React.FC<{ title: string; aoLimpar: () => void }> = ({ title, aoLimpar }) => (
@@ -114,7 +173,8 @@ export const SeletorCategoriaFatura: React.FC<SeletorCategoriaFaturaProps> = ({
   aoMudar,
   desabilitado,
 }) => {
-  const { busca, setBusca, aberto, setAberto, raizRef } = useSeletorLista()
+  const { busca, setBusca, aberto, setAberto, raizRef, listaPortalRef } = useSeletorLista()
+  const posLista = usePosicaoListaPortal(raizRef, aberto, setAberto)
 
   const categoriasOrdenadas = useMemo(
     () =>
@@ -163,30 +223,44 @@ export const SeletorCategoriaFatura: React.FC<SeletorCategoriaFaturaProps> = ({
         <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
         {!!valor && !desabilitado && <BotaoLimpar title="Limpar categoria" aoLimpar={limpar} />}
       </div>
-      {aberto && !desabilitado && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
-          <ItemNenhum aoEscolher={limpar} />
-          {listaFiltrada.length === 0 ? (
-            <div className="p-3 text-center text-xs text-slate-400">
-              Nenhuma categoria encontrada
-            </div>
-          ) : (
-            listaFiltrada.map((c) => (
-              <ItemLista
-                key={c.id}
-                selecionado={valor === c.id}
-                aoEscolher={() => {
-                  setBusca('')
-                  setAberto(false)
-                  aoMudar(c.id)
-                }}
-              >
-                {c.nome}
-              </ItemLista>
-            ))
-          )}
-        </div>
-      )}
+      {aberto &&
+        !desabilitado &&
+        posLista &&
+        createPortal(
+          <div
+            ref={listaPortalRef}
+            className="fixed z-[70] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
+            style={{
+              left: posLista.left,
+              width: posLista.width,
+              maxHeight: posLista.alturaMax,
+              ...(posLista.top !== undefined ? { top: posLista.top } : { bottom: posLista.bottom }),
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <ItemNenhum aoEscolher={limpar} />
+            {listaFiltrada.length === 0 ? (
+              <div className="p-3 text-center text-xs text-slate-400">
+                Nenhuma categoria encontrada
+              </div>
+            ) : (
+              listaFiltrada.map((c) => (
+                <ItemLista
+                  key={c.id}
+                  selecionado={valor === c.id}
+                  aoEscolher={() => {
+                    setBusca('')
+                    setAberto(false)
+                    aoMudar(c.id)
+                  }}
+                >
+                  {c.nome}
+                </ItemLista>
+              ))
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }
@@ -210,7 +284,8 @@ export const SeletorSubcategoriaFatura: React.FC<SeletorSubcategoriaFaturaProps>
   desabilitado,
   placeholderFiltro,
 }) => {
-  const { busca, setBusca, aberto, setAberto, raizRef } = useSeletorLista()
+  const { busca, setBusca, aberto, setAberto, raizRef, listaPortalRef } = useSeletorLista()
+  const posLista = usePosicaoListaPortal(raizRef, aberto, setAberto)
 
   const subcategoriasOrdenadas = useMemo(
     () =>
@@ -263,35 +338,49 @@ export const SeletorSubcategoriaFatura: React.FC<SeletorSubcategoriaFaturaProps>
         <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
         {!!valor && !desabilitado && <BotaoLimpar title="Limpar subcategoria" aoLimpar={limpar} />}
       </div>
-      {aberto && !desabilitado && (
-        <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
-          <ItemNenhum aoEscolher={limpar} />
-          {listaFiltrada.length === 0 ? (
-            <div className="p-3 text-center text-xs text-slate-400">
-              Nenhuma subcategoria encontrada
-            </div>
-          ) : (
-            listaFiltrada.map((s) => (
-              <ItemLista
-                key={s.id}
-                selecionado={valor === s.id}
-                aoEscolher={() => {
-                  setBusca('')
-                  setAberto(false)
-                  aoMudar(s.id)
-                }}
-              >
-                <span className="font-semibold text-slate-900">{s.nome}</span>
-                {nomesCategorias[s.categoria_id] && (
-                  <span className="text-[10px] text-slate-400 font-normal">
-                    ({nomesCategorias[s.categoria_id]})
-                  </span>
-                )}
-              </ItemLista>
-            ))
-          )}
-        </div>
-      )}
+      {aberto &&
+        !desabilitado &&
+        posLista &&
+        createPortal(
+          <div
+            ref={listaPortalRef}
+            className="fixed z-[70] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
+            style={{
+              left: posLista.left,
+              width: posLista.width,
+              maxHeight: posLista.alturaMax,
+              ...(posLista.top !== undefined ? { top: posLista.top } : { bottom: posLista.bottom }),
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <ItemNenhum aoEscolher={limpar} />
+            {listaFiltrada.length === 0 ? (
+              <div className="p-3 text-center text-xs text-slate-400">
+                Nenhuma subcategoria encontrada
+              </div>
+            ) : (
+              listaFiltrada.map((s) => (
+                <ItemLista
+                  key={s.id}
+                  selecionado={valor === s.id}
+                  aoEscolher={() => {
+                    setBusca('')
+                    setAberto(false)
+                    aoMudar(s.id)
+                  }}
+                >
+                  <span className="font-semibold text-slate-900">{s.nome}</span>
+                  {nomesCategorias[s.categoria_id] && (
+                    <span className="text-[10px] text-slate-400 font-normal">
+                      ({nomesCategorias[s.categoria_id]})
+                    </span>
+                  )}
+                </ItemLista>
+              ))
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   )
 }

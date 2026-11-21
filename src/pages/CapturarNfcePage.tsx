@@ -736,9 +736,11 @@ function CapturarNfceConteudo() {
       })
       await capturaService.marcarGrupo(grupoDb.id, sessao.id, sessao.workspace_id, idsOriginais)
       // Originais removidos SOMENTE após o insert do grupo ter sucesso.
+      const excluidos: string[] = []
       for (const s of selecionados) {
         await capturaService
           .excluirItem(s.id, sessao.id, sessao.workspace_id)
+          .then(() => excluidos.push(s.id))
           .catch(() => undefined)
       }
       const grupo: CapturaItemRevisao = {
@@ -750,8 +752,17 @@ function CapturarNfceConteudo() {
         idsOriginais,
       }
       setItens((prev) => [
+        // C.3/T4 — os originais SAEM da lista local assim que a exclusão
+        // deles teve sucesso no banco (antes: só desmarcava e o item
+        // "fantasma" continuava aparecendo na revisão). Em erro de exclusão,
+        // o item permanece na lista — nada some.
+        ...prev.filter(
+          (i) => !(i.selecionado && i.status !== 'importado' && excluidos.includes(i.id)),
+        ),
         ...prev.map((i) =>
-          i.selecionado && i.status !== 'importado' ? { ...i, selecionado: false } : i,
+          i.selecionado && i.status !== 'importado' && !excluidos.includes(i.id)
+            ? { ...i, selecionado: false }
+            : i,
         ),
         grupo,
       ])

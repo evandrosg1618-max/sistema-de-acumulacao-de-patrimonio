@@ -22,10 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ValorCalculadoraInput } from '@/components/ValorCalculadoraInput'
-import {
-  SeletorCategoriaFatura,
-  SeletorSubcategoriaFatura,
-} from '@/components/SeletoresClassificacaoFatura'
+import CampoUnicoClassificacao from '@/components/captura/CampoUnicoClassificacao'
 import { formatMoneyBRL } from '@/lib/formatters'
 import type { Categoria, Subcategoria } from '@/types/sap'
 
@@ -131,36 +128,28 @@ export function ModalAgruparCaptura({
             />
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs text-slate-600">Categoria</Label>
-            <SeletorCategoriaFatura
+            <Label className="text-xs text-slate-600">Categoria / Subcategoria</Label>
+            {/* C.3/T2 — UM ÚNICO campo digitável (padrão lan-filtro-subcat):
+                digitar abre a lista em tempo real, alfabética, "Subcategoria
+                (Categoria)"; escolher a sub marca a categoria dela. X e
+                "— Nenhuma —" preservados. */}
+            <CampoUnicoClassificacao
               categorias={categorias}
-              valor={categoriaId || ''}
-              aoMudar={(id) => {
+              subcategorias={subcategorias}
+              categoriaId={categoriaId}
+              subcategoriaId={subcategoriaId}
+              aoMudarCategoria={(id) => {
                 setCategoriaId(id)
                 // Trocar/limpar a categoria invalida a subcategoria incompatível.
                 if (
-                  !id ||
+                  id &&
+                  subcategoriaId &&
                   !subcategorias.some((s) => s.id === subcategoriaId && s.categoria_id === id)
                 ) {
                   setSubcategoriaId(null)
                 }
               }}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs text-slate-600">Subcategoria</Label>
-            <SeletorSubcategoriaFatura
-              subcategorias={subsDaCategoria}
-              nomesCategorias={nomesCategorias}
-              valor={subcategoriaId || ''}
-              aoMudar={(id) => {
-                setSubcategoriaId(id)
-                // Escolher a subcategoria marca a categoria à qual ela pertence.
-                if (id) {
-                  const sub = subcategorias.find((s) => s.id === id)
-                  if (sub) setCategoriaId(sub.categoria_id)
-                }
-              }}
+              aoMudarSubcategoria={setSubcategoriaId}
             />
           </div>
         </div>

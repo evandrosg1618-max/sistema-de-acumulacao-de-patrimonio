@@ -298,11 +298,10 @@ export function ModalLancamento({
   }, [categorias, tipo, initialData?.subcategoria_id, initialData?.categoria_id])
 
   // Resetar/Inicializar formulário
-  // Parte C.2 — a lista em portal NÃO desmonta junto com o DialogContent
-  // (ela vive no <body>): garantir fechamento sempre que o modal abre/fecha.
-  setListaSubcatAberta(false)
-
   useEffect(() => {
+    // Parte C.2 — a lista em portal NÃO desmonta junto com o DialogContent
+    // (ela vive no <body>): garantir fechamento sempre que o modal abre/fecha.
+    setListaSubcatAberta(false)
     if (!open) return
 
     setBuscaSubcategoria('')
