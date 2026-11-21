@@ -14,7 +14,7 @@ import { ModalLancamento } from '@/components/ModalLancamento'
 import { toast } from '@/hooks/use-toast'
 import { capturaService } from '@/services/captura/capturaService'
 import type { CapturaItemRevisao } from '@/components/captura/tiposRevisao'
-import type { MeioPagamentoTipo, StatusPagamento } from '@/types/sap'
+import type { StatusPagamento } from '@/types/sap'
 import type { Categoria, Subcategoria } from '@/types/sap'
 
 interface ModalDetalheItemCapturaProps {
@@ -58,7 +58,6 @@ export function ModalDetalheItemCaptura({
     // da sessão nem prefill chutado.
     const linhaMeio = (meiosValidados || []).find((m) => m?.id === item.meio_pagamento_id)
     const idValido = Boolean(item.meio_pagamento_id && linhaMeio)
-    const linhaMeioValida = idValido
     const meioRef: { tipo: string | null; id: string | null } = idValido
       ? {
           tipo: item.meio_pagamento_tipo,
@@ -73,7 +72,6 @@ export function ModalDetalheItemCaptura({
       return { tipo: '', id: null }
     }
     const meio = resolveMeio()
-    const cat = categorias.find((c) => c.id === item.categoria_id)
     // A.6/T2 — subcategoria SÓ a gravada no candidato (última alteração vence):
     // NUNCA herdar a primeira da categoria — o Detalhes não inventa classificação.
     const sub = item.subcategoria_id
@@ -109,6 +107,12 @@ export function ModalDetalheItemCaptura({
         : ((item.meio_pagamento_tipo === 'CARTAO' ? 'pendente' : 'pago') as StatusPagamento),
     }
   }, [item, categorias, subcategorias, meiosValidados, contas, cartoes])
+
+  // A.6-b — derivado no corpo do componente: a prop modoCapturaTemMeioGravado
+  // é usada fora do useMemo (TS2304 na 0.0.135).
+  const linhaMeioValida = Boolean(
+    item?.meio_pagamento_id && (meiosValidados || []).some((m) => m?.id === item.meio_pagamento_id),
+  )
 
   const gravarNoCandidato = async (payload: any) => {
     if (!item) return
