@@ -90,6 +90,16 @@ interface ModalLancamentoProps {
    * painel dentro do Dialog em telas mobile). Opcional: sem ele, nada muda.
    */
   onOpcoesRepeticaoChange?: (aberto: boolean) => void
+  /**
+   * A.4 — sobrescreve o título no modoCaptura (ex.: "Lote — 2 item(ns) •
+   * R$ 59,63"). Opcional: sem ele, Detalhes continua com o título atual.
+   */
+  tituloCaptura?: string
+  /**
+   * A.4 — sobrescreve o rótulo do botão de salvar no modoCaptura (ex.:
+   * "Salvar no lote"). Opcional: sem ele, Detalhes continua "Salvar no item".
+   */
+  rotuloBotaoCaptura?: string
 }
 
 export function ModalLancamento({
@@ -109,6 +119,8 @@ export function ModalLancamento({
   onSalvarCaptura,
   camposTravadosCaptura = false,
   onOpcoesRepeticaoChange,
+  tituloCaptura,
+  rotuloBotaoCaptura,
 }: ModalLancamentoProps) {
   const { isProcessing } = useGlobalLoading()
   const [tipo, setTipo] = useState<TipoLancamento>(tipoPadrao)
@@ -688,7 +700,7 @@ export function ModalLancamento({
                 {tipo === 'transferencia' && <ArrowRightLeft className="w-5 h-5 text-blue-600" />}
                 <span>
                   {modoCaptura
-                    ? 'Detalhes do item da captura'
+                    ? tituloCaptura || 'Detalhes do item da captura'
                     : initialData
                       ? 'Editar Lançamento'
                       : `Novo Lançamento — ${tipo.toUpperCase()}`}
@@ -1970,7 +1982,7 @@ export function ModalLancamento({
                 {salvando || isProcessing
                   ? 'Salvando...'
                   : modoCaptura
-                    ? 'Salvar no item'
+                    ? rotuloBotaoCaptura || 'Salvar no item'
                     : initialData
                       ? 'Salvar Alterações'
                       : 'Salvar Lançamento'}

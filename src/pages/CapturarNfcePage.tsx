@@ -1546,6 +1546,7 @@ function CapturarNfceConteudo() {
         meiosPagamento={meiosReais}
         contas={contas}
         cartoes={cartoes}
+        categorias={categorias}
         workspaceId={workspaceId}
         tiposMeioSelecionados={selecionados.map((i) => i.meio_pagamento_tipo)}
         quantidadeItens={selecionados.length}

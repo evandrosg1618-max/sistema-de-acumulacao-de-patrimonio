@@ -1,27 +1,21 @@
 /**
- * A1 (TESTE CAPTURA 6) — Lote = Detalhes: o Lote abre a MESMA tela do
- * Detalhes (ModalLancamento em modoCaptura), com descrição, data, valor,
- * categoria e subcategoria DESABILITADOS (são do conteúdo de cada item) e
- * editáveis apenas os campos comuns do lote:
- *  - "Pago com" (T1): lista das LINHAS de meios_pagamento (meiosReais da
- *    página) — id de meios_pagamento nunca sai daqui;
- *  - toggle "Pago" (conta/dinheiro); a marcação "Repetir" é do painel
- *    Repetir do ModalLancamento (Fixo/Indeterminado/Parcelado);
- *  - "Observações".
- * O patch segue parcial: só o que o usuário marcar/preencher é aplicado
- * (aplicarLote da página já faz patch campo a campo via aplicarPatchLote).
+ * A.4 (TESTE CAPTURA 6) — Lote = UMA tela só: o ModalLancamento em modoCaptura
+ * com os campos de CONTEÚDO travados (descrição, data, valor, categoria,
+ * subcategoria — camposTravadosCaptura) e editáveis apenas o que é comum ao
+ * lote: "Pago com" (ids reais de contas/cartoes), toggle "Lançamento pago",
+ * painel Repetir (Fixo/Indeterminado/Parcelado) e "Observações".
+ *
+ * O botão "Salvar no lote" devolve o ESTADO do formulário e AQUI o estado é
+ * traduzido para PatchLoteCaptura (parcial: só o que o usuário marcou é
+ * aplicado). O "Pago com" do modal devolve id REAL (contas/cartoes) — o
+ * mapeamento de volta para o id da LINHA de meios_pagamento (FK da sessão) é
+ * feito pela página, no mesmo caminho do Detalhes (gravarNoCandidato).
  */
-import { useEffect, useState } from 'react'
 import { ModalLancamento } from '@/components/ModalLancamento'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
 import { PatchLoteCaptura } from '@/components/captura/tiposRevisao'
-import { formatMoneyBRL, getTodayDateString } from '@/lib/formatters'
-import { valorDeTextoMonetarioBR } from '@/lib/monetario'
+import { getTodayDateString } from '@/lib/formatters'
 
-/** Meio do lote: id REAL de contas/cartoes (ou linha dinheiro), já validado. */
+/** Meio do lote: linha REAL de meios_pagamento (id = FK da sessão). */
 export interface MeioLoteCaptura {
   id: string
   nome: string
@@ -47,9 +41,8 @@ interface Props {
   tiposMeioSelecionados?: string[]
   quantidadeItens: number
   resumo: ResumoLoteCaptura | null
-  /** Lista de categorias/subcategorias para o seletor DESABILITADO do lote. */
+  /** Lista de categorias repassada ao ModalLancamento. */
   categorias?: any[]
-  subcategorias?: any[]
   /** Listas reais repassadas ao ModalLancamento (corpo do Lote). */
   contas?: any[]
   cartoes?: any[]
@@ -60,188 +53,102 @@ export function ModalLoteCaptura({
   aberto,
   onFechar,
   onAplicar,
-  meiosPagamento,
   tiposMeioSelecionados,
   quantidadeItens,
   resumo,
   categorias = [],
-  subcategorias = [],
   contas = [],
   cartoes = [],
   workspaceId,
 }: Props) {
-  // Marcações do lote (o que o usuário de fato marcar é o que aplica).
-  const [pago, setPago] = useState<boolean | undefined>(undefined)
-  const [observacao, setObservacao] = useState('')
-  const [meioId, setMeioId] = useState('')
-
-  // P1 (A.2) — quando o painel de opções de repetição (fixo/parcelado) do
-  // ModalLancamento está aberto, o painel fixo do Lote SE ESCONDE: ele é
-  // position:fixed bottom-0 e sobrepõe o painel dentro do Dialog em telas
-  // mobile (o toque em "Repetir" parecia não fazer nada). Ao fechar as opções,
-  // o painel do Lote volta.
-  const [opcoesRepeticaoAbertas, setOpcoesRepeticaoAbertas] = useState(false)
-
-  // Reset ao abrir: nada marcado (patch parcial — só o marcado é aplicado).
-  useEffect(() => {
-    if (aberto) {
-      setPago(undefined)
-      setObservacao('')
-      setMeioId('')
-    }
-  }, [aberto])
-
-  // Tipo do meio escolhido define qual controle extra aparece:
-  // conta/dinheiro → "Pago"; cartão (e similares) → "Repetir".
-  // Sem meio escolhido, vale o tipo COMUM dos itens selecionados
-  // (tipos divergentes → nenhum dos dois controles aparece).
-  const meioSelecionado = meiosPagamento.find((m) => m.id === meioId)
-  const tipoMeioEscolhido = String(meioSelecionado?.tipo || '').toUpperCase()
+  // Tipo do meio comum dos itens SELECIONADOS (distintos → "—" no "Pago com").
   const tiposItens = Array.from(
     new Set((tiposMeioSelecionados || []).map((t) => String(t || '').toUpperCase())),
   )
-  const tipoComumItens = tiposItens.length === 1 ? tiposItens[0] : null
-  const tipoEfetivo = tipoMeioEscolhido || tipoComumItens || ''
-  const meioEhCartao = tipoEfetivo.includes('CARTAO') || tipoEfetivo.includes('CARTÃO')
-  const meioEhContaDinheiro = tipoEfetivo === 'CONTA' || tipoEfetivo === 'DINHEIRO'
+  const tipoComumItens = tiposItens.length === 1 ? tiposItens[0] : 'DINHEIRO'
 
-  const aplicar = () => {
+  // A.4 — o ESTADO do formulário do ModalLancamento (payload validado) é
+  // traduzido AQUI para PatchLoteCaptura. Patch PARCIAL: só o que o usuário
+  // de fato marcou/preencheu é aplicado; o resto fica intacto nos itens.
+  const salvarNoLote = async (payload: any) => {
     const patch: PatchLoteCaptura = {}
-    if (meioSelecionado) {
-      // T1 — o id do meio vai VALIDADO (lista meiosReais da página: ids reais
-      // de contas/cartoes). Tipo/nome acompanham: a importação roteia por tipo.
-      patch.meioPagamentoId = meioSelecionado.id
-      patch.meioPagamentoTipo = meioSelecionado.tipo
-      patch.meioPagamentoNome = meioSelecionado.nome
+    if (payload?.meio_pagamento_tipo === 'CARTAO' && payload?.cartao_id) {
+      patch.meioPagamentoId = payload.cartao_id // id REAL — página mapeia para a linha
+      patch.meioPagamentoTipo = 'CARTAO'
+      patch.meioPagamentoNome = cartoes.find((c: any) => c.id === payload.cartao_id)?.nome || null
+    } else if (payload?.meio_pagamento_tipo === 'CONTA' && payload?.conta_origem_id) {
+      patch.meioPagamentoId = payload.conta_origem_id // id REAL — idem
+      patch.meioPagamentoTipo = 'CONTA'
+      patch.meioPagamentoNome =
+        contas.find((c: any) => c.id === payload.conta_origem_id)?.nome || null
+    } else if (payload?.meio_pagamento_tipo === 'DINHEIRO') {
+      patch.meioPagamentoId = undefined
+      patch.meioPagamentoTipo = 'DINHEIRO'
+      patch.meioPagamentoNome = 'Dinheiro'
     }
-    if (pago !== undefined) patch.pago = pago
-    if (observacao.trim()) patch.observacao = observacao.trim()
+    // Toggle "Lançamento pago": o modal SÓ exibe o toggle quando o meio NÃO é
+    // cartão; para cartão, gravamos o usuário pediu "pago/pendente" via
+    // status_pagamento (não aplicável: fatura quita). Mantemos o sinal apenas
+    // quando o toggle estava visível (meio !== cartão).
+    if (payload?.meio_pagamento_tipo !== 'CARTAO') {
+      patch.pago = Boolean(payload?.status_pagamento === 'pago')
+    }
+    // Painel Repetir: marcações do formulário (fixo/parcelado/parâmetros).
+    // PatchLoteCaptura persiste repetir como flag (marcado_repetir): os
+    // parâmetros de fixo/parcelado do modal NÃO têm coluna no item de captura —
+    // a marcação de repetição é o que sobrevive na sessão.
+    if (payload?.regime === 'fixo' || payload?.regime === 'parcelado') {
+      patch.repetir = true
+    }
+    if (payload?.observacao) patch.observacao = payload.observacao
     if (Object.keys(patch).length === 0) {
       onFechar()
       return
     }
     onAplicar(patch)
-    onFechar()
   }
 
-  const temTipoComum = meioEhCartao || meioEhContaDinheiro
+  const tituloLote = `Lote — ${quantidadeItens} item(ns) • ${(resumo?.valor ?? 0).toLocaleString(
+    'pt-BR',
+    {
+      style: 'currency',
+      currency: 'BRL',
+    },
+  )}`
 
   return (
-    <>
-      {/* Corpo do lote = MESMA tela do Detalhes (ModalLancamento modoCaptura)
-          com campos de CONTEÚDO desabilitados. onSalvarCaptura é ignorado:
-          o salvamento do lote é o botão "Salvar no lote" (patch parcial). */}
-      <ModalLancamento
-        open={aberto}
-        onOpenChange={(o) => {
-          if (!o) onFechar()
-        }}
-        onSave={async () => undefined}
-        initialData={
-          {
-            id: 'lote',
-            descricao: resumo?.descricao ?? '(diverge entre itens)',
-            valor: resumo?.valor ?? 0,
-            data: resumo?.data || getTodayDateString(),
-            tipo: 'despesa',
-            regime: 'unico',
-            categoria_id: null,
-            subcategoria_id: null,
-            modalidade_saida: 'compra_propria',
-            meio_pagamento_tipo: (tipoComumItens || 'DINHEIRO') as any,
-            observacao: null,
-          } as any
-        }
-        tipoPadrao="despesa"
-        contas={contas}
-        cartoes={cartoes}
-        categorias={categorias}
-        workspaceId={workspaceId || 'lote'}
-        dataPadrao={resumo?.data || undefined}
-        modoCaptura
-        onSalvarCaptura={async () => undefined}
-        camposTravadosCaptura
-        onOpcoesRepeticaoChange={setOpcoesRepeticaoAbertas}
-      />
-
-      {/* Painel de marcações do LOTE — sobreposto ao modal (o corpo é a tela
-          do Detalhes com os campos de conteúdo travados; aqui só o que é
-          comum ao lote é editável). */}
-      {aberto && opcoesRepeticaoAbertas && (
-        <div className="fixed inset-x-0 bottom-0 z-[70] flex justify-center p-3 pointer-events-none">
-          <span className="pointer-events-auto rounded-full bg-slate-900/80 px-3 py-1 text-[11px] font-semibold text-white shadow-lg">
-            Escolha Fixo ou Parcelado — feche para voltar ao Lote
-          </span>
-        </div>
-      )}
-      {aberto && !opcoesRepeticaoAbertas && (
-        <div className="fixed inset-x-0 bottom-0 z-[70] border-t border-slate-200 bg-white p-3 shadow-2xl">
-          <div className="max-w-md mx-auto space-y-2">
-            <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">
-              Lote — {quantidadeItens} item(ns) • {formatMoneyBRL(resumo?.valor ?? 0)}
-            </p>
-
-            {/* "Pago com" — ids REAIS de contas/cartoes (T1) */}
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Pago com (aplicado a todos)</Label>
-              <select
-                value={meioId}
-                onChange={(e) => setMeioId(e.target.value)}
-                className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-900"
-              >
-                <option value="">Selecione...</option>
-                {meiosPagamento
-                  .filter((m) => m.ativo)
-                  .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.nome}
-                    </option>
-                  ))}
-              </select>
-            </div>
-
-            {/* "Pago": visível quando o meio (escolhido OU o comum dos itens) é
-              conta ou dinheiro. Indeterminado = não marcado (não aplica). */}
-            {meioEhContaDinheiro && (
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs text-slate-600">Pago (lançamento já quitado)</Label>
-                <Switch checked={pago === true} onCheckedChange={(v) => setPago(v)} />
-              </div>
-            )}
-            {/* "Repetir" (cartão): a marcação é do painel Repetir do
-              ModalLancamento — Fixo/Indeterminado/Parcelado. */}
-
-            <div className="space-y-1">
-              <Label className="text-xs text-slate-600">Observações</Label>
-              <Input
-                value={observacao}
-                onChange={(e) => setObservacao(e.target.value)}
-                placeholder="Observação para os itens selecionados (opcional)"
-                className="h-9"
-              />
-            </div>
-
-            <div className="flex gap-2 pt-1">
-              <Button variant="outline" className="h-9 flex-1" onClick={onFechar}>
-                Cancelar
-              </Button>
-              <Button
-                className="h-9 flex-1 bg-indigo-600 hover:bg-indigo-700"
-                onClick={aplicar}
-                disabled={!temTipoComum && !observacao.trim() && !meioSelecionado}
-              >
-                Salvar no lote
-              </Button>
-            </div>
-            {!temTipoComum && (
-              <p className="text-[10px] text-amber-700">
-                Itens selecionados têm meios de tipos diferentes — escolha o "Pago com" para aplicar
-                Pago/Repetir.
-              </p>
-            )}
-          </div>
-        </div>
-      )}
-    </>
+    <ModalLancamento
+      open={aberto}
+      onOpenChange={(o) => {
+        if (!o) onFechar()
+      }}
+      onSave={async () => undefined}
+      initialData={
+        {
+          id: 'lote',
+          descricao: resumo?.descricao ?? '(diverge entre itens)',
+          valor: resumo?.valor ?? 0,
+          data: resumo?.data || getTodayDateString(),
+          tipo: 'despesa',
+          regime: 'unico',
+          categoria_id: null,
+          subcategoria_id: null,
+          modalidade_saida: 'compra_propria',
+          meio_pagamento_tipo: tipoComumItens as any,
+          observacao: null,
+        } as any
+      }
+      tipoPadrao="despesa"
+      contas={contas}
+      cartoes={cartoes}
+      categorias={categorias}
+      workspaceId={workspaceId || 'lote'}
+      dataPadrao={resumo?.data || undefined}
+      modoCaptura
+      onSalvarCaptura={salvarNoLote}
+      camposTravadosCaptura
+      tituloCaptura={tituloLote}
+      rotuloBotaoCaptura="Salvar no lote"
+    />
   )
 }
