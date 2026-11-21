@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { X } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -198,6 +199,8 @@ export function ModalLancamento({
   const [categoriaId, setCategoriaId] = useState('')
   const [subcategoriaId, setSubcategoriaId] = useState('')
   const [buscaSubcategoria, setBuscaSubcategoria] = useState('')
+  const [listaSubcatAberta, setListaSubcatAberta] = useState(false)
+  const raizSubcatRef = useRef<HTMLDivElement | null>(null)
   const [pago, setPago] = useState(true)
   const [observacao, setObservacao] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -479,14 +482,35 @@ export function ModalLancamento({
     )
   }, [subcategoriasDisponiveis, buscaSubcategoria])
 
+  // Parte C — nome da subcategoria escolhida (exibida no campo único fechado;
+  // cai de volta se o id deixar de existir na lista do tipo atual).
+  const subcategoriaExibida = React.useMemo(
+    () => subcategoriasDisponiveis.find((s) => s.id === subcategoriaId) || null,
+    [subcategoriasDisponiveis, subcategoriaId],
+  )
+
   // Handler de seleção da Subcategoria (vincula categoria automaticamente)
   const handleSelecionarSubcategoria = (subId: string) => {
     setSubcategoriaId(subId)
+    setBuscaSubcategoria('')
+    setListaSubcatAberta(false)
     const encontrada = subcategoriasDisponiveis.find((s) => s.id === subId)
     if (encontrada) {
       setCategoriaId(encontrada.categoriaId)
     }
   }
+
+  // Parte C — lista abre ao DIGITAR (um único campo): fecho ao clicar fora.
+  useEffect(() => {
+    if (!listaSubcatAberta) return
+    const aoClicarFora = (e: MouseEvent) => {
+      if (raizSubcatRef.current && !raizSubcatRef.current.contains(e.target as Node)) {
+        setListaSubcatAberta(false)
+      }
+    }
+    document.addEventListener('mousedown', aoClicarFora)
+    return () => document.removeEventListener('mousedown', aoClicarFora)
+  }, [listaSubcatAberta])
 
   const handleSubmeter = async (e: React.FormEvent, criarOutro = false) => {
     e.preventDefault()
@@ -1756,41 +1780,78 @@ export function ModalLancamento({
                       )}
                     </div>
 
-                    {/* T3 — Filtro FORA do Select: o input vive no DOM estável do
-                        formulário (nunca dentro do portal gerenciado pelo Radix),
-                        então o gerenciamento de foco do Select não derruba o
-                        teclado do celular a cada tecla digitada. */}
-                    <Input
-                      id="lan-filtro-subcat"
-                      type="text"
-                      inputMode="text"
-                      value={buscaSubcategoria}
-                      onChange={(e) => setBuscaSubcategoria(e.target.value)}
-                      placeholder="Filtrar categoria ou subcategoria..."
-                      title="Digite para filtrar a lista pela categoria ou subcategoria"
-                      className="mt-1 h-9 text-xs bg-white text-slate-900 border-slate-300"
-                      autoComplete="off"
-                      disabled={camposTravadosCaptura}
-                    />
+                    {/* Parte C — UM ÚNICO campo digitável (o Select dedicado
+                        some): ao digitar, a lista abre automaticamente e filtra
+                        em tempo real, em ordem alfabética, "Subcategoria
+                        (Categoria)" com menos contraste. O input vive no DOM
+                        estável do formulário (nunca dentro de portal do Radix)
+                        com stopPropagation nas teclas e foco mantido até o
+                        clique na opção — o teclado do celular não recolhe até a
+                        escolha. Última alteração vence. */}
+                    <div ref={raizSubcatRef} className="relative mt-1">
+                      <Input
+                        id="lan-filtro-subcat"
+                        type="text"
+                        inputMode="text"
+                        value={
+                          listaSubcatAberta
+                            ? buscaSubcategoria
+                            : subcategoriaExibida?.nome || buscaSubcategoria
+                        }
+                        onChange={(e) => {
+                          setBuscaSubcategoria(e.target.value)
+                          setListaSubcatAberta(true)
+                        }}
+                        onFocus={() => setListaSubcatAberta(true)}
+                        placeholder={
+                          modoCaptura
+                            ? 'Definida nos Detalhes/Agrupamento'
+                            : 'Selecione a subcategoria obrigatória (*)'
+                        }
+                        title="Digite para filtrar a lista pela categoria ou subcategoria"
+                        className="h-9 text-xs bg-white text-slate-900 border-slate-300 font-medium pr-8"
+                        autoComplete="off"
+                        disabled={camposTravadosCaptura}
+                      />
+                      {subcategoriaId && (
+                        <button
+                          type="button"
+                          title="Limpar subcategoria"
+                          aria-label="Limpar subcategoria"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setListaSubcatAberta(false)
+                            setBuscaSubcategoria('')
+                            setSubcategoriaId('')
+                          }}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 z-20 rounded-full p-0.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
 
-                    <Select
-                      value={subcategoriaId}
-                      onValueChange={handleSelecionarSubcategoria}
-                      disabled={camposTravadosCaptura}
-                    >
-                      <SelectTrigger
-                        id="lan-subcat"
-                        className="mt-1 text-xs bg-white text-slate-900 border-slate-300 font-medium"
-                      >
-                        <SelectValue
-                          placeholder={
-                            modoCaptura
-                              ? 'Definida nos Detalhes/Agrupamento'
-                              : 'Selecione a subcategoria obrigatória (*)'
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-72 bg-white text-slate-900 border-slate-200">
+                    {listaSubcatAberta && !camposTravadosCaptura && (
+                      <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-72 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                        <div
+                          role="option"
+                          aria-selected={!subcategoriaId}
+                          tabIndex={-1}
+                          onMouseDown={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                          }}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setBuscaSubcategoria('')
+                            setListaSubcatAberta(false)
+                            setSubcategoriaId('')
+                          }}
+                          className="relative flex w-full cursor-pointer select-none items-center rounded-sm py-1.5 pl-2 pr-2 text-xs outline-none hover:bg-slate-100 focus:bg-slate-100 text-slate-500"
+                        >
+                          — Nenhuma —
+                        </div>
                         {subcategoriasFiltradas.length === 0 ? (
                           <div className="p-3 text-center text-xs text-slate-400">
                             {buscaSubcategoria.trim()
@@ -1799,22 +1860,30 @@ export function ModalLancamento({
                           </div>
                         ) : (
                           subcategoriasFiltradas.map((s) => (
-                            <SelectItem
+                            <div
                               key={s.id}
-                              value={s.id}
-                              className="text-xs cursor-pointer py-2"
+                              role="option"
+                              aria-selected={subcategoriaId === s.id}
+                              tabIndex={-1}
+                              onMouseDown={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleSelecionarSubcategoria(s.id)
+                              }}
+                              className="relative flex w-full cursor-pointer select-none items-center gap-2 rounded-sm py-1.5 pl-2 pr-2 text-xs outline-none hover:bg-slate-100 focus:bg-slate-100"
                             >
-                              <div className="flex items-center justify-between w-full gap-2">
-                                <span className="font-semibold text-slate-900">{s.nome}</span>
-                                <span className="text-[11px] text-slate-400 font-normal">
-                                  ({s.categoriaNome})
-                                </span>
-                              </div>
-                            </SelectItem>
+                              <span className="font-semibold text-slate-900">{s.nome}</span>
+                              <span className="text-[11px] text-slate-400 font-normal">
+                                ({s.categoriaNome})
+                              </span>
+                            </div>
                           ))
                         )}
-                      </SelectContent>
-                    </Select>
+                      </div>
+                    )}
                     {!subcategoriaId && !modoCaptura && (
                       <p className="text-[11px] text-rose-500 mt-1">
                         * Campo obrigatório para categorização do fluxo financeiro

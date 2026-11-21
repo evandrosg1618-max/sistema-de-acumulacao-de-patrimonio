@@ -1,49 +1,26 @@
-import React, { useMemo, useState } from 'react'
-import { X } from 'lucide-react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Categoria, Subcategoria } from '@/types/sap'
 import { cn } from '@/lib/utils'
 
 /**
- * Seletores de Categoria e Subcategoria da IMPORTAÇÃO DE FATURAS.
- * Padrão do Novo Lançamento (ModalLancamento): select próprio com campo de
- * filtro DIGITÁVEL VISÍVEL no topo da lista (case-insensitive, substring,
- * mostra "Subcategoria (Categoria)"), botão X para LIMPAR a seleção
- * (inclusive quando pré-preenchida pela IA) e item "— Nenhuma —".
+ * Seletores de Categoria e Subcategoria da IMPORTAÇÃO DE FATURAS (Teste
+ * Captura 6 / Parte C — campo ÚNICO digitável).
+ *
+ * UM único campo por seletor: ao digitar, a lista abre automaticamente e
+ * filtra em tempo real (case-insensitive, substring, ordem alfabética,
+ * "Subcategoria (Categoria)" com menos contraste). O Select dedicado some —
+ * não existe mais segundo campo para clicar. O input vive FORA de qualquer
+ * portal do Radix (nada de SelectContent aqui), com stopPropagation nas
+ * teclas e foco mantido até o clique na opção — o teclado do celular não
+ * recolhe até a escolha. Botão X para LIMPAR (inclusive pré-preenchida pela
+ * IA) e item "— Nenhuma —" preservados. Última gravação vence.
  */
 
 const PLACEHOLDER_FILTRO = 'Filtrar categoria ou subcategoria...'
 
 export const normalizarTextoFiltro = (v: string) => v.toLowerCase().trim()
-
-const CabecalhoFiltro: React.FC<{
-  valor: string
-  aoMudar: (v: string) => void
-  placeholder?: string
-}> = ({ valor, aoMudar, placeholder }) => (
-  <div className="p-2 border-b border-slate-100 sticky top-0 bg-white z-10">
-    <div className="relative">
-      <Input
-        type="text"
-        value={valor}
-        onChange={(e) => aoMudar(e.target.value)}
-        placeholder={placeholder || PLACEHOLDER_FILTRO}
-        title="Digite para filtrar a lista"
-        className="h-8 text-xs bg-slate-50 text-slate-900 border-slate-200 ring-1 ring-emerald-500"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-      />
-    </div>
-  </div>
-)
 
 const ItemNenhum: React.FC<{ aoEscolher: () => void }> = ({ aoEscolher }) => (
   <div
@@ -64,6 +41,66 @@ const ItemNenhum: React.FC<{ aoEscolher: () => void }> = ({ aoEscolher }) => (
   </div>
 )
 
+const ItemLista: React.FC<{
+  selecionado: boolean
+  destaque?: boolean
+  aoEscolher: () => void
+  children: React.ReactNode
+}> = ({ selecionado, destaque, aoEscolher, children }) => (
+  <div
+    role="option"
+    aria-selected={selecionado}
+    tabIndex={-1}
+    onMouseDown={(e) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }}
+    onClick={(e) => {
+      e.stopPropagation()
+      aoEscolher()
+    }}
+    className={cn(
+      'relative flex w-full cursor-pointer select-none items-center gap-2 rounded-sm py-1.5 pl-2 pr-2 text-[11px] outline-none hover:bg-slate-100 focus:bg-slate-100',
+      destaque ? 'text-slate-400 font-normal' : 'font-semibold text-slate-900',
+    )}
+  >
+    {children}
+  </div>
+)
+
+const useSeletorLista = () => {
+  const [busca, setBusca] = useState('')
+  const [aberto, setAberto] = useState(false)
+  const raizRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!aberto) return
+    const aoClicarFora = (e: MouseEvent) => {
+      if (raizRef.current && !raizRef.current.contains(e.target as Node)) setAberto(false)
+    }
+    document.addEventListener('mousedown', aoClicarFora)
+    return () => document.removeEventListener('mousedown', aoClicarFora)
+  }, [aberto])
+
+  return { busca, setBusca, aberto, setAberto, raizRef }
+}
+
+const BotaoLimpar: React.FC<{ title: string; aoLimpar: () => void }> = ({ title, aoLimpar }) => (
+  <button
+    type="button"
+    title={title}
+    aria-label={title}
+    onMouseDown={(e) => e.preventDefault()}
+    onClick={(e) => {
+      e.stopPropagation()
+      aoLimpar()
+    }}
+    className="absolute right-6 top-1/2 -translate-y-1/2 z-20 rounded-full p-0.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+  >
+    <X className="w-3 h-3" />
+  </button>
+)
+
 export interface SeletorCategoriaFaturaProps {
   categorias: Categoria[]
   valor: string
@@ -77,14 +114,26 @@ export const SeletorCategoriaFatura: React.FC<SeletorCategoriaFaturaProps> = ({
   aoMudar,
   desabilitado,
 }) => {
-  const [busca, setBusca] = useState('')
-  const [aberto, setAberto] = useState(false)
+  const { busca, setBusca, aberto, setAberto, raizRef } = useSeletorLista()
+
+  const categoriasOrdenadas = useMemo(
+    () =>
+      [...categorias].sort((a, b) =>
+        a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }),
+      ),
+    [categorias],
+  )
 
   const listaFiltrada = useMemo(() => {
     const termo = normalizarTextoFiltro(busca)
-    if (!termo) return categorias
-    return categorias.filter((c) => normalizarTextoFiltro(c.nome).includes(termo))
-  }, [categorias, busca])
+    if (!termo) return categoriasOrdenadas
+    return categoriasOrdenadas.filter((c) => normalizarTextoFiltro(c.nome).includes(termo))
+  }, [categoriasOrdenadas, busca])
+
+  const nomeSelecionado = useMemo(
+    () => categorias.find((c) => c.id === valor)?.nome || '',
+    [categorias, valor],
+  )
 
   const limpar = () => {
     setBusca('')
@@ -92,27 +141,30 @@ export const SeletorCategoriaFatura: React.FC<SeletorCategoriaFaturaProps> = ({
   }
 
   return (
-    <div className="relative flex-1 min-w-0">
-      <Select
-        open={aberto}
-        onOpenChange={(o) => {
-          setAberto(o)
-          if (!o) setBusca('')
-        }}
-        value={valor || undefined}
-        onValueChange={(val) => {
-          setBusca('')
-          aoMudar(val)
-        }}
-      >
-        <SelectTrigger
-          className="bg-white border-slate-200 text-slate-900 h-7 text-[11px] w-full"
+    <div ref={raizRef} className="relative flex-1 min-w-0">
+      <div className="relative">
+        <Input
+          type="text"
+          inputMode="text"
+          value={aberto ? busca : valor && nomeSelecionado ? nomeSelecionado : busca}
+          onChange={(e) => {
+            setBusca(e.target.value)
+            setAberto(true)
+          }}
+          onFocus={() => setAberto(true)}
+          placeholder="Categoria..."
+          title="Digite para filtrar a lista"
+          className="bg-white border-slate-200 text-slate-900 h-7 text-[11px] w-full pr-6"
+          autoComplete="off"
           disabled={desabilitado}
-        >
-          <SelectValue placeholder="Categoria..." />
-        </SelectTrigger>
-        <SelectContent className="bg-white border-slate-200 text-slate-900">
-          <CabecalhoFiltro valor={busca} aoMudar={setBusca} placeholder="Filtrar categoria..." />
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        />
+        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+        {!!valor && !desabilitado && <BotaoLimpar title="Limpar categoria" aoLimpar={limpar} />}
+      </div>
+      {aberto && !desabilitado && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
           <ItemNenhum aoEscolher={limpar} />
           {listaFiltrada.length === 0 ? (
             <div className="p-3 text-center text-xs text-slate-400">
@@ -120,27 +172,20 @@ export const SeletorCategoriaFatura: React.FC<SeletorCategoriaFaturaProps> = ({
             </div>
           ) : (
             listaFiltrada.map((c) => (
-              <SelectItem key={c.id} value={c.id} className="text-[11px]">
+              <ItemLista
+                key={c.id}
+                selecionado={valor === c.id}
+                aoEscolher={() => {
+                  setBusca('')
+                  setAberto(false)
+                  aoMudar(c.id)
+                }}
+              >
                 {c.nome}
-              </SelectItem>
+              </ItemLista>
             ))
           )}
-        </SelectContent>
-      </Select>
-      {valor && !desabilitado && (
-        <button
-          type="button"
-          title="Limpar categoria"
-          aria-label="Limpar categoria"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => {
-            e.stopPropagation()
-            limpar()
-          }}
-          className="absolute right-6 top-1/2 -translate-y-1/2 z-20 rounded-full p-0.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-        >
-          <X className="w-3 h-3" />
-        </button>
+        </div>
       )}
     </div>
   )
@@ -165,18 +210,30 @@ export const SeletorSubcategoriaFatura: React.FC<SeletorSubcategoriaFaturaProps>
   desabilitado,
   placeholderFiltro,
 }) => {
-  const [busca, setBusca] = useState('')
-  const [aberto, setAberto] = useState(false)
+  const { busca, setBusca, aberto, setAberto, raizRef } = useSeletorLista()
+
+  const subcategoriasOrdenadas = useMemo(
+    () =>
+      [...subcategorias].sort((a, b) =>
+        a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' }),
+      ),
+    [subcategorias],
+  )
 
   const listaFiltrada = useMemo(() => {
     const termo = normalizarTextoFiltro(busca)
-    if (!termo) return subcategorias
-    return subcategorias.filter(
+    if (!termo) return subcategoriasOrdenadas
+    return subcategoriasOrdenadas.filter(
       (s) =>
         normalizarTextoFiltro(s.nome).includes(termo) ||
         normalizarTextoFiltro(nomesCategorias[s.categoria_id] || '').includes(termo),
     )
-  }, [subcategorias, nomesCategorias, busca])
+  }, [subcategoriasOrdenadas, nomesCategorias, busca])
+
+  const nomeSelecionado = useMemo(
+    () => subcategorias.find((s) => s.id === valor)?.nome || '',
+    [subcategorias, valor],
+  )
 
   const limpar = () => {
     setBusca('')
@@ -184,27 +241,30 @@ export const SeletorSubcategoriaFatura: React.FC<SeletorSubcategoriaFaturaProps>
   }
 
   return (
-    <div className="relative flex-1 min-w-0">
-      <Select
-        open={aberto}
-        onOpenChange={(o) => {
-          setAberto(o)
-          if (!o) setBusca('')
-        }}
-        value={valor || undefined}
-        onValueChange={(val) => {
-          setBusca('')
-          aoMudar(val)
-        }}
-      >
-        <SelectTrigger
-          className="bg-white border-slate-200 text-slate-900 h-7 text-[11px] w-full"
+    <div ref={raizRef} className="relative flex-1 min-w-0">
+      <div className="relative">
+        <Input
+          type="text"
+          inputMode="text"
+          value={aberto ? busca : valor && nomeSelecionado ? nomeSelecionado : busca}
+          onChange={(e) => {
+            setBusca(e.target.value)
+            setAberto(true)
+          }}
+          onFocus={() => setAberto(true)}
+          placeholder={placeholderFiltro || PLACEHOLDER_FILTRO}
+          title="Digite para filtrar a lista"
+          className="bg-white border-slate-200 text-slate-900 h-7 text-[11px] w-full pr-6"
+          autoComplete="off"
           disabled={desabilitado}
-        >
-          <SelectValue placeholder="Subcat..." />
-        </SelectTrigger>
-        <SelectContent className="bg-white border-slate-200 text-slate-900">
-          <CabecalhoFiltro valor={busca} aoMudar={setBusca} placeholder={placeholderFiltro} />
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+        />
+        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+        {!!valor && !desabilitado && <BotaoLimpar title="Limpar subcategoria" aoLimpar={limpar} />}
+      </div>
+      {aberto && !desabilitado && (
+        <div className="absolute left-0 right-0 top-full mt-1 z-50 max-h-64 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
           <ItemNenhum aoEscolher={limpar} />
           {listaFiltrada.length === 0 ? (
             <div className="p-3 text-center text-xs text-slate-400">
@@ -212,34 +272,25 @@ export const SeletorSubcategoriaFatura: React.FC<SeletorSubcategoriaFaturaProps>
             </div>
           ) : (
             listaFiltrada.map((s) => (
-              <SelectItem key={s.id} value={s.id} className="text-[11px]">
-                <div className="flex items-center justify-between w-full gap-2">
-                  <span className="font-semibold text-slate-900">{s.nome}</span>
-                  {nomesCategorias[s.categoria_id] && (
-                    <span className="text-[10px] text-slate-400 font-normal">
-                      ({nomesCategorias[s.categoria_id]})
-                    </span>
-                  )}
-                </div>
-              </SelectItem>
+              <ItemLista
+                key={s.id}
+                selecionado={valor === s.id}
+                aoEscolher={() => {
+                  setBusca('')
+                  setAberto(false)
+                  aoMudar(s.id)
+                }}
+              >
+                <span className="font-semibold text-slate-900">{s.nome}</span>
+                {nomesCategorias[s.categoria_id] && (
+                  <span className="text-[10px] text-slate-400 font-normal">
+                    ({nomesCategorias[s.categoria_id]})
+                  </span>
+                )}
+              </ItemLista>
             ))
           )}
-        </SelectContent>
-      </Select>
-      {valor && !desabilitado && (
-        <button
-          type="button"
-          title="Limpar subcategoria"
-          aria-label="Limpar subcategoria"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => {
-            e.stopPropagation()
-            limpar()
-          }}
-          className="absolute right-6 top-1/2 -translate-y-1/2 z-20 rounded-full p-0.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-        >
-          <X className="w-3 h-3" />
-        </button>
+        </div>
       )}
     </div>
   )
