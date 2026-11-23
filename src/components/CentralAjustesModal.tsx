@@ -17,11 +17,11 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { toast } from 'sonner'
 import { formatMoneyBRL } from '@/lib/formatters'
 import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 import { supabase } from '@/lib/supabase/client'
-import { lancamentoService } from '@/services/sap'
 import type { Conta } from '@/types/sap'
 
 export interface RegistroConciliacao {
@@ -212,12 +212,23 @@ export const CentralAjustesModal: React.FC<CentralAjustesModalProps> = ({
       if (error) throw error
       const res: any = data
       if (res?.sucesso === false) {
+        // Formato de retorno conferido contra o banco: { sucesso, mensagem, ... }
         throw new Error(String(res.mensagem || 'Falha ao registrar o ajuste de saldo.'))
       }
-
-      if (res?.ajustou) {
-        const delta = Number(res?.divergencia || 0)
-        toast.success(`Saldo ajustado em ${formatMoneyBRL(delta)}`)
+      // Formato de retorno conferido contra o banco:
+      // sem_ajuste = true → nada a ajustar; duplicado = true → idempotência;
+      // sucesso com 'ajuste' → ajuste registrado (delta = res.ajuste).
+      if (res?.duplicado) {
+        toast.info('Ajuste já registrado anteriormente — nenhum lançamento duplicado.')
+      } else if (res?.sem_ajuste) {
+        toast.info('Nada a ajustar — saldos já conferem')
+      } else if (res?.lancamento_id) {
+        const delta = Number(res?.ajuste || 0)
+        toast.success(
+          delta >= 0
+            ? `Saldo ajustado em +${formatMoneyBRL(delta)}`
+            : `Saldo ajustado em -${formatMoneyBRL(Math.abs(delta))}`,
+        )
       } else {
         toast.info('Nada a ajustar — saldos já conferem')
       }

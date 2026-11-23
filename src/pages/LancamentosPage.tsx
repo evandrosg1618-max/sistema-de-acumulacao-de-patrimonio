@@ -2304,7 +2304,7 @@ export default function LancamentosPage() {
         onOpenChange={setCentralAjustesOpen}
         contas={contas}
         contaInicialId={filtroConta !== 'todas' ? filtroConta : undefined}
-        workspaceId={currentWorkspace?.id}
+        workspaceId={currentWorkspace?.workspace_id}
         userId={user?.id}
         onDadosAlterados={carregarDados}
         onAbrirNovoLancamentoNaConta={abrirNovoLancamentoNaConta}
