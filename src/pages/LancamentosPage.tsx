@@ -795,8 +795,53 @@ export default function LancamentosPage() {
     }, 'Processando alteração da série no banco...')
   }
 
+  // D2.1/T1 — Joia sobre ajuste de saldo = ESTORNO (mesma ação do Estornar da
+  // Central): NÃO passa pelo togglePago comum. Confirmação clara e chamada
+  // direta da RPC estornar_ajuste_saldo_rpc (mesma do deleteComEscopo).
+  const estornarAjusteSaldoDaLista = async (l: Lancamento) => {
+    if (!wsId) return
+    setModalConfirmacaoConfig({
+      title: 'Estornar ajuste de saldo',
+      description:
+        'Estornar este ajuste? O saldo da conta voltará ao valor anterior ao ajuste. Esta ação é a mesma do botão Estornar da Central de Ajustes.',
+      confirmText: 'Estornar',
+      cancelText: 'Cancelar',
+      isAlertOnly: false,
+      onConfirm: async () => {
+        setModalConfirmacaoExclusaoOpen(false)
+        await runWithLock(async () => {
+          try {
+            const { data, error } = await supabase.rpc('estornar_ajuste_saldo_rpc', {
+              p_workspace_id: wsId,
+              p_lancamento_id: l.id,
+              p_user_id: user?.id || null,
+            })
+            if (error) throw error
+            const res: any = data || {}
+            if (res.sucesso === false) {
+              throw new Error(String(res.mensagem || 'Falha ao estornar o ajuste de saldo.'))
+            }
+            toast.success('Ajuste estornado — saldo revertido')
+            await carregarDados()
+          } catch (err: any) {
+            console.error('Erro ao estornar ajuste de saldo (joia da lista):', err)
+            toast.error(err?.message || 'Erro ao estornar o ajuste de saldo.')
+          }
+        }, 'Estornando ajuste e restaurando saldo da conta...')
+      },
+    })
+    setModalConfirmacaoExclusaoOpen(true)
+  }
+
   const handleTogglePago = async (l: Lancamento) => {
     if (!wsId) return
+
+    // D2.1/T1 — interceptação ANTES do fluxo comum: ajuste de saldo bancário
+    // não tem "toggle de pagamento" — a joia dispara o estorno via RPC.
+    if (l.tipo === 'ajuste' && l.subtipo_ajuste === 'ajuste_saldo_conta') {
+      await estornarAjusteSaldoDaLista(l)
+      return
+    }
 
     // Se estiver em fatura de cartão, não permite toggle manual
     if (l.meio_pagamento_tipo === 'CARTAO' || l.cartao_id) {
