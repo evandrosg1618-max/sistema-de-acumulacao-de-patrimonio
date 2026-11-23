@@ -6,7 +6,6 @@ import {
   contaService,
   cartaoService,
   categoriaService,
-  conciliacaoService,
   fixoService,
 } from '@/services/sap'
 import { Lancamento, Conta, Cartao, Categoria, TipoLancamento } from '@/types/sap'
@@ -62,7 +61,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ModalLancamento } from '@/components/ModalLancamento'
-import { ModalConciliacao } from '@/components/ModalConciliacao'
+import { CentralAjustesModal } from '@/components/CentralAjustesModal'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { ModalConfirmacaoExclusao } from '@/components/ModalConfirmacaoExclusao'
@@ -131,7 +130,7 @@ export default function LancamentosPage() {
   const [modalLancamentoOpen, setModalLancamentoOpen] = useState(false)
   const [lancamentoEmEdicao, setLancamentoEmEdicao] = useState<Lancamento | null>(null)
   const [tipoModalPadrao, setTipoModalPadrao] = useState<TipoLancamento>('despesa')
-  const [modalConciliacaoOpen, setModalConciliacaoOpen] = useState(false)
+  const [contaPreSelecionadaId, setContaPreSelecionadaId] = useState<string | null>(null)
 
   // Modal de aviso persistente de fatura paga
   const [bloqueioFaturaInfo, setBloqueioFaturaInfo] = useState<InfoBloqueioFatura | null>(null)
@@ -344,6 +343,18 @@ export default function LancamentosPage() {
   const abrirNovoLancamento = (tipo: TipoLancamento = 'despesa') => {
     setLancamentoEmEdicao(null)
     setTipoModalPadrao(tipo)
+    setModalLancamentoOpen(true)
+  }
+
+  // D2 — Central de Ajustes assume o botão "Conciliar"
+  const [centralAjustesOpen, setCentralAjustesOpen] = useState(false)
+
+  // Válvula de escape: fecha a Central e abre o Novo Lançamento pré-filtrado na conta
+  // (para divergência causada por transação real, ex. compra duplicada)
+  const abrirNovoLancamentoNaConta = (contaId: string) => {
+    setLancamentoEmEdicao(null)
+    setTipoModalPadrao('despesa')
+    setContaPreSelecionadaId(contaId || null)
     setModalLancamentoOpen(true)
   }
 
@@ -837,32 +848,6 @@ export default function LancamentosPage() {
     }
   }
 
-  const handleSalvarConciliacao = async (dados: {
-    contaId: string
-    saldoExtrato: number
-    dataExtrato: string
-    ajustarSaldo: boolean
-    observacao?: string
-  }) => {
-    if (!wsId) return
-    const res = await conciliacaoService.registrarConciliacaoComAjuste({
-      workspace_id: wsId,
-      conta_id: dados.contaId,
-      saldo_extrato: dados.saldoExtrato,
-      data_extrato: dados.dataExtrato,
-      ajustarSaldo: dados.ajustarSaldo,
-      observacao: dados.observacao,
-      userId: user?.id,
-    })
-
-    if (res.ajustado) {
-      toast.success('Conciliação realizada com lançamento de ajuste de saldo!')
-    } else {
-      toast.success('Conciliação registrada com sucesso!')
-    }
-    await carregarDados()
-  }
-
   // Totais do Período: derivam estritamente dos lançamentos PAGOS do período (Passo 1.1 e testes 9, 11, 12, 15, 18, 20)
   // Transferências têm impacto zero no resultado mês (liquidez neutra)
   const totalReceitas = lancamentos
@@ -1305,11 +1290,11 @@ export default function LancamentosPage() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setModalConciliacaoOpen(true)}
+          onClick={() => setCentralAjustesOpen(true)}
           className="h-9 text-xs rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50"
-          title="Conciliação Bancária"
+          title="Central de Ajustes"
         >
-          <Scale className="w-3.5 h-3.5 mr-1 text-teal-600" />
+          <Scale className="w-3.5 h-3.5 mr-1 text-violet-600" />
           <span>Conciliar</span>
         </Button>
       </div>
@@ -1746,18 +1731,25 @@ export default function LancamentosPage() {
                                 >
                                   {l.subtipo_ajuste === 'ajuste_tecnico_sap'
                                     ? 'Ajuste Técnico do SAP'
-                                    : 'Ajuste da Fatura do Banco'}
+                                    : l.subtipo_ajuste === 'ajuste_saldo_conta'
+                                      ? 'Ajuste do saldo da conta'
+                                      : 'Ajuste da Fatura do Banco'}
                                 </Badge>
-                                <Badge
-                                  variant="outline"
-                                  className={`text-[10px] font-medium px-1.5 py-0 ${
-                                    l.efeito_fatura === 'reduz'
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                      : 'bg-rose-50 text-rose-700 border-rose-200'
-                                  }`}
-                                >
-                                  {l.efeito_fatura === 'reduz' ? 'Reduz fatura' : 'Aumenta fatura'}
-                                </Badge>
+                                {/* D2 — ajuste de saldo NÃO tem efeito em fatura */}
+                                {l.subtipo_ajuste !== 'ajuste_saldo_conta' && (
+                                  <Badge
+                                    variant="outline"
+                                    className={`text-[10px] font-medium px-1.5 py-0 ${
+                                      l.efeito_fatura === 'reduz'
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                        : 'bg-rose-50 text-rose-700 border-rose-200'
+                                    }`}
+                                  >
+                                    {l.efeito_fatura === 'reduz'
+                                      ? 'Reduz fatura'
+                                      : 'Aumenta fatura'}
+                                  </Badge>
+                                )}
                                 {l.observacao && (
                                   <>
                                     <span className="text-slate-300">•</span>
@@ -2070,6 +2062,7 @@ export default function LancamentosPage() {
         categorias={categorias}
         workspaceId={wsId || ''}
         userId={user?.id}
+        contaPreSelecionadaId={contaPreSelecionadaId}
       />
 
       {/* MODAL DE DETALHES DE CONTA BANCÁRIA (EXTRATO DE LANÇAMENTOS) */}
@@ -2305,12 +2298,16 @@ export default function LancamentosPage() {
         </div>
       )}
 
-      {/* MODAL DE CONCILIAÇÃO BANCÁRIA */}
-      <ModalConciliacao
-        open={modalConciliacaoOpen}
-        onOpenChange={setModalConciliacaoOpen}
+      {/* D2 — CENTRAL DE AJUSTES (assume o botão "Conciliar"; ModalConciliacao antigo desativado) */}
+      <CentralAjustesModal
+        open={centralAjustesOpen}
+        onOpenChange={setCentralAjustesOpen}
         contas={contas}
-        onSalvar={handleSalvarConciliacao}
+        contaInicialId={filtroConta !== 'todas' ? filtroConta : undefined}
+        workspaceId={currentWorkspace?.id}
+        userId={user?.id}
+        onDadosAlterados={carregarDados}
+        onAbrirNovoLancamentoNaConta={abrirNovoLancamentoNaConta}
       />
 
       {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO UNIFICADO (AlertDialog) */}

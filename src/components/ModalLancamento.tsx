@@ -116,6 +116,12 @@ interface ModalLancamentoProps {
    * "Pago com" no tipo correto sem inventar prefill.
    */
   modoCapturaMeioTipoGravado?: string
+  /**
+   * D2 — Central de Ajustes (válvula de escape): conta bancária pré-selecionada
+   * para um NOVO lançamento. Opcional; quando omitido, comportamento inalterado
+   * (contas[0]). NUNCA usado no modoCaptura (guardas preservam o campo vazio).
+   */
+  contaPreSelecionadaId?: string | null
 }
 
 export function ModalLancamento({
@@ -139,6 +145,7 @@ export function ModalLancamento({
   rotuloBotaoCaptura,
   modoCapturaTemMeioGravado = false,
   modoCapturaMeioTipoGravado,
+  contaPreSelecionadaId,
 }: ModalLancamentoProps) {
   const { isProcessing } = useGlobalLoading()
   const [tipo, setTipo] = useState<TipoLancamento>(tipoPadrao)
@@ -229,6 +236,11 @@ export function ModalLancamento({
 
   // Helper para inicializar valor padrão de pagoComDestino
   const getValorPadraoOrigem = () => {
+    // D2 — válvula de escape da Central de Ajustes: Novo Lançamento nasce na
+    // conta escolhida na Central (sem chutar contas[0]).
+    if (contaPreSelecionadaId && contas.some((c) => c.id === contaPreSelecionadaId)) {
+      return `conta:${contaPreSelecionadaId}`
+    }
     if (contas.length > 0) return `conta:${contas[0].id}`
     if (cartoes.length > 0) return `cartao:${cartoes[0].id}`
     return 'dinheiro:principal'
@@ -424,7 +436,13 @@ export function ModalLancamento({
       } else {
         setPagoComDestino(getValorPadraoOrigem())
       }
-      setContaOrigemId(contas.length > 0 ? contas[0].id : '')
+      setContaOrigemId(
+        contaPreSelecionadaId && contas.some((c) => c.id === contaPreSelecionadaId)
+          ? contaPreSelecionadaId
+          : contas.length > 0
+            ? contas[0].id
+            : '',
+      )
       setContaDestinoId(contas.length > 1 ? contas[1].id : '')
       setCategoriaId('')
       setSubcategoriaId('')
@@ -439,7 +457,7 @@ export function ModalLancamento({
       setFixoPeriodicidade('mensal')
     }
     setAvisoBloqueioPago(null)
-  }, [open, initialData, tipoPadrao, cartaoPadraoId, dataPadrao])
+  }, [open, initialData, tipoPadrao, cartaoPadraoId, dataPadrao, contaPreSelecionadaId])
 
   // Ajustar categoria/subcategoria ao mudar tipo
   useEffect(() => {
