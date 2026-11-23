@@ -971,11 +971,18 @@ export function ModalLancamento({
                 <button
                   type="button"
                   onClick={() => {
-                    setTipo('ajuste')
-                    if (!cartaoAjusteId) {
-                      if (cartaoPadraoId) setCartaoAjusteId(cartaoPadraoId)
-                      else if (cartoes.length > 0) setCartaoAjusteId(cartoes[0].id)
+                    if (modoCaptura) {
+                      // modoCaptura intocado: 'Ajuste' continua selecionando o tipo.
+                      setTipo('ajuste')
+                      if (!cartaoAjusteId) {
+                        if (cartaoPadraoId) setCartaoAjusteId(cartaoPadraoId)
+                        else if (cartoes.length > 0) setCartaoAjusteId(cartoes[0].id)
+                      }
+                      return
                     }
+                    // D2.1-FINAL (T5b) — em Novo Lançamento o botão vira
+                    // "Central de Ajustes": abre a Central intermediária.
+                    onAbrirCentralAjustes?.()
                   }}
                   className={`py-1.5 text-xs font-bold rounded-md flex items-center justify-center gap-1 transition ${
                     tipo === 'ajuste'
@@ -983,9 +990,18 @@ export function ModalLancamento({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  <Scale className="w-3.5 h-3.5" />
-                  <span>Ajuste</span>
+                  <span>{modoCaptura ? 'Ajuste' : 'Central de Ajustes'}</span>
                 </button>
+              </div>
+=======
+              </div>
+            )}
+=======
+=======
+                  <span>{modoCaptura ? 'Ajuste' : 'Central de Ajustes'}</span>
+                </button>
+              </div>
+=======
               </div>
             )}
             <div className="py-4 space-y-4">

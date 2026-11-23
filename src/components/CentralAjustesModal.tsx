@@ -1,60 +1,40 @@
-import React, { useCallback, useEffect, useState } from 'react'
-import { Scale, CheckCircle2, Eye, Undo2 } from 'lucide-react'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { toast } from 'sonner'
-import { formatMoneyBRL } from '@/lib/formatters'
-import { valorDeTextoMonetarioBR } from '@/lib/monetario'
-import { supabase } from '@/lib/supabase/client'
+import React, { useEffect, useState } from 'react'
+import { ChevronLeft, CreditCard, Info, Landmark } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { CentralSaldoBancarioView } from '@/components/CentralSaldoBancarioView'
 import type { Conta } from '@/types/sap'
 
-export interface RegistroConciliacao {
-  id: string
-  conta_id: string
-  data_extrato: string
-  saldo_sistema: number | null
-  saldo_extrato: number | null
-  divergencia: number | null
-  ajustado: boolean
-  lancamento_ajuste_id: string | null
-  observacao: string | null
-  created_at: string
-  /** true quando a linha veio de um lançamento 'ajuste_saldo_conta' sem conciliação */
-  origemLancamento?: boolean
-}
+export type { RegistroConciliacao } from '@/components/CentralSaldoBancarioView'
 
 export interface CentralAjustesModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   contas: Conta[]
-  /** Filtro Origem ativo na página: conta pré-selecionada na Central */
+  /** Filtro Origem ativo na página: conta pré-selecionada na view de saldo */
   contaInicialId?: string
   workspaceId?: string
   userId?: string
+  /**
+   * T5c — modo consulta (Categorias & Subcategorias): a Central abre direto no
+   * card "Ajuste de Saldo Bancário", somente leitura (sem registrar/estornar).
+   */
+  modoConsulta?: boolean
   /** Recarrega saldos + lançamentos da página (após ajuste/estorno) */
   onDadosAlterados: () => Promise<void> | void
   /** Válvula de escape: fecha a Central e abre o Novo Lançamento na conta */
-  onAbrirNovoLancamentoNaConta: (contaId: string) => void
+  onAbrirNovoLancamentoNaConta?: (contaId: string) => void
 }
 
-const hojeISO = () => new Date().toISOString().slice(0, 10)
+type Tela = 'inicio' | 'saldo'
 
+/**
+ * D2.1-FINAL (T4) — Central de Ajustes vira tela INTERMEDIÁRIA com 2 cards:
+ *  • "Ajuste de Fatura" → navega para a tela atual de ajustes de fatura
+ *    (LancamentosPage com filtro de lançamentos do tipo ajuste), regras e
+ *    subtipos intocados — a lógica não é duplicada aqui.
+ *  • "Ajuste de Saldo Bancário" → view de conciliação de saldo (a antiga
+ *    Central), com saldos, divergência, histórico e estorno como está hoje.
+ */
 export const CentralAjustesModal: React.FC<CentralAjustesModalProps> = ({
   open,
   onOpenChange,
@@ -62,594 +42,148 @@ export const CentralAjustesModal: React.FC<CentralAjustesModalProps> = ({
   contaInicialId,
   workspaceId,
   userId,
+  modoConsulta = false,
   onDadosAlterados,
   onAbrirNovoLancamentoNaConta,
 }) => {
-  const [contaId, setContaId] = useState('')
-  const [saldoExtrato, setSaldoExtrato] = useState('')
-  const [dataAjuste, setDataAjuste] = useState(hojeISO())
-  const [observacao, setObservacao] = useState('')
-  const [salvando, setSalvando] = useState(false)
-  const [estornandoId, setEstornandoId] = useState<string | null>(null)
-  const [confirmarEstornoId, setConfirmarEstornoId] = useState<string | null>(null)
-  const [detalhe, setDetalhe] = useState<RegistroConciliacao | null>(null)
-  const [limiteHistorico, setLimiteHistorico] = useState(10)
+  const [tela, setTela] = useState<Tela>('inicio')
 
-  /** Saldos SAP lidos direto do banco (sobrevivem ao ajuste sem recarregar a página) */
-  const [saldos, setSaldos] = useState<Record<string, number>>({})
-  const [historico, setHistorico] = useState<RegistroConciliacao[]>([])
-
-  const carregarSaldos = useCallback(async () => {
-    if (!workspaceId) return
-    try {
-      const { data, error } = await supabase
-        .from('contas')
-        .select('id, saldo_atual')
-        .eq('workspace_id', workspaceId)
-        .is('deleted_at', null)
-      if (error) throw error
-      const mapa: Record<string, number> = {}
-      ;(data || []).forEach((c: any) => {
-        mapa[c.id] = Number(c.saldo_atual || 0)
-      })
-      setSaldos(mapa)
-    } catch (e: any) {
-      console.warn('Central de Ajustes: falha ao carregar saldos das contas:', e?.message)
-    }
-  }, [workspaceId])
-
-  const carregarHistorico = useCallback(async () => {
-    if (!workspaceId || !contaId) {
-      setHistorico([])
-      return
-    }
-    try {
-      const { data, error } = await supabase
-        .from('conciliacoes_conta')
-        .select('*')
-        .eq('workspace_id', workspaceId)
-        .eq('conta_id', contaId)
-        .order('created_at', { ascending: false })
-        .limit(100)
-      if (error) throw error
-
-      // Linhas da fonte secundária: lançamentos 'ajuste_saldo_conta' da conta que
-      // NÃO têm conciliação (ex.: criados por caminho antigo) — não duplicar por id.
-      const idsVinculados = new Set((data || []).map((c: any) => c.lancamento_ajuste_id))
-      const { data: lancs, error: errLancs } = await supabase
-        .from('lancamentos')
-        .select(
-          'id, data, valor, status_pagamento, observacao, created_at, conta_origem_id, subtipo_ajuste, tipo, deleted_at',
-        )
-        .eq('workspace_id', workspaceId)
-        .eq('tipo', 'ajuste')
-        .eq('subtipo_ajuste', 'ajuste_saldo_conta')
-        .eq('conta_origem_id', contaId)
-        .is('deleted_at', null)
-        .order('data', { ascending: false })
-        .limit(100)
-      if (errLancs) throw errLancs
-
-      const extras: RegistroConciliacao[] = (lancs || [])
-        .filter((l: any) => !idsVinculados.has(l.id))
-        .map((l: any) => ({
-          id: l.id,
-          conta_id: l.conta_origem_id,
-          data_extrato: l.data,
-          saldo_sistema: null,
-          saldo_extrato: null,
-          divergencia: null,
-          ajustado: l.status_pagamento === 'pago',
-          lancamento_ajuste_id: l.id,
-          observacao: l.observacao || null,
-          created_at: l.created_at || '',
-          origemLancamento: true,
-        }))
-
-      setHistorico([...(data || []), ...extras])
-    } catch (e: any) {
-      console.warn('Central de Ajustes: falha ao carregar histórico:', e?.message)
-      setHistorico([])
-    }
-  }, [workspaceId, contaId])
-
-  // Reset a cada abertura (pré-seleção do filtro Origem; form e confirmações limpos)
+  // Ao abrir: modoConsulta pula o início e vai direto ao Saldo Bancário (só leitura)
   useEffect(() => {
-    if (!open) return
-    setDataAjuste(hojeISO())
-    setObservacao('')
-    setSaldoExtrato('')
-    setConfirmarEstornoId(null)
-    setDetalhe(null)
-    setLimiteHistorico(10)
-    setContaId(
-      contaInicialId && contas.some((c) => c.id === contaInicialId)
-        ? contaInicialId
-        : contas.length > 0
-          ? contas[0].id
-          : '',
-    )
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
+    if (open) setTela(modoConsulta ? 'saldo' : 'inicio')
+    if (!open) setTela('inicio')
+  }, [open, modoConsulta])
 
-  useEffect(() => {
-    if (open && workspaceId) {
-      void carregarSaldos()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, workspaceId])
-
-  useEffect(() => {
-    if (open && workspaceId && contaId) {
-      void carregarHistorico()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, workspaceId, contaId])
-
-  const conta = contas.find((c) => c.id === contaId) || null
-  const saldoSap =
-    contaId && saldos[contaId] !== undefined ? saldos[contaId] : (conta?.saldo_atual ?? 0)
-  const saldoExtratoNum = saldoExtrato.trim() ? valorDeTextoMonetarioBR(saldoExtrato) : null
-  const divergencia =
-    saldoExtratoNum === null ? null : Math.round((saldoExtratoNum - saldoSap) * 100) / 100
-
-  const handleAjustar = async () => {
-    if (!workspaceId || !contaId) return
-    if (saldoExtratoNum === null) {
-      toast.error('Informe o saldo real (extrato).')
-      return
-    }
-    setSalvando(true)
-    try {
-      const { data, error } = await supabase.rpc('registrar_ajuste_saldo_rpc', {
-        p_workspace_id: workspaceId,
-        p_conta_id: contaId,
-        p_saldo_real: saldoExtratoNum,
-        p_data: dataAjuste,
-        p_observacao: observacao.trim() || undefined,
-        p_user_id: userId || undefined,
-      })
-      if (error) throw error
-      const res: any = data
-      if (res?.sucesso === false) {
-        // Formato de retorno conferido contra o banco: { sucesso, mensagem, ... }
-        throw new Error(String(res.mensagem || 'Falha ao registrar o ajuste de saldo.'))
-      }
-      // Formato de retorno conferido contra o banco:
-      // sem_ajuste = true → nada a ajustar; duplicado = true → idempotência;
-      // sucesso com 'ajuste' → ajuste registrado (delta = res.ajuste).
-      if (res?.duplicado) {
-        toast.info('Ajuste já registrado anteriormente — nenhum lançamento duplicado.')
-      } else if (res?.sem_ajuste) {
-        toast.info('Nada a ajustar — saldos já conferem')
-      } else if (res?.lancamento_id) {
-        const delta = Number(res?.ajuste || 0)
-        toast.success(
-          delta >= 0
-            ? `Saldo ajustado em +${formatMoneyBRL(delta)}`
-            : `Saldo ajustado em -${formatMoneyBRL(Math.abs(delta))}`,
-        )
-      } else {
-        toast.info('Nada a ajustar — saldos já conferem')
-      }
-
-      setSaldoExtrato('')
-      setObservacao('')
-      await carregarSaldos()
-      await carregarHistorico()
-      await onDadosAlterados()
-    } catch (e: any) {
-      console.error('Erro ao registrar ajuste de saldo:', e)
-      toast.error(e?.message || 'Erro ao registrar o ajuste de saldo.')
-    } finally {
-      setSalvando(false)
-    }
-  }
-
-  const handleEstornar = async (registro: RegistroConciliacao) => {
-    if (!workspaceId || !registro.lancamento_ajuste_id) return
-    setEstornandoId(registro.id)
-    try {
-      const { data, error } = await supabase.rpc('estornar_ajuste_saldo_rpc', {
-        p_workspace_id: workspaceId,
-        p_lancamento_id: registro.lancamento_ajuste_id,
-        p_user_id: userId || undefined,
-      })
-      if (error) throw error
-      const res: any = data
-      if (res?.sucesso === false) {
-        throw new Error(String(res.mensagem || 'Falha ao estornar o ajuste de saldo.'))
-      }
-      toast.success('Ajuste estornado — saldo revertido')
-      setConfirmarEstornoId(null)
-      await carregarSaldos()
-      await carregarHistorico()
-      await onDadosAlterados()
-    } catch (e: any) {
-      console.error('Erro ao estornar ajuste de saldo:', e)
-      toast.error(e?.message || 'Erro ao estornar o ajuste de saldo.')
-    } finally {
-      setEstornandoId(null)
-    }
-  }
-
-  // T1 — só contas bancárias; cartões não chegam até aqui (a página já filtra)
-  const contasBancarias = contas
-  const contaDetalheNome = contas.find((c) => c.id === detalhe?.conta_id)?.nome
+  const fechar = () => onOpenChange(false)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg w-[calc(100%-2rem)] rounded-2xl p-0 overflow-hidden max-h-[90vh] flex flex-col">
-        <DialogHeader className="px-5 pt-5 pb-3 border-b bg-gradient-to-br from-violet-50 to-white">
-          <DialogTitle className="flex items-center gap-2 text-base sm:text-lg">
-            <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-violet-100 text-violet-700">
-              <Scale className="w-4 h-4" />
+      <DialogContent
+        className="sm:max-w-md h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-slate-100">
+          <DialogTitle className="flex items-center gap-2 text-slate-900 font-bold text-base">
+            {tela === 'saldo' && (
+              <button
+                type="button"
+                onClick={() => setTela('inicio')}
+                className="p-1 -ml-1 rounded-md text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                title="Voltar"
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+            )}
+            <span>
+              {tela === 'inicio' ? 'Central de Ajustes' : 'Ajuste de Saldo Bancário'}
             </span>
-            Central de Ajustes
           </DialogTitle>
-          <DialogDescription className="text-xs text-slate-500">
-            Concilie o saldo do SAP com o extrato real da conta bancária. Cartões não aparecem aqui
-            — ajustes de fatura seguem no fluxo de cartões.
-          </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-          {contasBancarias.length === 0 ? (
-            <div className="text-sm text-slate-500 py-6 text-center">
-              Nenhuma conta bancária cadastrada neste workspace.
-            </div>
-          ) : (
-            <>
-              {/* T1 — seletor de conta */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-600">Conta bancária</Label>
-                <Select value={contaId} onValueChange={setContaId}>
-                  <SelectTrigger className="w-full h-10">
-                    <SelectValue placeholder="Selecione a conta" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64">
-                    {contasBancarias.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {conta && (
-                <>
-                  {/* T1 — saldos e divergência */}
-                  <div className="grid grid-cols-3 gap-2">
-                    <div className="rounded-xl border bg-white p-3">
-                      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-                        Saldo informado (extrato)
-                      </p>
-                      <p className="text-sm font-bold text-slate-700 mt-1 tabular-nums">
-                        {saldoExtratoNum === null ? '—' : formatMoneyBRL(saldoExtratoNum)}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border bg-white p-3">
-                      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-                        Saldo SAP
-                      </p>
-                      <p className="text-sm font-bold text-slate-700 mt-1 tabular-nums">
-                        {formatMoneyBRL(saldoSap)}
-                      </p>
-                    </div>
-                    <div
-                      className={`rounded-xl border p-3 ${
-                        divergencia === null
-                          ? 'bg-white'
-                          : divergencia === 0
-                            ? 'bg-emerald-50 border-emerald-200'
-                            : 'bg-amber-50 border-amber-200'
-                      }`}
-                    >
-                      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-                        Divergência
-                      </p>
-                      <p
-                        className={`text-sm font-bold mt-1 tabular-nums ${
-                          divergencia === null
-                            ? 'text-slate-400'
-                            : divergencia === 0
-                              ? 'text-emerald-600'
-                              : divergencia > 0
-                                ? 'text-emerald-600'
-                                : 'text-rose-600'
-                        }`}
-                      >
-                        {divergencia === null
-                          ? '—'
-                          : `${divergencia > 0 ? '+' : ''}${formatMoneyBRL(divergencia)}`}
-                      </p>
-                    </div>
+        {tela === 'inicio' ? (
+          <>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              {/* Card 1 — Ajuste de Fatura */}
+              <button
+                type="button"
+                onClick={() => {
+                  // Regras/subtipos intocados: navega para a tela atual de
+                  // ajustes de fatura (filtro de lançamentos do tipo ajuste).
+                  fechar()
+                  window.location.hash = '#/ajustes-fatura'
+                  window.dispatchEvent(
+                    new CustomEvent('sap:abrir-ajustes-fatura', { bubbles: true }),
+                  )
+                }}
+                className="w-full text-left rounded-2xl border border-slate-200 bg-white p-4 hover:border-violet-300 hover:bg-violet-50/50 transition group"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-xl bg-indigo-100 text-indigo-600 group-hover:bg-indigo-200 transition shrink-0">
+                    <CreditCard className="w-5 h-5" />
                   </div>
-
-                  {/* T2 — fluxo Ajustar saldo */}
-                  <div className="rounded-xl border bg-slate-50/60 p-4 space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label
-                          htmlFor="ca-saldo-extrato"
-                          className="text-xs font-semibold text-slate-600"
-                        >
-                          Saldo real (extrato) *
-                        </Label>
-                        <Input
-                          id="ca-saldo-extrato"
-                          inputMode="decimal"
-                          placeholder="0,00"
-                          value={saldoExtrato}
-                          onChange={(e) => setSaldoExtrato(e.target.value)}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor="ca-data" className="text-xs font-semibold text-slate-600">
-                          Data
-                        </Label>
-                        <Input
-                          id="ca-data"
-                          type="date"
-                          value={dataAjuste}
-                          onChange={(e) => setDataAjuste(e.target.value)}
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="ca-obs" className="text-xs font-semibold text-slate-600">
-                        Observação (opcional)
-                      </Label>
-                      <Input
-                        id="ca-obs"
-                        placeholder="Ex.: rendimento, tarifa não lançada…"
-                        value={observacao}
-                        onChange={(e) => setObservacao(e.target.value)}
-                        maxLength={300}
-                      />
-                    </div>
-                    <div className="flex flex-col sm:flex-row gap-2 sm:items-center justify-between">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onOpenChange(false)
-                          onAbrirNovoLancamentoNaConta(contaId)
-                        }}
-                        className="text-xs font-medium text-violet-700 underline underline-offset-2 hover:text-violet-900 text-left"
-                      >
-                        Registrar como lançamento comum
-                      </button>
-                      <Button
-                        onClick={handleAjustar}
-                        disabled={salvando || saldoExtratoNum === null}
-                        className="bg-violet-600 hover:bg-violet-700 text-white"
-                      >
-                        <Scale className="w-4 h-4 mr-1" />
-                        {salvando ? 'Ajustando…' : 'Ajustar saldo'}
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* T3 — histórico da conta */}
-                  <div className="space-y-2">
-                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
-                      Histórico da conta
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-800">Ajuste de Fatura</p>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                      Ajusta diferenças entre o valor calculado pelo SAP e o apresentado na fatura.
                     </p>
-                    {historico.length === 0 ? (
-                      <p className="text-xs text-slate-400 py-3 text-center">
-                        Nenhuma conciliação ou ajuste registrado para esta conta.
-                      </p>
-                    ) : (
-                      <div className="divide-y divide-slate-100 rounded-xl border">
-                        {historico.slice(0, limiteHistorico).map((reg) => {
-                          const delta =
-                            reg.saldo_sistema !== null && reg.saldo_extrato !== null
-                              ? reg.saldo_extrato - reg.saldo_sistema
-                              : null
-                          const jaEstornado =
-                            !reg.ajustado &&
-                            !!reg.lancamento_ajuste_id &&
-                            reg.saldo_sistema !== null
-                          return (
-                            <div key={reg.id} className="p-3 space-y-1.5 bg-white">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-semibold text-slate-700">
-                                  {(reg.data_extrato || '').split('-').reverse().join('/')}
-                                </span>
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => setDetalhe(reg)}
-                                    className="p-1 rounded text-slate-400 hover:text-violet-700"
-                                    title="Detalhes"
-                                  >
-                                    <Eye className="w-4 h-4" />
-                                  </button>
-                                  {reg.lancamento_ajuste_id && !jaEstornado && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmarEstornoId(reg.id)}
-                                      className="p-1 rounded text-slate-400 hover:text-rose-600"
-                                      title="Estornar"
-                                    >
-                                      <Undo2 className="w-4 h-4" />
-                                      {estornandoId === reg.id ? (
-                                        <span className="sr-only">Estornando…</span>
-                                      ) : null}
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="grid grid-cols-4 gap-1 text-[11px] text-slate-600">
-                                <span>Sistema: {formatMoneyBRL(reg.saldo_sistema ?? 0)}</span>
-                                <span>Extrato: {formatMoneyBRL(reg.saldo_extrato ?? 0)}</span>
-                                <span>
-                                  Diverg.:{' '}
-                                  {delta === null ? (
-                                    '—'
-                                  ) : (
-                                    <span className="font-semibold">
-                                      {delta > 0 ? '+' : ''}
-                                      {formatMoneyBRL(delta)}
-                                    </span>
-                                  )}
-                                </span>
-                                <span>
-                                  Ajuste:{' '}
-                                  {reg.ajustado ? (
-                                    <span className="font-semibold text-violet-700">
-                                      {delta === null ? '' : formatMoneyBRL(delta)}
-                                    </span>
-                                  ) : (
-                                    '—'
-                                  )}
-                                </span>
-                              </div>
-                              {reg.observacao && (
-                                <p className="text-[11px] italic text-slate-400 break-words">
-                                  {reg.observacao}
-                                </p>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                    {historico.length > limiteHistorico && (
-                      <button
-                        type="button"
-                        onClick={() => setLimiteHistorico((v) => v + 10)}
-                        className="text-xs font-medium text-violet-700 underline underline-offset-2"
-                      >
-                        Mostrar mais
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* Confirmação de estorno — substitui a linha de ações por confirmação clara */}
-        {confirmarEstornoId && detalhe === null && (
-          <div className="px-5 py-3 border-t bg-rose-50">
-            {(() => {
-              const reg = historico.find((r) => r.id === confirmarEstornoId)
-              if (!reg) return null
-              return (
-                <div className="space-y-2">
-                  <p className="text-xs text-slate-700">
-                    <span className="font-semibold">Estornar ajuste?</span> O lançamento{' '}
-                    <span className="font-medium">
-                      “Ajuste do saldo da conta” de {formatMoneyBRL(reg.saldo_extrato ?? 0)}
-                    </span>{' '}
-                    será excluído e o saldo da conta{' '}
-                    <span className="font-medium">{conta?.nome}</span> voltará para{' '}
-                    <span className="font-medium">{formatMoneyBRL(reg.saldo_sistema ?? 0)}</span>.
-                  </p>
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setConfirmarEstornoId(null)}
-                      disabled={estornandoId !== null}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="bg-rose-600 hover:bg-rose-700 text-white"
-                      onClick={() => void handleEstornar(reg)}
-                      disabled={estornandoId !== null}
-                    >
-                      {estornandoId === reg.id ? 'Estornando…' : 'Estornar'}
-                    </Button>
                   </div>
                 </div>
-              )
-            })()}
-          </div>
-        )}
+                <div className="mt-3 flex justify-end">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 group-hover:text-indigo-700">
+                    Abrir Ajustes de Fatura
+                    <ChevronRightIcon />
+                  </span>
+                </div>
+              </button>
 
-        {/* T3 — sheet de Detalhes */}
-        <Sheet
-          open={detalhe !== null}
-          onOpenChange={(o) => {
-            if (!o) setDetalhe(null)
-          }}
-        >
-          <SheetContent side="bottom" className="rounded-t-2xl max-h-[85vh] overflow-y-auto">
-            <SheetHeader className="text-left">
-              <SheetTitle className="flex items-center gap-2 text-base">
-                <CheckCircle2 className="w-4 h-4 text-violet-600" />
-                Detalhes da conciliação
-              </SheetTitle>
-            </SheetHeader>
-            {detalhe && (
-              <div className="px-4 pb-6 space-y-1 text-sm">
-                {(() => {
-                  const delta =
-                    detalhe.saldo_sistema !== null && detalhe.saldo_extrato !== null
-                      ? detalhe.saldo_extrato - detalhe.saldo_sistema
-                      : null
-                  return (
-                    <>
-                      <div className="flex justify-between py-1.5 border-b border-slate-100">
-                        <span className="text-slate-500 text-xs">Conta</span>
-                        <span className="font-medium text-xs">{contaDetalheNome || '—'}</span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-slate-100">
-                        <span className="text-slate-500 text-xs">Data</span>
-                        <span className="font-medium text-xs">
-                          {(detalhe.data_extrato || '').split('-').reverse().join('/')}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-slate-100">
-                        <span className="text-slate-500 text-xs">Saldo sistema</span>
-                        <span className="font-medium text-xs">
-                          {formatMoneyBRL(detalhe.saldo_sistema ?? 0)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-slate-100">
-                        <span className="text-slate-500 text-xs">Saldo extrato</span>
-                        <span className="font-medium text-xs">
-                          {formatMoneyBRL(detalhe.saldo_extrato ?? 0)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-slate-100">
-                        <span className="text-slate-500 text-xs">Divergência</span>
-                        <span className="font-medium text-xs">
-                          {delta === null ? '—' : formatMoneyBRL(delta)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-slate-100">
-                        <span className="text-slate-500 text-xs">Ajuste aplicado</span>
-                        <span className="font-medium text-xs">
-                          {detalhe.ajustado
-                            ? delta === null
-                              ? 'Sim'
-                              : formatMoneyBRL(delta)
-                            : 'Não'}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1.5 border-b border-slate-100">
-                        <span className="text-slate-500 text-xs">Observação</span>
-                        <span className="font-medium text-xs break-words text-right">
-                          {detalhe.observacao || '—'}
-                        </span>
-                      </div>
-                    </>
-                  )
-                })()}
-              </div>
-            )}
-          </SheetContent>
-        </Sheet>
+              {/* Card 2 — Ajuste de Saldo Bancário */}
+              <button
+                type="button"
+                onClick={() => setTela('saldo')}
+                className="w-full text-left rounded-2xl border border-slate-200 bg-white p-4 hover:border-violet-300 hover:bg-violet-50/50 transition group"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-xl bg-violet-100 text-violet-600 group-hover:bg-violet-200 transition shrink-0">
+                    <Landmark className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-800">Ajuste de Saldo Bancário</p>
+                    <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                      Confere o saldo SAP com o saldo real e registra a diferença.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-violet-600 group-hover:text-violet-700">
+                    Ajustar Saldo da Conta
+                    <ChevronRightIcon />
+                  </span>
+                </div>
+              </button>
+            </div>
+
+            {/* Rodapé fixo da Central */}
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-start gap-2">
+              <Info className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Ajustes são operações especiais de conciliação financeira do SAP. Podem atuar sobre
+                faturas de cartão ou sobre o saldo de contas, conforme o tipo selecionado,
+                respeitando regras próprias para Resultado e Orçamento.
+              </p>
+            </div>
+          </>
+        ) : (
+          /* T4 — a view de conciliação de saldo (a antiga Central), como está */
+          <CentralSaldoBancarioView
+            contas={contas}
+            contaInicialId={contaInicialId}
+            workspaceId={workspaceId}
+            userId={userId}
+            modoConsulta={modoConsulta}
+            onDadosAlterados={onDadosAlterados}
+            onAbrirNovoLancamentoNaConta={onAbrirNovoLancamentoNaConta}
+          />
+        )}
       </DialogContent>
     </Dialog>
   )
 }
+
+const ChevronRightIcon = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="14"
+    height="14"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="m9 18 6-6-6-6" />
+  </svg>
+)
 
 export { CentralAjustesModal as default }

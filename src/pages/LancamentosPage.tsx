@@ -349,6 +349,22 @@ export default function LancamentosPage() {
   // D2 — Central de Ajustes assume o botão "Conciliar"
   const [centralAjustesOpen, setCentralAjustesOpen] = useState(false)
 
+  // D2.1-FINAL (T4) — card "Ajuste de Fatura" da Central: abre a TELA ATUAL de
+  // ajustes de fatura (filtro Tipo = Ajustes → subtipo ajuste_fatura_banco),
+  // regras/subtipos intocados. Disparado pela Central via evento custom.
+  useEffect(() => {
+    const abrir = () => {
+      setFiltroTipo('ajuste')
+      setFiltroSubtipoAjuste('ajuste_fatura_banco')
+      setCentralAjustesOpen(false)
+      // garante que o usuário enxergue a lista filtrada em qualquer scroll/aba
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      toast.info('Ajustes da Fatura do Banco — lançamentos do tipo ajuste, subtipo fatura do banco.')
+    }
+    window.addEventListener('sap:abrir-ajustes-fatura', abrir)
+    return () => window.removeEventListener('sap:abrir-ajustes-fatura', abrir)
+  }, [])
+
   // Válvula de escape: fecha a Central e abre o Novo Lançamento pré-filtrado na conta
   // (para divergência causada por transação real, ex. compra duplicada)
   const abrirNovoLancamentoNaConta = (contaId: string) => {
@@ -1340,7 +1356,7 @@ export default function LancamentosPage() {
           title="Central de Ajustes"
         >
           <Scale className="w-3.5 h-3.5 mr-1 text-violet-600" />
-          <span>Conciliar</span>
+          <span>Central de Ajustes</span>
         </Button>
       </div>
 
