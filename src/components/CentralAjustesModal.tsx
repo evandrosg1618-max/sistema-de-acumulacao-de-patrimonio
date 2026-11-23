@@ -74,9 +74,7 @@ export const CentralAjustesModal: React.FC<CentralAjustesModalProps> = ({
                 <ChevronLeft className="w-5 h-5" />
               </button>
             )}
-            <span>
-              {tela === 'inicio' ? 'Central de Ajustes' : 'Ajuste de Saldo Bancário'}
-            </span>
+            <span>{tela === 'inicio' ? 'Central de Ajustes' : 'Ajuste de Saldo Bancário'}</span>
           </DialogTitle>
         </DialogHeader>
 

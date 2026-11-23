@@ -122,6 +122,12 @@ interface ModalLancamentoProps {
    * (contas[0]). NUNCA usado no modoCaptura (guardas preservam o campo vazio).
    */
   contaPreSelecionadaId?: string | null
+  /**
+   * D2.1-FINAL (T5b) — Novo Lançamento (NÃO modoCaptura): o botão "Central de
+   * Ajustes" abre a Central intermediária. Opcional; quando omitido, o clique
+   * não faz nada (compatível com todos os chamadores existentes).
+   */
+  onAbrirCentralAjustes?: () => void
 }
 
 export function ModalLancamento({
@@ -146,6 +152,7 @@ export function ModalLancamento({
   modoCapturaTemMeioGravado = false,
   modoCapturaMeioTipoGravado,
   contaPreSelecionadaId,
+  onAbrirCentralAjustes,
 }: ModalLancamentoProps) {
   const { isProcessing } = useGlobalLoading()
   const [tipo, setTipo] = useState<TipoLancamento>(tipoPadrao)
@@ -992,16 +999,6 @@ export function ModalLancamento({
                 >
                   <span>{modoCaptura ? 'Ajuste' : 'Central de Ajustes'}</span>
                 </button>
-              </div>
-=======
-              </div>
-            )}
-=======
-=======
-                  <span>{modoCaptura ? 'Ajuste' : 'Central de Ajustes'}</span>
-                </button>
-              </div>
-=======
               </div>
             )}
             <div className="py-4 space-y-4">

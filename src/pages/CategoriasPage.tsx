@@ -35,6 +35,9 @@ import { toast } from 'sonner'
 import { ModalCategoriaSubcategoria } from '@/components/ModalCategoriaSubcategoria'
 import { ModalAjudaConceitos } from '@/components/ModalAjudaConceitos'
 import { renderIconePorId } from '@/components/SeletorVisualIconeCor'
+import { CentralAjustesModal } from '@/components/CentralAjustesModal'
+import { contaService } from '@/services/sap'
+import type { Conta } from '@/types/sap'
 
 export default function CategoriasPage() {
   const { currentWorkspace, user } = useAuth()
@@ -53,6 +56,12 @@ export default function CategoriasPage() {
 
   // Modal Explicativo de Conceitos
   const [modalAjudaOpen, setModalAjudaOpen] = useState(false)
+
+  // D2.1-FINAL (T5c) — Central de Ajustes em modo SOMENTE CONSULTA: a aba
+  // Ajustes abre a Central direto no card "Ajuste de Saldo Bancário", sem
+  // registrar e sem estornar.
+  const [centralConsultaOpen, setCentralConsultaOpen] = useState(false)
+  const [contasCentral, setContasCentral] = useState<Conta[]>([])
 
   // Diálogo de Exclusão / Bloqueio Referencial com oferta de Arquivar
   const [dialogBloqueioOpen, setDialogBloqueioOpen] = useState(false)
@@ -87,6 +96,23 @@ export default function CategoriasPage() {
   useEffect(() => {
     carregarCategorias()
   }, [wsId])
+
+  // T5c — contas da Central (somente leitura, para a view de saldo)
+  useEffect(() => {
+    if (!wsId || !centralConsultaOpen || contasCentral.length > 0) return
+    let vivo = true
+    contaService
+      .list(wsId)
+      .then((lista) => {
+        if (vivo) setContasCentral(lista || [])
+      })
+      .catch(() => {
+        if (vivo) setContasCentral([])
+      })
+    return () => {
+      vivo = false
+    }
+  }, [wsId, centralConsultaOpen, contasCentral.length])
 
   // Aberturas de Diálogo de Cadastro / Edição
   const abrirNovaCategoria = () => {
@@ -435,6 +461,20 @@ export default function CategoriasPage() {
               Tipos de Ajuste: configurações estruturais do sistema. Não são
               Categorias/Subcategorias e não exigem classificação analítica.
             </p>
+          </div>
+
+          {/* D2.1-FINAL (T5c) — botão para abrir a Central de Ajustes em modo
+              SOMENTE CONSULTA (sem registrar, sem estornar). */}
+          <div className="flex justify-end">
+            <Button
+              onClick={() => setCentralConsultaOpen(true)}
+              variant="outline"
+              size="sm"
+              className="text-xs border-indigo-200 text-indigo-700 bg-white hover:bg-indigo-50 flex items-center gap-1.5"
+            >
+              <Scale className="w-3.5 h-3.5" />
+              <span>Abrir Central de Ajustes (consulta)</span>
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1011,6 +1051,18 @@ export default function CategoriasPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* D2.1-FINAL (T5c) — Central de Ajustes (modoConsulta): abre direto no
+          Ajuste de Saldo Bancário, somente leitura. Nenhum dado é alterado. */}
+      <CentralAjustesModal
+        open={centralConsultaOpen}
+        onOpenChange={setCentralConsultaOpen}
+        contas={contasCentral}
+        workspaceId={wsId}
+        userId={user?.id}
+        modoConsulta
+        onDadosAlterados={() => {}}
+      />
     </div>
   )
 }

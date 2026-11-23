@@ -359,7 +359,9 @@ export default function LancamentosPage() {
       setCentralAjustesOpen(false)
       // garante que o usuário enxergue a lista filtrada em qualquer scroll/aba
       window.scrollTo({ top: 0, behavior: 'smooth' })
-      toast.info('Ajustes da Fatura do Banco — lançamentos do tipo ajuste, subtipo fatura do banco.')
+      toast.info(
+        'Ajustes da Fatura do Banco — lançamentos do tipo ajuste, subtipo fatura do banco.',
+      )
     }
     window.addEventListener('sap:abrir-ajustes-fatura', abrir)
     return () => window.removeEventListener('sap:abrir-ajustes-fatura', abrir)
@@ -2114,7 +2116,10 @@ export default function LancamentosPage() {
       {/* MODAL DE CRIAÇÃO / EDIÇÃO */}
       <ModalLancamento
         open={modalLancamentoOpen}
-        onOpenChange={setModalLancamentoOpen}
+        onOpenChange={(aberto) => {
+          setModalLancamentoOpen(aberto)
+          if (!aberto) setContaPreSelecionadaId(null)
+        }}
         onSave={handleSalvarLancamento}
         initialData={lancamentoEmEdicao}
         tipoPadrao={tipoModalPadrao}
@@ -2124,6 +2129,10 @@ export default function LancamentosPage() {
         workspaceId={wsId || ''}
         userId={user?.id}
         contaPreSelecionadaId={contaPreSelecionadaId}
+        onAbrirCentralAjustes={() => {
+          setModalLancamentoOpen(false)
+          setCentralAjustesOpen(true)
+        }}
       />
 
       {/* MODAL DE DETALHES DE CONTA BANCÁRIA (EXTRATO DE LANÇAMENTOS) */}

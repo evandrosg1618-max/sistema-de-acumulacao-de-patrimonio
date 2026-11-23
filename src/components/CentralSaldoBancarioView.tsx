@@ -66,11 +66,10 @@ export const CentralSaldoBancarioView: React.FC<CentralSaldoBancarioViewProps> =
   onDadosAlterados,
   onAbrirNovoLancamentoNaConta,
 }) => {
-  const [contaId, setContaId] = useState(
-    () =>
-      contaInicialId && contas.some((c) => c.id === contaInicialId)
-        ? contaInicialId
-        : (contas[0]?.id ?? ''),
+  const [contaId, setContaId] = useState(() =>
+    contaInicialId && contas.some((c) => c.id === contaInicialId)
+      ? contaInicialId
+      : (contas[0]?.id ?? ''),
   )
   const [saldoExtrato, setSaldoExtrato] = useState('')
   const [dataAjuste, setDataAjuste] = useState(hojeISO())
@@ -420,9 +419,7 @@ export const CentralSaldoBancarioView: React.FC<CentralSaldoBancarioViewProps> =
                             ? reg.saldo_extrato - reg.saldo_sistema
                             : null
                         const jaEstornado =
-                          !reg.ajustado &&
-                          !!reg.lancamento_ajuste_id &&
-                          reg.saldo_sistema !== null
+                          !reg.ajustado && !!reg.lancamento_ajuste_id && reg.saldo_sistema !== null
                         return (
                           <div key={reg.id} className="p-3 space-y-1.5 bg-white">
                             <div className="flex items-center justify-between gap-2">
