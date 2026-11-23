@@ -2966,7 +2966,12 @@ export const lancamentoService = {
     valor_terceiros?: number | null
     afeta_resultado?: boolean | null
     afeta_orcamento?: boolean | null
-    subtipo_ajuste?: 'ajuste_fatura_banco' | 'ajuste_tecnico_sap' | string | null
+    subtipo_ajuste?:
+      | 'ajuste_fatura_banco'
+      | 'ajuste_tecnico_sap'
+      | 'ajuste_saldo_conta'
+      | string
+      | null
     efeito_fatura?: 'aumenta' | 'reduz' | string | null
     /** T2 — chave de idempotência (ex.: captura:sessionId:itemId). Retry com a
      * mesma chave devolve o lançamento já existente em vez de duplicar. */
@@ -2989,22 +2994,35 @@ export const lancamentoService = {
     if (valorNum <= 0) throw new Error('O valor do lançamento deve ser maior que zero')
 
     if (dados.tipo === 'ajuste') {
-      if (!dados.cartao_id) {
-        throw new Error('Ajustes devem ser vinculados obrigatoriamente a um cartão de crédito.')
-      }
       if (!dados.subtipo_ajuste) {
-        throw new Error(
-          'Tipo de ajuste é obrigatório (Ajuste da Fatura do Banco ou Ajuste Técnico do SAP).',
-        )
+        throw new Error('Tipo de ajuste é obrigatório.')
       }
-      if (!dados.efeito_fatura) {
-        throw new Error('Efeito sobre a fatura é obrigatório (Aumenta ou Reduz a fatura).')
+
+      // D1 — Ajuste de Saldo Bancário: conciliação da conta, válida SEM cartão
+      if (dados.subtipo_ajuste === 'ajuste_saldo_conta') {
+        if (dados.regime && dados.regime !== 'unico') {
+          throw new Error('Ajustes não podem ser recorrentes nem parcelados.')
+        }
+        if (!dados.conta_origem_id) {
+          throw new Error('Ajuste de saldo da conta exige a conta a ser conciliada.')
+        }
+        dados.meio_pagamento_tipo = 'CONTA'
+        dados.regime = 'unico'
+        dados.cartao_id = null
+      } else {
+        // Ajustes de fatura: regras INTOCADAS (exigem cartão, efeito e meio CARTAO)
+        if (!dados.cartao_id) {
+          throw new Error('Ajustes devem ser vinculados obrigatoriamente a um cartão de crédito.')
+        }
+        if (!dados.efeito_fatura) {
+          throw new Error('Efeito sobre a fatura é obrigatório (Aumenta ou Reduz a fatura).')
+        }
+        if (dados.regime && dados.regime !== 'unico') {
+          throw new Error('Ajustes não podem ser recorrentes nem parcelados.')
+        }
+        dados.meio_pagamento_tipo = 'CARTAO'
+        dados.regime = 'unico'
       }
-      if (dados.regime && dados.regime !== 'unico') {
-        throw new Error('Ajustes não podem ser recorrentes nem parcelados.')
-      }
-      dados.meio_pagamento_tipo = 'CARTAO'
-      dados.regime = 'unico'
     }
 
     // Normalizar dimensões de modalidades para despesas (PDF Seções 1 a 6)
@@ -3054,8 +3072,10 @@ export const lancamentoService = {
       valorProprioFinal = valorNum
       valorTerceirosFinal = 0
       afetaOrcamentoFinal = false // Ajuste NUNCA afeta orçamento
-      // Ajuste Banco afeta resultado; Ajuste Técnico NÃO afeta resultado
-      afetaResultadoFinal = dados.subtipo_ajuste === 'ajuste_fatura_banco'
+      // Ajuste Banco afeta resultado; Ajuste Técnico e Ajuste de Saldo NÃO afetam resultado
+      afetaResultadoFinal =
+        dados.subtipo_ajuste === 'ajuste_fatura_banco' &&
+        dados.subtipo_ajuste !== 'ajuste_saldo_conta'
     } else {
       modalidadeFinal = 'compra_propria'
       valorProprioFinal = valorNum
