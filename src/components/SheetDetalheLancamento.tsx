@@ -272,7 +272,9 @@ export const SheetDetalheLancamento: React.FC<SheetDetalheLancamentoProps> = ({
               <LinhaDetalhe rotulo="Tipo de Ajuste">
                 {l.subtipo_ajuste === 'ajuste_tecnico_sap'
                   ? 'Ajuste Técnico do SAP'
-                  : 'Ajuste da Fatura do Banco'}
+                  : l.subtipo_ajuste === 'ajuste_saldo_conta'
+                    ? 'Ajuste do saldo da conta'
+                    : 'Ajuste da Fatura do Banco'}
                 {l.efeito_fatura
                   ? ` • ${l.efeito_fatura === 'reduz' ? 'Reduz fatura' : 'Aumenta fatura'}`
                   : ''}

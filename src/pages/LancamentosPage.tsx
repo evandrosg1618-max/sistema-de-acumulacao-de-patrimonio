@@ -1418,13 +1418,16 @@ export default function LancamentosPage() {
                     ? 'Subtipo: Fatura do Banco'
                     : filtroSubtipoAjuste === 'ajuste_tecnico_sap'
                       ? 'Subtipo: Técnico do SAP'
-                      : 'Todos os Ajustes'}
+                      : filtroSubtipoAjuste === 'ajuste_saldo_conta'
+                        ? 'Subtipo: Saldo da Conta'
+                        : 'Todos os Ajustes'}
                 </span>
               </SelectTrigger>
               <SelectContent className="bg-white text-slate-900 border-slate-200">
                 <SelectItem value="todos">Todos os Ajustes</SelectItem>
                 <SelectItem value="ajuste_fatura_banco">Ajustes da Fatura do Banco</SelectItem>
                 <SelectItem value="ajuste_tecnico_sap">Ajustes Técnicos do SAP</SelectItem>
+                <SelectItem value="ajuste_saldo_conta">Ajustes do Saldo da Conta</SelectItem>
               </SelectContent>
             </Select>
           </div>

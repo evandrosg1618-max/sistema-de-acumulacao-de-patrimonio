@@ -3073,9 +3073,7 @@ export const lancamentoService = {
       valorTerceirosFinal = 0
       afetaOrcamentoFinal = false // Ajuste NUNCA afeta orçamento
       // Ajuste Banco afeta resultado; Ajuste Técnico e Ajuste de Saldo NÃO afetam resultado
-      afetaResultadoFinal =
-        dados.subtipo_ajuste === 'ajuste_fatura_banco' &&
-        dados.subtipo_ajuste !== 'ajuste_saldo_conta'
+      afetaResultadoFinal = dados.subtipo_ajuste === 'ajuste_fatura_banco'
     } else {
       modalidadeFinal = 'compra_propria'
       valorProprioFinal = valorNum
@@ -3591,6 +3589,26 @@ export const lancamentoService = {
   ): Promise<{ excluidos: number; faturasRecalculadas: string[] }> {
     const atual = await this.getById(lancamentoId)
     if (!atual) throw new Error('Lançamento não encontrado')
+
+    // D1 — Ajuste de Saldo Bancário: exclusão reverte o saldo da conta via RPC atômica
+    if (atual.tipo === 'ajuste' && atual.subtipo_ajuste === 'ajuste_saldo_conta') {
+      const { data, error } = await db.rpc('estornar_ajuste_saldo_rpc', {
+        p_workspace_id: workspaceId,
+        p_lancamento_id: lancamentoId,
+        p_user_id: userId || null,
+      })
+      if (error) {
+        throw new Error(
+          error.message ||
+            'Falha ao estornar o ajuste de saldo da conta — o lançamento permanece na lista.',
+        )
+      }
+      const res = (data || {}) as Record<string, unknown>
+      if (res.sucesso === false) {
+        throw new Error(String(res.mensagem || 'Falha ao estornar o ajuste de saldo da conta.'))
+      }
+      return { excluidos: 1, faturasRecalculadas: [] }
+    }
 
     // Frente 4: Se for compra parcelada em cartão, operar SEMPRE sobre o original e excluir atomicamente via RPC
     const ehParceladoCartao =
