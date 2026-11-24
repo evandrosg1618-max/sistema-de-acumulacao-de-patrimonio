@@ -349,19 +349,14 @@ export default function LancamentosPage() {
   // D2 — Central de Ajustes assume o botão "Conciliar"
   const [centralAjustesOpen, setCentralAjustesOpen] = useState(false)
 
-  // D2.1-FINAL (T4) — card "Ajuste de Fatura" da Central: abre a TELA ATUAL de
-  // ajustes de fatura (filtro Tipo = Ajustes → subtipo ajuste_fatura_banco),
-  // regras/subtipos intocados. Disparado pela Central via evento custom.
+  // Parte B (0.0.152) — card "Ajuste de Fatura" da Central: abre o NOVO LANÇAMENTO
+  // tipo 'ajuste' (o ModalLancamento já exibe a seção "Configurações do Lançamento
+  // de Ajuste" com os subtipos ajuste_fatura_banco/ajuste_tecnico_sap). SEM filtro
+  // na lista. Disparado pela Central via evento custom.
   useEffect(() => {
     const abrir = () => {
-      setFiltroTipo('ajuste')
-      setFiltroSubtipoAjuste('ajuste_fatura_banco')
       setCentralAjustesOpen(false)
-      // garante que o usuário enxergue a lista filtrada em qualquer scroll/aba
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-      toast.info(
-        'Ajustes da Fatura do Banco — lançamentos do tipo ajuste, subtipo fatura do banco.',
-      )
+      abrirNovoLancamento('ajuste')
     }
     window.addEventListener('sap:abrir-ajustes-fatura', abrir)
     return () => window.removeEventListener('sap:abrir-ajustes-fatura', abrir)
@@ -813,53 +808,10 @@ export default function LancamentosPage() {
     }, 'Processando alteração da série no banco...')
   }
 
-  // D2.1/T1 — Joia sobre ajuste de saldo = ESTORNO (mesma ação do Estornar da
-  // Central): NÃO passa pelo togglePago comum. Confirmação clara e chamada
-  // direta da RPC estornar_ajuste_saldo_rpc (mesma do deleteComEscopo).
-  const estornarAjusteSaldoDaLista = async (l: Lancamento) => {
-    if (!wsId) return
-    setModalConfirmacaoConfig({
-      title: 'Estornar ajuste de saldo',
-      description:
-        'Estornar este ajuste? O saldo da conta voltará ao valor anterior ao ajuste. Esta ação é a mesma do botão Estornar da Central de Ajustes.',
-      confirmText: 'Estornar',
-      cancelText: 'Cancelar',
-      isAlertOnly: false,
-      onConfirm: async () => {
-        setModalConfirmacaoExclusaoOpen(false)
-        await runWithLock(async () => {
-          try {
-            const { data, error } = await supabase.rpc('estornar_ajuste_saldo_rpc', {
-              p_workspace_id: wsId,
-              p_lancamento_id: l.id,
-              p_user_id: user?.id || null,
-            })
-            if (error) throw error
-            const res: any = data || {}
-            if (res.sucesso === false) {
-              throw new Error(String(res.mensagem || 'Falha ao estornar o ajuste de saldo.'))
-            }
-            toast.success('Ajuste estornado — saldo revertido')
-            await carregarDados()
-          } catch (err: any) {
-            console.error('Erro ao estornar ajuste de saldo (joia da lista):', err)
-            toast.error(err?.message || 'Erro ao estornar o ajuste de saldo.')
-          }
-        }, 'Estornando ajuste e restaurando saldo da conta...')
-      },
-    })
-    setModalConfirmacaoExclusaoOpen(true)
-  }
-
+  // Parte B (0.0.152) — ajuste de saldo na lista NÃO tem joia nem estorno
+  // (PDF itens 6.a/7): apenas Visualizar/Editar/Excluir, sem ciclo pago/pendente.
   const handleTogglePago = async (l: Lancamento) => {
     if (!wsId) return
-
-    // D2.1/T1 — interceptação ANTES do fluxo comum: ajuste de saldo bancário
-    // não tem "toggle de pagamento" — a joia dispara o estorno via RPC.
-    if (l.tipo === 'ajuste' && l.subtipo_ajuste === 'ajuste_saldo_conta') {
-      await estornarAjusteSaldoDaLista(l)
-      return
-    }
 
     // Se estiver em fatura de cartão, não permite toggle manual
     if (l.meio_pagamento_tipo === 'CARTAO' || l.cartao_id) {
@@ -1996,7 +1948,9 @@ export default function LancamentosPage() {
                             indicador de status pago/não pago — verde quando pago, neutro quando não.
                             stopPropagation: o toque NÃO abre o bottom sheet de detalhes. */}
                         <div className="flex items-center justify-center w-9 h-9 shrink-0">
-                          {ehCartao ? null : isPago ? (
+                          {ehCartao ||
+                          (l.tipo === 'ajuste' &&
+                            l.subtipo_ajuste === 'ajuste_saldo_conta') ? null : isPago ? (
                             <button
                               type="button"
                               disabled={isProcessing}

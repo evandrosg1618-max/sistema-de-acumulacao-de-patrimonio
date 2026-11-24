@@ -48,6 +48,7 @@ import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaE
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { ModalConfirmacaoExclusao } from '@/components/ModalConfirmacaoExclusao'
 import { ConciliarFaturaModal } from '@/components/ConciliarFaturaModal'
+import { CentralAjustesModal } from '@/components/CentralAjustesModal'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -192,6 +193,10 @@ export default function CartoesPage() {
 
   // BLOCO 3: Modal Capturar / Importar (Fatura | NFC-e | NF-e Em breve)
   const [modalCapturarAberto, setModalCapturarAberto] = useState(false)
+
+  // Parte B (0.0.152) — Central de Ajustes: Fatura do cartão → "Incluir na Fatura" →
+  // botão "Central de Ajustes" do ModalLancamento abre a Central aqui também.
+  const [centralAjustesOpen, setCentralAjustesOpen] = useState(false)
 
   // Form
   const [nome, setNome] = useState('')
@@ -2072,6 +2077,20 @@ export default function CartoesPage() {
         categorias={categorias}
         workspaceId={wsId || ''}
         userId={user?.id}
+        onAbrirCentralAjustes={() => {
+          setModalLancamentoOpen(false)
+          setCentralAjustesOpen(true)
+        }}
+      />
+
+      {/* Parte B (0.0.152) — Central de Ajustes (Fatura do cartão → Incluir na Fatura) */}
+      <CentralAjustesModal
+        open={centralAjustesOpen}
+        onOpenChange={setCentralAjustesOpen}
+        workspaceId={wsId || ''}
+        userId={user?.id}
+        contas={contas}
+        onDadosAlterados={() => carregarCartoes()}
       />
 
       {/* Modal de Escolha de Escopo Único "Todos" */}
