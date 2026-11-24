@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { toast } from 'sonner'
-import { formatMoneyBRL } from '@/lib/formatters'
+import { formatMoneyBRL, getTodayDateString } from '@/lib/formatters'
 import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 import { supabase } from '@/lib/supabase/client'
 import type { Conta } from '@/types/sap'
@@ -49,7 +49,12 @@ export interface CentralSaldoBancarioViewProps {
   onAbrirNovoLancamentoNaConta?: (contaId: string) => void
 }
 
-const hojeISO = () => new Date().toISOString().slice(0, 10)
+/**
+ * A6 (PDF item 6.c/20) — data local Manaus (UTC−04:00). getTodayDateString usa
+ * Intl.DateTimeFormat com o fuso SAP: após 20h local NÃO avança para o dia
+ * seguinte (o toISOString() antigo derivava a data de UTC e avançava).
+ */
+const hojeISO = () => getTodayDateString('America/Porto_Velho')
 
 /**
  * D2.1-FINAL (T4) — view de conciliação de saldo bancário (a antiga Central de

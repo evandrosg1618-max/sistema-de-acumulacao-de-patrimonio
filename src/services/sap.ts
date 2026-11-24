@@ -3590,9 +3590,11 @@ export const lancamentoService = {
     const atual = await this.getById(lancamentoId)
     if (!atual) throw new Error('Lançamento não encontrado')
 
-    // D1 — Ajuste de Saldo Bancário: exclusão reverte o saldo da conta via RPC atômica
+    // D2.1/PARTE A (nova regra) — Ajuste de Saldo Bancário NÃO tem estorno:
+    // Excluir retira SÓ o efeito daquele ajuste do saldo (RPC atômica, preserva
+    // movimentações posteriores, soft delete — uma lógica só para lista e histórico).
     if (atual.tipo === 'ajuste' && atual.subtipo_ajuste === 'ajuste_saldo_conta') {
-      const { data, error } = await db.rpc('estornar_ajuste_saldo_rpc', {
+      const { data, error } = await db.rpc('excluir_ajuste_saldo_rpc', {
         p_workspace_id: workspaceId,
         p_lancamento_id: lancamentoId,
         p_user_id: userId || null,
@@ -3600,12 +3602,12 @@ export const lancamentoService = {
       if (error) {
         throw new Error(
           error.message ||
-            'Falha ao estornar o ajuste de saldo da conta — o lançamento permanece na lista.',
+            'Falha ao excluir o ajuste de saldo da conta — o lançamento permanece na lista.',
         )
       }
       const res = (data || {}) as Record<string, unknown>
       if (res.sucesso === false) {
-        throw new Error(String(res.mensagem || 'Falha ao estornar o ajuste de saldo da conta.'))
+        throw new Error(String(res.mensagem || 'Falha ao excluir o ajuste de saldo da conta.'))
       }
       return { excluidos: 1, faturasRecalculadas: [] }
     }
@@ -4545,12 +4547,78 @@ export const lancamentoService = {
     return updated
   },
 
+  /**
+   * PARTE A (nova regra) — Editar Ajuste de Saldo Bancário.
+   * Editar SUBSTITUI o efeito do ajuste (não soma): +50 → +30 deixa o saldo
+   * refletindo +30. Preserva movimentações posteriores e nunca sobrescreve o
+   * saldo atual com saldo histórico — a RPC atua só sobre o lançamento editado.
+   */
+  async editarAjusteSaldo(
+    lancamentoId: string,
+    workspaceId: string,
+    saldoReal: number,
+    data: string,
+    observacao: string | null,
+    userId?: string,
+  ): Promise<Record<string, unknown>> {
+    const { data: res, error } = await db.rpc('editar_ajuste_saldo_rpc', {
+      p_workspace_id: workspaceId,
+      p_lancamento_id: lancamentoId,
+      p_saldo_real: saldoReal,
+      p_data: data,
+      p_observacao: observacao,
+      p_user_id: userId || null,
+    })
+    if (error) {
+      throw new Error(error.message || 'Falha ao salvar a edição do ajuste de saldo da conta.')
+    }
+    const out = (res || {}) as Record<string, unknown>
+    if (out.sucesso === false) {
+      throw new Error(String(out.mensagem || 'Não foi possível salvar a edição do ajuste.'))
+    }
+    return out
+  },
+
+  /**
+   * PARTE A (nova regra) — Excluir Ajuste de Saldo Bancário.
+   * Retira SÓ o efeito daquele ajuste do saldo, preservando movimentações
+   * posteriores; registro fica como histórico inativo (soft delete). Uma lógica
+   * só: usada pela Central (histórico) e pela lista geral de lançamentos.
+   */
+  async excluirAjusteSaldo(
+    lancamentoId: string,
+    workspaceId: string,
+    userId?: string,
+  ): Promise<Record<string, unknown>> {
+    const { data: res, error } = await db.rpc('excluir_ajuste_saldo_rpc', {
+      p_workspace_id: workspaceId,
+      p_lancamento_id: lancamentoId,
+      p_user_id: userId || null,
+    })
+    if (error) {
+      throw new Error(error.message || 'Falha ao excluir o ajuste de saldo da conta.')
+    }
+    const out = (res || {}) as Record<string, unknown>
+    if (out.sucesso === false) {
+      throw new Error(String(out.mensagem || 'Não foi possível excluir o ajuste de saldo.'))
+    }
+    return out
+  },
+
   async softDelete(id: string, workspaceId: string, userId?: string): Promise<void> {
     const anterior = await this.getById(id)
     if (!anterior) throw new Error('Lançamento não encontrado')
 
     // Idempotência prévia: se já foi excluído, encerra sem duplicar
     if (anterior.deleted_at) {
+      return
+    }
+
+    // PARTE A (nova regra) — Ajuste de Saldo Bancário: exclusão é SEMPRE pela RPC
+    // atômica (retira só o efeito daquele ajuste, preserva movimentações
+    // posteriores, sem ciclo pago/pendente) — uma lógica só para lista/histórico.
+    if (anterior.tipo === 'ajuste' && anterior.subtipo_ajuste === 'ajuste_saldo_conta') {
+      await this.deleteComEscopo(id, workspaceId, 'este', userId)
       return
     }
 
