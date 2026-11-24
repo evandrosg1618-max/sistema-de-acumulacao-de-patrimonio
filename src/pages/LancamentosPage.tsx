@@ -1645,6 +1645,8 @@ export default function LancamentosPage() {
                     const isTransf = l.tipo === 'transferencia'
                     const isAjuste = l.tipo === 'ajuste'
                     const isPago = l.status_pagamento === 'pago'
+                    const isAjusteSaldo =
+                      l.tipo === 'ajuste' && l.subtipo_ajuste === 'ajuste_saldo_conta'
                     const ehCartao = l.meio_pagamento_tipo === 'CARTAO'
                     // R1/R2 (PDF seções 2–4, 8, 14 e 16): classificação estrutural ÚNICA, definida
                     // na fonte pelo lancamentoService.list (l.estrutura). NUNCA inferir parcelamento
@@ -1729,40 +1731,46 @@ export default function LancamentosPage() {
                       >
                         {/* 1ª COLUNA: Descrição (quebra de linha se longa) + Categoria/Subcategoria + Badge Fixo/Parcelado */}
                         <div className="flex items-start gap-3 min-w-0 pr-2">
-                          {/* Ícone circular com o ícone e cor escolhidos para a subcategoria (Bloco 4) */}
+                          {/* Ícone circular com o ícone e cor escolhidos para a subcategoria (Bloco 4).
+                              Ajuste de saldo: ícone wallet, cor cinza-escuro neutra (conceitual do item 8). */}
                           <div
                             className={`w-9 h-9 rounded-full flex items-center justify-center text-white shrink-0 mt-0.5 shadow-2xs ${
-                              isAjuste
-                                ? 'bg-purple-600'
-                                : isDespesa
-                                  ? 'bg-rose-500'
-                                  : isReceita
-                                    ? 'bg-emerald-500'
-                                    : 'bg-emerald-600'
+                              isAjusteSaldo
+                                ? 'bg-slate-600'
+                                : isAjuste
+                                  ? 'bg-purple-600'
+                                  : isDespesa
+                                    ? 'bg-rose-500'
+                                    : isReceita
+                                      ? 'bg-emerald-500'
+                                      : 'bg-emerald-600'
                             }`}
                             style={{
-                              backgroundColor:
-                                l.subcategoria?.cor ||
-                                l.categoria?.cor ||
-                                (isAjuste
-                                  ? '#7C3AED'
-                                  : isDespesa
-                                    ? '#EF4444'
-                                    : isReceita
-                                      ? '#10B981'
-                                      : '#059669'),
+                              backgroundColor: isAjusteSaldo
+                                ? undefined
+                                : l.subcategoria?.cor ||
+                                  l.categoria?.cor ||
+                                  (isAjuste
+                                    ? '#7C3AED'
+                                    : isDespesa
+                                      ? '#EF4444'
+                                      : isReceita
+                                        ? '#10B981'
+                                        : '#059669'),
                             }}
                           >
                             {renderIconePorId(
-                              l.subcategoria?.icone ||
-                                l.categoria?.icone ||
-                                (isAjuste
-                                  ? 'scale'
-                                  : isDespesa
-                                    ? 'tag'
-                                    : isReceita
-                                      ? 'trending-up'
-                                      : 'arrow-right-left'),
+                              isAjusteSaldo
+                                ? 'wallet'
+                                : l.subcategoria?.icone ||
+                                    l.categoria?.icone ||
+                                    (isAjuste
+                                      ? 'scale'
+                                      : isDespesa
+                                        ? 'tag'
+                                        : isReceita
+                                          ? 'trending-up'
+                                          : 'arrow-right-left'),
                               'w-4 h-4 stroke-[2.2]',
                             )}
                           </div>
@@ -2093,6 +2101,11 @@ export default function LancamentosPage() {
           if (lancamentoDetalhe) {
             setLancamentoDetalhe(null)
             irParaFatura(lancamentoDetalhe)
+          }
+        }}
+        onVisualizar={(lan) => {
+          if (lan) {
+            setLancamentoDetalhe(lan) // mantém o próprio sheet aberto como modo Visualizar
           }
         }}
         onEditar={() => {

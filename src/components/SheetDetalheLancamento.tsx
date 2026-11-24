@@ -20,6 +20,7 @@ export interface SheetDetalheLancamentoProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onVerFatura: (l: Lancamento) => void
+  onVisualizar: (l: Lancamento) => void
   onEditar: (l: Lancamento) => void
   onExcluir: (l: Lancamento) => void
   isProcessing?: boolean
@@ -56,6 +57,7 @@ export const SheetDetalheLancamento: React.FC<SheetDetalheLancamentoProps> = ({
   open,
   onOpenChange,
   onVerFatura,
+  onVisualizar,
   onEditar,
   onExcluir,
   isProcessing = false,
@@ -322,6 +324,20 @@ export const SheetDetalheLancamento: React.FC<SheetDetalheLancamentoProps> = ({
             >
               <Receipt className="w-3.5 h-3.5 mr-1 text-indigo-600" />
               Ver Fatura
+            </Button>
+          )}
+          {!ehCartao && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isProcessing}
+              className="flex-1 h-10 text-xs rounded-xl border-slate-200 text-slate-700 hover:bg-slate-50"
+              onClick={() => {
+                onOpenChange(false)
+                onVisualizar(l)
+              }}
+            >
+              Visualizar
             </Button>
           )}
           <Button
