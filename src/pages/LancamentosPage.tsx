@@ -353,6 +353,24 @@ export default function LancamentosPage() {
   // C2 — Ajuste de Saldo Bancário em edição pela lista (modal próprio, RPC direta)
   const [ajusteSaldoEmEdicao, setAjusteSaldoEmEdicao] = useState<Lancamento | null>(null)
   const [modalEditarAjusteOpen, setModalEditarAjusteOpen] = useState(false)
+  // FIX 0.0.158 — o modal de edição (Radix Dialog) NUNCA pode ser montado no
+  // mesmo commit em que o sheet vaul de detalhes (também um Radix Dialog)
+  // desmonta: a colisão de overlays desmontava a tela inteira. Flag pendente +
+  // efeito abaixo: o modal só abre quando o sheet JÁ estiver fechado.
+  const [abrirEditarAjustePendente, setAbrirEditarAjustePendente] = useState(false)
+
+  useEffect(() => {
+    if (!abrirEditarAjustePendente) return
+    if (lancamentoDetalhe) return // sheet ainda aberto — aguarda o commit do fechamento
+    setAbrirEditarAjustePendente(false)
+    if (ajusteSaldoEmEdicao) {
+      setModalEditarAjusteOpen(true)
+    } else {
+      console.error(
+        'abrirEditarAjustePendente sem ajusteSaldoEmEdicao — edição de ajuste abortada.',
+      )
+    }
+  }, [abrirEditarAjustePendente, lancamentoDetalhe, ajusteSaldoEmEdicao])
 
   // Válvula de escape: fecha a Central e abre o Novo Lançamento pré-filtrado na conta
   // (para divergência causada por transação real, ex. compra duplicada)
@@ -380,8 +398,13 @@ export default function LancamentosPage() {
     // chama editar_ajuste_saldo_rpc DIRETO, que SUBSTITUI o efeito do ajuste
     // (não soma) preservando movimentações posteriores.
     if (l.tipo === 'ajuste' && l.subtipo_ajuste === 'ajuste_saldo_conta') {
+      // FIX 0.0.158 — o modal próprio (Radix Dialog) NUNCA monta no mesmo commit
+      // em que o sheet vaul (Radix Dialog) possa desmontar (colisão de overlays
+      // desmontava a tela). A partir do menu ⋮ o sheet já está fechado e o
+      // efeito abre no mesmo tick; vindo do sheet (Editar do Visualizar), o
+      // efeito aguarda o commit de fechamento do sheet.
       setAjusteSaldoEmEdicao(l)
-      setModalEditarAjusteOpen(true)
+      setAbrirEditarAjustePendente(true)
       return
     }
 

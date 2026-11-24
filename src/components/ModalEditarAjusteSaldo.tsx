@@ -106,7 +106,16 @@ export const ModalEditarAjusteSaldo: React.FC<ModalEditarAjusteSaldoProps> = ({
     <Dialog open={open} onOpenChange={(o) => !salvando && onOpenChange(o)}>
       <DialogContent
         className="sm:max-w-md"
-        onPointerDownOutside={(e) => salvando && e.preventDefault()}
+        onPointerDownOutside={(e) => {
+          // FIX 0.0.158 — sempre preventDefault: fora do salvando, o clique que
+          // sobra da desmontagem do sheet Radix encerrava o dialog na hora em
+          // que ele abria (tela "sumia"). Fechar só pelos botões ou via ESC.
+          e.preventDefault()
+        }}
+        onEscapeKeyDown={(e) => salvando && e.preventDefault()}
+        onInteractOutside={(e) => {
+          if (salvando) e.preventDefault()
+        }}
       >
         <DialogHeader>
           <DialogTitle className="text-base">Editar ajuste de saldo</DialogTitle>
