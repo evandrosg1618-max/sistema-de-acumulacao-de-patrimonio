@@ -12,7 +12,15 @@ import {
   lancamentoRapidoService,
   fixoService,
 } from '@/services/sap'
-import { Conta, Cartao, Orcamento, Categoria, MeioPagamento, Fatura } from '@/types/sap'
+import {
+  Conta,
+  Cartao,
+  Orcamento,
+  Categoria,
+  MeioPagamento,
+  Fatura,
+  TipoLancamento,
+} from '@/types/sap'
 import {
   formatMoneyBRL,
   getCurrentAnoMes,
@@ -59,6 +67,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ModalLancamento } from '@/components/ModalLancamento'
+import { CentralAjustesModal } from '@/components/CentralAjustesModal'
 import {
   Dialog,
   DialogContent,
@@ -106,9 +115,16 @@ export default function Index() {
 
   // Modal de Lançamentos Completo da Build 2 acionado pela Visão Geral
   const [modalLancamentoOpen, setModalLancamentoOpen] = useState(false)
-  const [tipoLancamentoSelecionado, setTipoLancamentoSelecionado] = useState<
-    'despesa' | 'receita' | 'transferencia'
-  >('despesa')
+  // TipoLancamento completo: a Central de Ajustes abre o modal com tipo 'ajuste'
+  const [tipoLancamentoSelecionado, setTipoLancamentoSelecionado] =
+    useState<TipoLancamento>('despesa')
+  // Parte B (0.0.162) — Central de Ajustes: botão "Central de Ajustes" do
+  // ModalLancamento (ações rápidas E caminho da fatura) abre a Central aqui,
+  // mesmo comportamento de LancamentosPage/CartoesPage.
+  const [centralAjustesOpen, setCentralAjustesOpen] = useState(false)
+  const [contaCentralSelecionada, setContaCentralSelecionada] = useState<string | undefined>(
+    undefined,
+  )
 
   // Estado interativo dos cartões (idêntico ao CartoesPage para manter mesmas opções e cliques)
   const [competenciaFiltro, setCompetenciaFiltro] = useState(getCurrentAnoMes())
@@ -1743,6 +1759,11 @@ export default function Index() {
         categorias={categorias}
         workspaceId={wsId || ''}
         userId={user?.id}
+        contaPreSelecionadaId={contaCentralSelecionada}
+        onAbrirCentralAjustes={() => {
+          setModalLancamentoOpen(false)
+          setCentralAjustesOpen(true)
+        }}
       />
 
       {/* MODAL PAGAMENTO DE FATURA ACIONADO DA PÁGINA INICIAL */}
@@ -1774,6 +1795,10 @@ export default function Index() {
         categorias={categorias}
         workspaceId={wsId || ''}
         userId={user?.id}
+        onAbrirCentralAjustes={() => {
+          setModalLancamentoFaturaOpen(false)
+          setCentralAjustesOpen(true)
+        }}
       />
 
       {/* MODAL DE AVISO DE BLOQUEIO POR FATURA PAGA (FECHA APENAS COM BOTÃO X) */}
@@ -1796,6 +1821,29 @@ export default function Index() {
         confirmText={modalConfirmacaoConfig.confirmText}
         cancelText={modalConfirmacaoConfig.cancelText}
         onConfirm={modalConfirmacaoConfig.onConfirm}
+      />
+
+      {/* PARTE B (0.0.162) — CENTRAL DE AJUSTES NA INÍCIO: aberta pelo botão
+          "Central de Ajustes" do ModalLancamento (ações rápidas E fatura).
+          Mesmo componente/props de LancamentosPage/CartoesPage; Saldo Bancário
+          operacional; recarrega o dashboard após qualquer ajuste. */}
+      <CentralAjustesModal
+        open={centralAjustesOpen}
+        onOpenChange={setCentralAjustesOpen}
+        contas={contas}
+        contaInicialId={contaCentralSelecionada}
+        workspaceId={wsId}
+        userId={user?.id}
+        onDadosAlterados={carregarDashboard}
+        onAbrirNovoLancamentoNaConta={(contaId) => {
+          // Válvula de escape da Central: fecha a Central e abre o Novo
+          // Lançamento (tipo 'ajuste') na conta escolhida — fluxo idêntico ao
+          // de LancamentosPage/CartoesPage.
+          setCentralAjustesOpen(false)
+          setTipoLancamentoSelecionado('ajuste')
+          setContaCentralSelecionada(contaId)
+          setModalLancamentoOpen(true)
+        }}
       />
     </div>
   )

@@ -491,6 +491,49 @@ export default function Layout() {
               <div className="text-[10px] text-emerald-700 font-medium">
                 Perfil: {currentWorkspace?.perfil}
               </div>
+
+              {/* Parte B (0.0.162) — Troca de workspace no drawer mobile: MESMA
+                  lógica do desktop (lista `workspaces` + setCurrentWorkspace do
+                  useAuth); páginas recarregam via wsId no useEffect, como já
+                  acontece no desktop. */}
+              {workspaces.length > 1 && (
+                <div className="mt-2 space-y-1">
+                  {workspaces.map((ws) => {
+                    const ativo = currentWorkspace?.workspace_id === ws.workspace_id
+                    return (
+                      <button
+                        key={ws.workspace_id}
+                        type="button"
+                        onClick={() => {
+                          if (!ativo) {
+                            setCurrentWorkspace(ws)
+                            setMobileMenuOpen(false)
+                          }
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs transition ${
+                          ativo
+                            ? 'bg-emerald-50 text-emerald-700 font-medium'
+                            : 'text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        <span className="truncate text-left">{ws.workspace_nome}</span>
+                        <span className="text-[10px] text-slate-400 shrink-0">{ws.perfil}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setNewWsDialogOpen(true)
+                  setMobileMenuOpen(false)
+                }}
+                className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-700 font-medium"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                <span>Novo Workspace</span>
+              </button>
             </div>
 
             <nav className="flex-1 py-3 space-y-1 overflow-y-auto">
