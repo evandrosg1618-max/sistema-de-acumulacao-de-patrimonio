@@ -4564,7 +4564,7 @@ export const lancamentoService = {
     const { data: res, error } = await db.rpc('editar_ajuste_saldo_rpc', {
       p_workspace_id: workspaceId,
       p_lancamento_id: lancamentoId,
-      p_saldo_real: saldoReal,
+      p_novo_saldo_real: saldoReal,
       p_data: data,
       p_observacao: observacao,
       p_user_id: userId || null,
