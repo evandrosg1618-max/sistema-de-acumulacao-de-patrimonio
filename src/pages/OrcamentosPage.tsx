@@ -510,7 +510,7 @@ export default function OrcamentosPage() {
             <ChevronLeft className="w-4 h-4" />
           </Button>
 
-          <span className="px-3 py-1 text-xs sm:text-sm font-bold text-slate-800 min-w-[140px] text-center select-none">
+          <span className="px-3 py-1 text-xs sm:text-sm font-bold text-slate-800 min-w-0 sm:min-w-[140px] text-center select-none">
             {formatAnoMesPT(anoMes)}
           </span>
 

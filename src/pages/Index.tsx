@@ -1034,7 +1034,7 @@ export default function Index() {
                   >
                     <ChevronLeft className="w-3.5 h-3.5" />
                   </Button>
-                  <div className="px-2 text-xs font-bold text-slate-800 flex items-center gap-1 justify-center min-w-[105px]">
+                  <div className="px-2 text-xs font-bold text-slate-800 flex items-center gap-1 justify-center min-w-0 sm:min-w-[105px]">
                     <Calendar className="w-3 h-3 text-indigo-600" />
                     <span>{formatAnoMesPT(competenciaFiltro)}</span>
                   </div>

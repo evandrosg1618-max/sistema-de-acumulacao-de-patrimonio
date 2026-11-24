@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select'
 import { ValorCalculadoraInput } from '@/components/ValorCalculadoraInput'
 import { formatMoneyBRL, getTodayDateString } from '@/lib/formatters'
+import { useTecladoVirtualVisivel, rodapeAcoesAttr } from '@/lib/responsive'
 import { Conta } from '@/types/sap'
 import { Scale, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -44,6 +45,9 @@ export function ModalConciliacao({ open, onOpenChange, contas, onSalvar }: Modal
   const [ajustarSaldo, setAjustarSaldo] = useState(true)
   const [observacao, setObservacao] = useState('')
   const [salvando, setSalvando] = useState(false)
+
+  // Parte A (0.0.161) — teclado virtual: campos finais e rodapé sempre acessíveis
+  const refCorpoTeclado = useTecladoVirtualVisivel(open)
 
   const contaSelecionada = contas.find((c) => c.id === contaId) || contas[0]
   const saldoSistema = contaSelecionada ? Number(contaSelecionada.saldo_atual || 0) : 0
@@ -91,7 +95,7 @@ export function ModalConciliacao({ open, onOpenChange, contas, onSalvar }: Modal
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-4 space-y-4">
+          <div ref={refCorpoTeclado} className="py-4 space-y-4">
             <div>
               <Label className="text-xs font-semibold text-slate-700">Conta Bancária</Label>
               <Select value={contaId} onValueChange={setContaId}>
@@ -191,7 +195,7 @@ export function ModalConciliacao({ open, onOpenChange, contas, onSalvar }: Modal
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter {...rodapeAcoesAttr}>
             <Button
               type="button"
               variant="outline"

@@ -52,6 +52,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { valorDeTextoMonetarioBR } from '@/lib/monetario'
+import { useTecladoVirtualVisivel, rodapeAcoesAttr } from '@/lib/responsive'
 
 const TIPOS_CONTA: { label: string; value: TipoConta; desc: string; icon: any }[] = [
   {
@@ -121,6 +122,9 @@ export default function ContasPage() {
 
   // Modal padrão de exclusão / bloqueio referencial com opção de arquivar (6.2)
   const [dialogExclusaoOpen, setDialogExclusaoOpen] = useState(false)
+
+  // Parte A (0.0.161) — teclado virtual no modal de conta (formulário)
+  const refCorpoTeclado = useTecladoVirtualVisivel(modalOpen)
   const [contaParaExcluir, setContaParaExcluir] = useState<Conta | null>(null)
   const [bloqueioExclusao, setBloqueioExclusao] = useState<{
     bloqueado: boolean
@@ -489,7 +493,7 @@ export default function ContasPage() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="py-4 space-y-4">
+            <div ref={refCorpoTeclado} className="py-4 space-y-4">
               <div>
                 <Label htmlFor="nome" className="text-xs font-semibold text-slate-700">
                   Nome da Conta *
@@ -585,7 +589,7 @@ export default function ContasPage() {
               </div>
             </div>
 
-            <DialogFooter>
+            <DialogFooter {...rodapeAcoesAttr}>
               <Button type="button" variant="outline" onClick={() => setModalOpen(false)}>
                 Cancelar
               </Button>

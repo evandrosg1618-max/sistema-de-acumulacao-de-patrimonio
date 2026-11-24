@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select'
 import { ValorCalculadoraInput } from '@/components/ValorCalculadoraInput'
 import { formatMoneyBRL, getTodayDateString } from '@/lib/formatters'
+import { useTecladoVirtualVisivel, rodapeAcoesAttr } from '@/lib/responsive'
 import { Conta, Fatura } from '@/types/sap'
 import { CreditCard, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -53,6 +54,9 @@ export function ModalPagamentoFatura({
   )
   const [dataPagamento, setDataPagamento] = useState(() => getTodayDateString())
   const [processando, setProcessando] = useState(false)
+
+  // Parte A (0.0.161) — teclado virtual: campos finais e rodapé sempre acessíveis
+  const refCorpoTeclado = useTecladoVirtualVisivel(open)
 
   // Atualizar valor quando a fatura mudar
   React.useEffect(() => {
@@ -106,7 +110,7 @@ export function ModalPagamentoFatura({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="py-4 space-y-4">
+          <div ref={refCorpoTeclado} className="py-4 space-y-4">
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between text-xs">
               <span className="text-slate-500">Competência da fatura:</span>
               <span className="font-bold text-slate-800">{fatura?.competencia}</span>
@@ -154,7 +158,7 @@ export function ModalPagamentoFatura({
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter {...rodapeAcoesAttr}>
             <Button
               type="button"
               variant="outline"

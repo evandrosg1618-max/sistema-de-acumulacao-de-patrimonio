@@ -127,7 +127,7 @@ export default function Layout() {
   ]
 
   return (
-    <div className="min-h-screen bg-[#f3f5f7] text-slate-900 flex flex-col antialiased">
+    <div className="min-h-screen bg-[#f3f5f7] text-slate-900 flex flex-col antialiased w-full max-w-full overflow-x-hidden">
       {/* TOPBAR PRINCIPAL ESTILO ORGANIZZE (VERDE COM ABAS, ÍCONES DE CONFIGURAÇÃO, NOTIFICAÇÃO E AVATAR) */}
       <header className="bg-[#1bb55c] text-white shadow-xs sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 md:px-8 flex items-center justify-between h-14">
@@ -603,7 +603,7 @@ export default function Layout() {
       )}
 
       {/* ÁREA DE CONTEÚDO PRINCIPAL */}
-      <main className="flex-1 pb-16 md:pb-8">
+      <main className="flex-1 pb-16 md:pb-8 w-full max-w-full overflow-x-hidden">
         <Outlet />
       </main>
 

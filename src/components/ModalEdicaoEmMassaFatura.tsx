@@ -22,6 +22,8 @@ import {
   SeletorCategoriaFatura,
   SeletorSubcategoriaFatura,
 } from '@/components/SeletoresClassificacaoFatura'
+import { cn } from '@/lib/utils'
+import { smFullDialog, useTecladoVirtualVisivel, rodapeAcoesAttr } from '@/lib/responsive'
 
 export interface PatchEdicaoEmMassa {
   aplicarDescricao?: boolean
@@ -121,6 +123,9 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
 
   const [acaoEspecial, setAcaoEspecial] = useState<string>('')
   const [salvando, setSalvando] = useState(false)
+
+  // Parte A (0.0.160) — teclado virtual: campos finais e rodapé sempre acessíveis
+  const refCorpoTeclado = useTecladoVirtualVisivel(aberto)
 
   const subcategoriasFiltradas = subcategorias.filter(
     (s) => !categoriaId || s.categoria_id === categoriaId,

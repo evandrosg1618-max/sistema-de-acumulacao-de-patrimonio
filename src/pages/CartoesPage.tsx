@@ -1113,7 +1113,7 @@ export default function CartoesPage() {
             >
               <ChevronLeft className="w-4 h-4" />
             </Button>
-            <div className="px-2 text-xs font-bold text-slate-800 flex items-center gap-1.5 min-w-[130px] justify-center">
+            <div className="px-2 text-xs font-bold text-slate-800 flex items-center gap-1.5 min-w-0 sm:min-w-[130px] justify-center">
               <Calendar className="w-3.5 h-3.5 text-indigo-600" />
               <span>{formatAnoMesPT(competenciaFiltro)}</span>
             </div>

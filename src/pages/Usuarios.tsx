@@ -36,6 +36,7 @@ import {
   Link,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useTecladoVirtualVisivel, rodapeAcoesAttr } from '@/lib/responsive'
 
 export default function UsuariosPage() {
   const { currentWorkspace, user } = useAuth()
@@ -51,6 +52,9 @@ export default function UsuariosPage() {
   )
   const [ultimoLinkGerado, setUltimoLinkGerado] = useState<string | null>(null)
   const [salvandoConvite, setSalvandoConvite] = useState(false)
+
+  // Parte A (0.0.161) — teclado virtual no modal de convite (formulário)
+  const refCorpoTeclado = useTecladoVirtualVisivel(inviteModalOpen)
 
   const isAdmin = currentWorkspace?.perfil === 'Administrador'
   const wsId =
@@ -421,7 +425,7 @@ export default function UsuariosPage() {
                 O usuário receberá acesso ao espaço familiar conforme o perfil selecionado.
               </DialogDescription>
             </DialogHeader>
-            <div className="py-4 space-y-3">
+            <div ref={refCorpoTeclado} className="py-4 space-y-3">
               <div>
                 <Label htmlFor="inv-email" className="text-xs">
                   E-mail do Convidado *
@@ -482,7 +486,7 @@ export default function UsuariosPage() {
                 </div>
               )}
             </div>
-            <DialogFooter>
+            <DialogFooter {...rodapeAcoesAttr}>
               <Button type="button" variant="outline" onClick={() => setInviteModalOpen(false)}>
                 Fechar
               </Button>

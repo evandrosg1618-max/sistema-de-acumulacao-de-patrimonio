@@ -3,6 +3,7 @@ import { useAuth } from '@/hooks/use-auth'
 import { meioPagamentoService, contaService, cartaoService } from '@/services/sap'
 import { MeioPagamento, Conta, Cartao } from '@/types/sap'
 import { formatMoneyBRL } from '@/lib/formatters'
+import { useTecladoVirtualVisivel, rodapeAcoesAttr } from '@/lib/responsive'
 import {
   CreditCard,
   Wallet,
@@ -35,6 +36,9 @@ export default function MeiosPagamentoPage() {
   const [modalDinheiroOpen, setModalDinheiroOpen] = useState(false)
   const [nomeDinheiro, setNomeDinheiro] = useState('Dinheiro em Espécie / Carteira')
   const [saving, setSaving] = useState(false)
+
+  // Parte A (0.0.161) — teclado virtual no modal de carteira (formulário)
+  const refCorpoTeclado = useTecladoVirtualVisivel(modalDinheiroOpen)
 
   const wsId =
     currentWorkspace?.workspace_id || localStorage.getItem('sap_active_workspace_id') || undefined
@@ -320,7 +324,7 @@ export default function MeiosPagamentoPage() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="py-4 space-y-3">
+            <div ref={refCorpoTeclado} className="py-4 space-y-3">
               <div>
                 <Label htmlFor="nome-dinheiro" className="text-xs font-semibold text-slate-700">
                   Nome da Carteira / Espécie *
@@ -337,7 +341,7 @@ export default function MeiosPagamentoPage() {
               </div>
             </div>
 
-            <DialogFooter>
+            <DialogFooter {...rodapeAcoesAttr}>
               <Button type="button" variant="outline" onClick={() => setModalDinheiroOpen(false)}>
                 Cancelar
               </Button>
