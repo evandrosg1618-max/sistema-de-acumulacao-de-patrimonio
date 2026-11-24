@@ -198,6 +198,11 @@ export default function CartoesPage() {
   // botão "Central de Ajustes" do ModalLancamento abre a Central aqui também.
   const [centralAjustesOpen, setCentralAjustesOpen] = useState(false)
 
+  // C4 — card "Ajuste de Fatura" da Central: o ModalLancamento do host da Fatura
+  // passa a aceitar tipo 'ajuste' (antes hardcoded "despesa"), para que a Central
+  // aberta pela fatura consiga abrir a funcionalidade de Ajuste de Fatura.
+  const [tipoModalFatura, setTipoModalFatura] = useState<'despesa' | 'ajuste'>('despesa')
+
   // Form
   const [nome, setNome] = useState('')
   const [bandeira, setBandeira] = useState('Mastercard')
@@ -2069,7 +2074,7 @@ export default function CartoesPage() {
         onOpenChange={setModalLancamentoOpen}
         onSave={handleSalvarLancamentoFatura}
         initialData={lancamentoFaturaEmEdicao}
-        tipoPadrao="despesa"
+        tipoPadrao={tipoModalFatura}
         cartaoPadraoId={cartaoIdParaNovoLanc}
         dataPadrao={dataPadraoParaNovoLanc}
         contas={contas}
@@ -2091,6 +2096,14 @@ export default function CartoesPage() {
         userId={user?.id}
         contas={contas}
         onDadosAlterados={() => carregarCartoes()}
+        onAbrirAjustesFatura={() => {
+          // C4 — Central aberta pela fatura: "Ajuste de Fatura" abre a MESMA
+          // funcionalidade de Novo Lançamento, com o tipo pré-definido como
+          // 'ajuste' (antes: dispatch sem listener → janela fechava sem ação).
+          setTipoModalFatura('ajuste')
+          setCentralAjustesOpen(false)
+          setModalLancamentoOpen(true)
+        }}
       />
 
       {/* Modal de Escolha de Escopo Único "Todos" */}

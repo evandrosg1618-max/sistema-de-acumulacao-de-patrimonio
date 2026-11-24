@@ -23,6 +23,13 @@ export interface CentralAjustesModalProps {
   onDadosAlterados: () => Promise<void> | void
   /** Válvula de escape: fecha a Central e abre o Novo Lançamento na conta */
   onAbrirNovoLancamentoNaConta?: (contaId: string) => void
+  /**
+   * C4 — card "Ajuste de Fatura": abre a FUNCIONALIDADE de Ajuste de Fatura
+   * (Novo Lançamento tipo 'ajuste'), não um filtro. Cada host injeta a própria
+   * navegação; o evento 'sap:abrir-ajustes-fatura' é só fallback quando a prop
+   * não é passada (comportamento antigo, sem hash na URL).
+   */
+  onAbrirAjustesFatura?: () => void
 }
 
 type Tela = 'inicio' | 'saldo'
@@ -45,6 +52,7 @@ export const CentralAjustesModal: React.FC<CentralAjustesModalProps> = ({
   modoConsulta = false,
   onDadosAlterados,
   onAbrirNovoLancamentoNaConta,
+  onAbrirAjustesFatura,
 }) => {
   const [tela, setTela] = useState<Tela>('inicio')
 
@@ -61,6 +69,7 @@ export const CentralAjustesModal: React.FC<CentralAjustesModalProps> = ({
       <DialogContent
         className="sm:max-w-md h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden"
         onInteractOutside={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => e.preventDefault()}
       >
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-slate-100">
           <DialogTitle className="flex items-center gap-2 text-slate-900 font-bold text-base">
@@ -85,13 +94,18 @@ export const CentralAjustesModal: React.FC<CentralAjustesModalProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  // Regras/subtipos intocados: navega para a tela atual de
-                  // ajustes de fatura (filtro de lançamentos do tipo ajuste).
+                  // C4 — abre a funcionalidade de Ajuste de Fatura via prop do host
+                  // (Lancamentos: Novo Lançamento tipo 'ajuste'; Cartoes: ModalLancamento
+                  // pré-configurado para 'ajuste'). Sem hash na URL — '#/ajustes-fatura'
+                  // não corresponde a rota. Fallback: evento legado só se a prop vier vazia.
                   fechar()
-                  window.location.hash = '#/ajustes-fatura'
-                  window.dispatchEvent(
-                    new CustomEvent('sap:abrir-ajustes-fatura', { bubbles: true }),
-                  )
+                  if (onAbrirAjustesFatura) {
+                    onAbrirAjustesFatura()
+                  } else {
+                    window.dispatchEvent(
+                      new CustomEvent('sap:abrir-ajustes-fatura', { bubbles: true }),
+                    )
+                  }
                 }}
                 className="w-full text-left rounded-2xl border border-slate-200 bg-white p-4 hover:border-violet-300 hover:bg-violet-50/50 transition group"
               >

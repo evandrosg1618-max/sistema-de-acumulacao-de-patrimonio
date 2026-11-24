@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle2, Eye, Pencil, Scale, Trash2 } from 'lucide-react'
 import {
   Select,
@@ -121,6 +121,18 @@ export const CentralSaldoBancarioView: React.FC<CentralSaldoBancarioViewProps> =
   const [excluindoId, setExcluindoId] = useState<string | null>(null)
 
   const [limiteHistorico, setLimiteHistorico] = useState(10)
+
+  // C3b — painel de edição pode nascer fora da vista (histórico longo): rolar
+  // até ele automaticamente quando a edição é aberta.
+  const refPainelEdicao = useRef<HTMLDivElement | null>(null)
+  const refContainerRolavel = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    if (!editandoReg) return
+    const t = window.setTimeout(() => {
+      refPainelEdicao.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 60)
+    return () => window.clearTimeout(t)
+  }, [editandoReg?.id])
 
   /** Saldos SAP lidos direto do banco (sobrevivem ao ajuste sem recarregar a página) */
   const [saldos, setSaldos] = useState<Record<string, number>>({})
@@ -285,6 +297,10 @@ export const CentralSaldoBancarioView: React.FC<CentralSaldoBancarioViewProps> =
     setEditarSaldo(reg.saldo_extrato !== null ? formatMoneyBRL(reg.saldo_extrato) : '')
     setEditarData(reg.data_extrato || hojeISO())
     setEditarObs(reg.observacao || '')
+    // C3b — o painel de edição fica no RODAPÉ fixo (fora da área rolável, como a
+    // confirmação de exclusão): abrir a edição fecha a confirmação para que ambos
+    // não disputem o rodapé.
+    setConfirmarExclusaoId(null)
   }
 
   const fecharEdicao = () => {
@@ -298,7 +314,12 @@ export const CentralSaldoBancarioView: React.FC<CentralSaldoBancarioViewProps> =
    * (novo − original), preservando as movimentações posteriores.
    */
   const handleSalvarEdicao = async () => {
-    if (!workspaceId || !editandoReg?.lancamento_ajuste_id) return
+    if (!workspaceId || !editandoReg?.lancamento_ajuste_id) {
+      // C3c — nunca falhar em silêncio: linha sem lançamento de ajuste vinculado
+      // não pode ser editada pela Central
+      toast.error('Este registro não possui um lançamento de ajuste vinculado para editar.')
+      return
+    }
     if (editando) return // proteção duplo clique (item 19 do PDF)
     const novoSaldoReal = editarSaldo.trim() ? valorDeTextoMonetarioBR(editarSaldo) : null
     if (novoSaldoReal === null) {
@@ -349,7 +370,12 @@ export const CentralSaldoBancarioView: React.FC<CentralSaldoBancarioViewProps> =
    * (PDF item 6.d: sucesso ≠ operação não realizada).
    */
   const handleExcluir = async (reg: RegistroConciliacao) => {
-    if (!workspaceId || !reg.lancamento_ajuste_id) return
+    if (!workspaceId || !reg.lancamento_ajuste_id) {
+      // C3c — nunca falhar em silêncio: linha sem lançamento de ajuste vinculado
+      // não pode ser excluída pela Central
+      toast.error('Este registro não possui um lançamento de ajuste vinculado para excluir.')
+      return
+    }
     if (excluindoId) return // proteção duplo clique (item 19 do PDF)
     setExcluindoId(reg.id)
     try {
@@ -412,7 +438,10 @@ export const CentralSaldoBancarioView: React.FC<CentralSaldoBancarioViewProps> =
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+      {/* C3a — min-h-0: dentro do DialogContent h-[85vh] flex, sem min-h-0 a área
+          rolável não encolhe com histórico longo e o rodapé (confirmação de
+          exclusão / painel de edição) ficava invisível */}
+      <div ref={refContainerRolavel} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-5">
         {contasBancarias.length === 0 ? (
           <div className="text-sm text-slate-500 py-6 text-center">
             Nenhuma conta bancária cadastrada neste workspace.
@@ -476,7 +505,10 @@ export const CentralSaldoBancarioView: React.FC<CentralSaldoBancarioViewProps> =
 
                 {/* B3 — painel de EDIÇÃO (substitui o painel de registro enquanto aberto) */}
                 {!modoConsulta && editandoReg && (
-                  <div className="rounded-xl border border-violet-300 bg-violet-50/60 p-4 space-y-3">
+                  <div
+                    ref={refPainelEdicao}
+                    className="rounded-xl border border-violet-300 bg-violet-50/60 p-4 space-y-3 scroll-mt-4"
+                  >
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-bold text-violet-900 uppercase tracking-wide flex items-center gap-1.5">
                         <Pencil className="w-3.5 h-3.5" />

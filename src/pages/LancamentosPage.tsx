@@ -62,6 +62,7 @@ import {
 } from '@/components/ui/select'
 import { ModalLancamento } from '@/components/ModalLancamento'
 import { CentralAjustesModal } from '@/components/CentralAjustesModal'
+import { ModalEditarAjusteSaldo } from '@/components/ModalEditarAjusteSaldo'
 import { ModalEscolhaEscopoSerie, EscopoSerie } from '@/components/ModalEscolhaEscopoSerie'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { ModalConfirmacaoExclusao } from '@/components/ModalConfirmacaoExclusao'
@@ -349,18 +350,9 @@ export default function LancamentosPage() {
   // D2 — Central de Ajustes assume o botão "Conciliar"
   const [centralAjustesOpen, setCentralAjustesOpen] = useState(false)
 
-  // Parte B (0.0.152) — card "Ajuste de Fatura" da Central: abre o NOVO LANÇAMENTO
-  // tipo 'ajuste' (o ModalLancamento já exibe a seção "Configurações do Lançamento
-  // de Ajuste" com os subtipos ajuste_fatura_banco/ajuste_tecnico_sap). SEM filtro
-  // na lista. Disparado pela Central via evento custom.
-  useEffect(() => {
-    const abrir = () => {
-      setCentralAjustesOpen(false)
-      abrirNovoLancamento('ajuste')
-    }
-    window.addEventListener('sap:abrir-ajustes-fatura', abrir)
-    return () => window.removeEventListener('sap:abrir-ajustes-fatura', abrir)
-  }, [])
+  // C2 — Ajuste de Saldo Bancário em edição pela lista (modal próprio, RPC direta)
+  const [ajusteSaldoEmEdicao, setAjusteSaldoEmEdicao] = useState<Lancamento | null>(null)
+  const [modalEditarAjusteOpen, setModalEditarAjusteOpen] = useState(false)
 
   // Válvula de escape: fecha a Central e abre o Novo Lançamento pré-filtrado na conta
   // (para divergência causada por transação real, ex. compra duplicada)
@@ -383,6 +375,16 @@ export default function LancamentosPage() {
   }
 
   const abrirEdicaoLancamento = async (l: Lancamento) => {
+    // C2 (Reteste item 12/13) — Ajuste de Saldo Bancário NÃO abre o modal genérico
+    // de edição (ciclo pagamento/fatura não se aplica): abre o modal próprio que
+    // chama editar_ajuste_saldo_rpc DIRETO, que SUBSTITUI o efeito do ajuste
+    // (não soma) preservando movimentações posteriores.
+    if (l.tipo === 'ajuste' && l.subtipo_ajuste === 'ajuste_saldo_conta') {
+      setAjusteSaldoEmEdicao(l)
+      setModalEditarAjusteOpen(true)
+      return
+    }
+
     // Se pertencer a cartão de crédito e a fatura estiver paga, bloqueia alteração com aviso persistente
     if (wsId && l.cartao_id && l.competencia) {
       try {
@@ -558,6 +560,46 @@ export default function LancamentosPage() {
 
   const handleExcluirLancamento = async (l: Lancamento) => {
     if (!wsId) return
+
+    // C1 (Reteste itens 14–16) — Ajuste de Saldo Bancário NÃO possui ciclo de
+    // pagamento: nasce 'pago' e por isso o bloqueio de lançamento único pago em
+    // conta o capturava e saia sem ação. Confirmação do item 16 do PDF + RPC
+    // excluir_ajuste_saldo_rpc (via deleteComEscopo) — toast SÓ após a resposta.
+    if (l.tipo === 'ajuste' && l.subtipo_ajuste === 'ajuste_saldo_conta') {
+      const nomeContaAjuste = contas.find((c) => c.id === l.conta_origem_id)?.nome || '—'
+      const valorAjuste = Number(l.valor || 0)
+      const dataAjusteStr = l.data ? l.data.split('-').reverse().join('/') : null
+      setModalConfirmacaoConfig({
+        title: 'Excluir ajuste de saldo',
+        description:
+          `Deseja excluir este ajuste de saldo da conta "${nomeContaAjuste}"? ` +
+          'O lançamento será excluído e seu efeito será removido do saldo da conta.' +
+          (dataAjusteStr ? `\n\nData: ${dataAjusteStr}` : '') +
+          (l.valor !== null && l.valor !== undefined
+            ? `\nValor do ajuste: ${valorAjuste >= 0 ? '+' : '-'}${formatMoneyBRL(Math.abs(valorAjuste))}`
+            : ''),
+        isAlertOnly: false,
+        confirmText: 'Excluir ajuste',
+        cancelText: 'Cancelar',
+        onConfirm: async () => {
+          setModalConfirmacaoExclusaoOpen(false)
+          await runWithLock(async () => {
+            try {
+              await lancamentoService.deleteComEscopo(l.id, wsId, 'este', user?.id)
+              toast.success('Ajuste de saldo excluído — efeito removido do saldo da conta.')
+              await carregarDados()
+            } catch (err: any) {
+              toast.error(
+                'Não foi possível excluir o ajuste de saldo — ' +
+                  (err.message || 'verifique e clique novamente; se persistir, atualize a página.'),
+              )
+            }
+          }, 'Excluindo ajuste de saldo com integridade de saldos...')
+        },
+      })
+      setModalConfirmacaoExclusaoOpen(true)
+      return
+    }
 
     // REGRA BLOCO B / BLOCO 3 (Testes 5–7):
     const ehUnico = (l.regime === 'unico' || !l.regime) && !l.serie_id
@@ -2321,7 +2363,6 @@ export default function LancamentosPage() {
           </div>
         </div>
       )}
-
       {/* D2 — CENTRAL DE AJUSTES (assume o botão "Conciliar"; ModalConciliacao antigo desativado) */}
       <CentralAjustesModal
         open={centralAjustesOpen}
@@ -2332,6 +2373,24 @@ export default function LancamentosPage() {
         userId={user?.id}
         onDadosAlterados={carregarDados}
         onAbrirNovoLancamentoNaConta={abrirNovoLancamentoNaConta}
+        onAbrirAjustesFatura={() => {
+          // C4 — card "Ajuste de Fatura" da Central: abre o NOVO LANÇAMENTO tipo
+          // 'ajuste' (mesma funcionalidade de Novo Lançamento → Ajuste de Fatura;
+          // sem filtro na lista, sem evento/hash intermediário).
+          setCentralAjustesOpen(false)
+          abrirNovoLancamento('ajuste')
+        }}
+      />
+
+      {/* C2 — Edição de Ajuste de Saldo Bancário pela lista (RPC direta, sem
+          modal genérico de lançamento) */}
+      <ModalEditarAjusteSaldo
+        open={modalEditarAjusteOpen}
+        onOpenChange={setModalEditarAjusteOpen}
+        lancamento={ajusteSaldoEmEdicao}
+        workspaceId={wsId}
+        userId={user?.id}
+        onSalvo={carregarDados}
       />
 
       {/* MODAL DE CONFIRMAÇÃO DE EXCLUSÃO UNIFICADO (AlertDialog) */}
