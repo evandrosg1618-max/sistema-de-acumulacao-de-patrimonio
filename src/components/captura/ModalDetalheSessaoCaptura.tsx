@@ -23,6 +23,8 @@ import {
   rotuloTipoDocumento,
 } from '@/services/captura/capturaService'
 import { formatMoneyBRL } from '@/lib/formatters'
+import { cn } from '@/lib/utils'
+import { smFullDialog } from '@/lib/responsive'
 import { Image as ImageIcon, ListChecks, Loader2, Receipt } from 'lucide-react'
 
 interface Props {
@@ -117,7 +119,13 @@ export function ModalDetalheSessaoCaptura({
 
   return (
     <Dialog open={!!sessao} onOpenChange={(o) => !o && onFechar()}>
-      <DialogContent className="max-w-lg bg-white max-h-[85vh] overflow-y-auto">
+      <DialogContent
+        className={cn(
+          'max-w-lg bg-white max-h-[85vh] overflow-y-auto',
+          // Parte A (0.0.160) — smartphone: quase tela cheia; desktop: como está
+          smFullDialog,
+        )}
+      >
         <DialogHeader>
           <DialogTitle className="text-slate-900 flex items-center gap-2 flex-wrap">
             {rotuloTipoDocumento(sessao.tipo_documento)}

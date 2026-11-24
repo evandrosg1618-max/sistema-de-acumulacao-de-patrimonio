@@ -61,6 +61,7 @@ import { ModalDescarteNavegacao } from '@/components/ModalDescarteNavegacao'
 import { ModalVisualizarFaturasEmProcessamento } from '@/components/ModalVisualizarFaturasEmProcessamento'
 import { PainelTextoExtraido } from '@/components/PainelTextoExtraido'
 import { formatMoneyBRL } from '@/lib/formatters'
+import { cn } from '@/lib/utils'
 import { executarOcrImagem } from '@/services/imageOcr/tesseractService'
 import {
   processarLinhasOcrMultiplasImagens,
@@ -1455,7 +1456,12 @@ export function ImportarFaturaPage() {
                 onClick={() => setImagemPreviewAberto(null)}
               >
                 <div
-                  className="bg-white rounded-xl p-2 max-w-3xl max-h-[85vh] overflow-auto shadow-2xl"
+                  className={cn(
+                    // Parte A (0.0.160) — smartphone: visualizador de captura quase
+                    // tela cheia (imagem legível); desktop: como está hoje.
+                    'bg-white rounded-xl p-2 max-w-3xl max-h-[85vh] overflow-auto shadow-2xl',
+                    'max-sm:h-[calc(100dvh-16px)] max-sm:w-[calc(100vw-16px)] max-sm:rounded-lg max-sm:flex max-sm:flex-col',
+                  )}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div className="flex justify-between items-center p-2 border-b border-slate-100">
@@ -1472,7 +1478,11 @@ export function ImportarFaturaPage() {
                   <img
                     src={imagemPreviewAberto}
                     alt="Preview"
-                    className="max-h-[75vh] w-auto mx-auto object-contain p-2"
+                    className={cn(
+                      'max-h-[75vh] w-auto mx-auto object-contain p-2',
+                      // dentro do visualizador quase tela cheia no smartphone
+                      'max-sm:max-h-[calc(100dvh-64px)] max-sm:h-full max-sm:w-auto',
+                    )}
                   />
                 </div>
               </div>

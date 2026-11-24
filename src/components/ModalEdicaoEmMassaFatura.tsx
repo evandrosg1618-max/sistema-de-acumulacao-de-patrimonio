@@ -201,7 +201,13 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
 
   return (
     <Dialog open={aberto} onOpenChange={(open) => !open && aoFechar()}>
-      <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white border-slate-200 text-slate-900">
+      <DialogContent
+        className={cn(
+          'sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white border-slate-200 text-slate-900',
+          // Parte A (0.0.160) — smartphone: quase tela cheia; desktop: como está
+          smFullDialog,
+        )}
+      >
         <DialogHeader>
           <DialogTitle className="text-base font-bold text-slate-900 flex items-center justify-between">
             <span>Alterar em lote ({totalSelecionados} lançamentos)</span>
@@ -217,7 +223,7 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
           </p>
         </DialogHeader>
 
-        <div className="space-y-3.5 py-2 text-xs">
+        <div ref={refCorpoTeclado} className="space-y-3.5 py-2 text-xs">
           {/* Campo Descrição */}
           <div className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/50 space-y-2">
             <div className="flex items-center gap-2">
@@ -573,7 +579,10 @@ export const ModalEdicaoEmMassaFatura: React.FC<ModalEdicaoEmMassaFaturaProps> =
           </div>
         </div>
 
-        <DialogFooter className="flex gap-2 sm:justify-end pt-2 border-t border-slate-200">
+        <DialogFooter
+          className="flex gap-2 sm:justify-end pt-2 border-t border-slate-200"
+          {...rodapeAcoesAttr}
+        >
           <Button
             type="button"
             variant="outline"

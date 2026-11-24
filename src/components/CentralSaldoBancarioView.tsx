@@ -15,6 +15,7 @@ import { toast } from 'sonner'
 import { formatMoneyBRL, getTodayDateString } from '@/lib/formatters'
 import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 import { supabase } from '@/lib/supabase/client'
+import { useTecladoVirtualVisivel } from '@/lib/responsive'
 import type { Conta } from '@/types/sap'
 
 export interface RegistroConciliacao {
@@ -126,6 +127,9 @@ export const CentralSaldoBancarioView: React.FC<CentralSaldoBancarioViewProps> =
   // até ele automaticamente quando a edição é aberta.
   const refPainelEdicao = useRef<HTMLDivElement | null>(null)
   const refContainerRolavel = useRef<HTMLDivElement | null>(null)
+  // Parte A (0.0.160) — teclado virtual: mesmo padrão scrollIntoView deste
+  // arquivo (refPainelEdicao), agora centralizado num hook único do app.
+  const refCorpoTeclado = useTecladoVirtualVisivel(true)
   useEffect(() => {
     if (!editandoReg) return
     const t = window.setTimeout(() => {
@@ -441,7 +445,14 @@ export const CentralSaldoBancarioView: React.FC<CentralSaldoBancarioViewProps> =
       {/* C3a — min-h-0: dentro do DialogContent h-[85vh] flex, sem min-h-0 a área
           rolável não encolhe com histórico longo e o rodapé (confirmação de
           exclusão / painel de edição) ficava invisível */}
-      <div ref={refContainerRolavel} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-5">
+      <div
+        ref={(el) => {
+          // mesmo container do padrão refPainelEdicao + marcação única do teclado virtual
+          refContainerRolavel.current = el
+          refCorpoTeclado.current = el
+        }}
+        className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-5"
+      >
         {contasBancarias.length === 0 ? (
           <div className="text-sm text-slate-500 py-6 text-center">
             Nenhuma conta bancária cadastrada neste workspace.

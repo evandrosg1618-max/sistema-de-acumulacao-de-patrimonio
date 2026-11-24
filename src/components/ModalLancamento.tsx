@@ -54,6 +54,8 @@ import {
 import { orcamentoService, faturaService, fixoService } from '@/services/sap'
 import { ModalAvisoBloqueioFatura, InfoBloqueioFatura } from '@/components/ModalAvisoBloqueioFatura'
 import { useGlobalLoading } from '@/contexts/LoadingContext'
+import { cn } from '@/lib/utils'
+import { smFullDialog, useTecladoVirtualVisivel, rodapeAcoesAttr } from '@/lib/responsive'
 import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 import { toast } from '@/hooks/use-toast'
 
@@ -194,6 +196,11 @@ export function ModalLancamento({
   // o painel rola para dentro da área visível do Dialog (mobile: sem isso ele
   // nasce abaixo da dobra e parece que "nada aconteceu").
   const painelRepeticaoRef = useRef<HTMLDivElement | null>(null)
+
+  // Parte A (0.0.160) — teclado virtual: campo focado nunca fica atrás do
+  // teclado no smartphone; Salvar/Cancelar permanecem alcançáveis (padrão
+  // scrollIntoView único, reuso do refPainelEdicao da Central de Ajustes).
+  const refCorpoTeclado = useTecladoVirtualVisivel(open)
 
   // P1 (A.2) — notifica o pai (ModalLoteCaptura) a cada mudança do painel:
   // o painel fixo do Lote se esconde enquanto as opções estão abertas.
@@ -891,7 +898,10 @@ export function ModalLancamento({
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
-          className="sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white text-slate-900 border-slate-200 shadow-xl"
+          className={cn(
+            'sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white text-slate-900 border-slate-200 shadow-xl',
+            smFullDialog,
+          )}
           onPointerDownOutside={(e) => {
             // C.2/C.4 — a lista da subcategoria vive em portal FORA do Dialog:
             // clicar numa opção não pode fechar o modal inteiro. O Radix envia
@@ -1001,7 +1011,7 @@ export function ModalLancamento({
                 </button>
               </div>
             )}
-            <div className="py-4 space-y-4">
+            <div ref={refCorpoTeclado} className="py-4 space-y-4">
               {/* Descrição & Valor com Calculadora */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -2253,7 +2263,7 @@ export function ModalLancamento({
                 />
               </div>
             </div>
-            <DialogFooter className="gap-2 sm:gap-0">
+            <DialogFooter className="gap-2 sm:gap-0" {...rodapeAcoesAttr}>
               <Button
                 type="button"
                 variant="outline"

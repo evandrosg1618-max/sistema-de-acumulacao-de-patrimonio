@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import { formatMoneyBRL } from '@/lib/formatters'
 import { valorDeTextoMonetarioBR } from '@/lib/monetario'
 import { supabase } from '@/lib/supabase/client'
+import { useTecladoVirtualVisivel, rodapeAcoesAttr } from '@/lib/responsive'
 import type { Lancamento } from '@/types/sap'
 
 export interface ModalEditarAjusteSaldoProps {
@@ -46,6 +47,8 @@ export const ModalEditarAjusteSaldo: React.FC<ModalEditarAjusteSaldoProps> = ({
   const [data, setData] = useState('')
   const [obs, setObs] = useState('')
   const [salvando, setSalvando] = useState(false)
+  // Parte A (0.0.160) — teclado virtual (padrão único do app)
+  const refCorpoTeclado = useTecladoVirtualVisivel(open)
 
   // Última configuração vence: preenche a cada abertura
   useEffect(() => {
@@ -126,7 +129,7 @@ export const ModalEditarAjusteSaldo: React.FC<ModalEditarAjusteSaldoProps> = ({
         </DialogHeader>
 
         {lancamento && (
-          <div className="space-y-3">
+          <div ref={refCorpoTeclado} className="space-y-3">
             <div className="rounded-xl border bg-slate-50 p-3 text-xs text-slate-600 space-y-1">
               <p>
                 <span className="font-semibold">Ajuste atual:</span>{' '}
@@ -180,7 +183,7 @@ export const ModalEditarAjusteSaldo: React.FC<ModalEditarAjusteSaldoProps> = ({
           </div>
         )}
 
-        <DialogFooter className="gap-2">
+        <DialogFooter className="gap-2" {...rodapeAcoesAttr}>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={salvando}>
             Cancelar
           </Button>

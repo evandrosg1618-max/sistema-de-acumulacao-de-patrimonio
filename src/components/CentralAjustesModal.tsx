@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { ChevronLeft, CreditCard, Info, Landmark } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
+import { smFullDialog } from '@/lib/responsive'
 import { CentralSaldoBancarioView } from '@/components/CentralSaldoBancarioView'
 import type { Conta } from '@/types/sap'
 
@@ -67,7 +69,12 @@ export const CentralAjustesModal: React.FC<CentralAjustesModalProps> = ({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="sm:max-w-md h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden"
+        className={cn(
+          'sm:max-w-md h-[85vh] max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden',
+          // Parte A (0.0.160) — smartphone: Central quase tela cheia (header fixo,
+          // corpo rolável, rodapé acessível). Desktop: idêntico ao comportamento atual.
+          smFullDialog,
+        )}
         onInteractOutside={(e) => e.preventDefault()}
         onPointerDownOutside={(e) => e.preventDefault()}
       >

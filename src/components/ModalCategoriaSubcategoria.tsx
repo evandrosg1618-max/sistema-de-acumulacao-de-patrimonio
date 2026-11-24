@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react'
+import { cn } from '@/lib/utils'
+import { smFullDialog, rodapeAcoesAttr } from '@/lib/responsive'
 import {
   Dialog,
   DialogContent,
@@ -220,7 +222,13 @@ export function ModalCategoriaSubcategoria({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white text-slate-900 border-slate-200 shadow-xl">
+        <DialogContent
+          className={cn(
+            'sm:max-w-xl max-h-[90vh] overflow-y-auto bg-white text-slate-900 border-slate-200 shadow-xl',
+            // Parte A (0.0.160) — smartphone: quase tela cheia; desktop: como está
+            smFullDialog,
+          )}
+        >
           <form onSubmit={handleSubmit}>
             <DialogHeader className="pb-3 border-b border-slate-100">
               <div className="flex items-center justify-between">
@@ -549,7 +557,7 @@ export function ModalCategoriaSubcategoria({
               </div>
             </div>
 
-            <DialogFooter className="pt-2 border-t border-slate-100">
+            <DialogFooter className="pt-2 border-t border-slate-100" {...rodapeAcoesAttr}>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancelar
               </Button>
