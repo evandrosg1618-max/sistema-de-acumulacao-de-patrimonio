@@ -701,7 +701,7 @@ export default function Index() {
             </div>
           </div>
 
-          <div className="flex items-center gap-6 sm:gap-8">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 sm:gap-x-8">
             <div>
               <div className="text-xs text-slate-500 font-medium">Receita mensal</div>
               <div className="text-base sm:text-lg font-bold text-emerald-600">
@@ -1127,7 +1127,7 @@ export default function Index() {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between sm:justify-end gap-3 self-end sm:self-auto w-full sm:w-auto">
+                        <div className="flex flex-wrap items-center justify-between gap-3 self-end sm:self-auto sm:flex-nowrap sm:justify-end w-full sm:w-auto">
                           <div className="text-right">
                             <div className="font-bold text-xs md:text-sm text-rose-600">
                               {ocultarSaldos
@@ -1192,7 +1192,7 @@ export default function Index() {
                                 </Badge>
                               </div>
 
-                              <div className="flex items-center gap-3">
+                              <div className="flex flex-wrap items-center gap-3">
                                 <div className="text-right">
                                   <span className="text-[10px] text-slate-400 block">Total</span>
                                   <span className="text-xs sm:text-sm font-bold text-slate-900">
@@ -1275,7 +1275,7 @@ export default function Index() {
 
                             {/* Lista de compras e parcelas da competência */}
                             <div className="space-y-2">
-                              <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                              <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-semibold text-slate-700">
                                 <span className="flex items-center gap-1.5">
                                   <Layers className="w-3.5 h-3.5 text-indigo-600" />
                                   Compras e Parcelas ({resumo?.itens?.length || 0}):
@@ -1458,7 +1458,7 @@ export default function Index() {
                                       <div
                                         key={fat.id}
                                         onClick={() => selecionarCompetencia(fat.competencia)}
-                                        className={`rounded-xl border p-2.5 flex items-center justify-between text-xs transition cursor-pointer shadow-2xs hover:shadow-sm ${
+                                        className={`rounded-xl border p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs transition cursor-pointer shadow-2xs hover:shadow-sm ${
                                           isAtiva
                                             ? 'bg-indigo-50/70 border-indigo-300 ring-2 ring-indigo-400'
                                             : isAtrasadaCard
@@ -1560,7 +1560,7 @@ export default function Index() {
                 </Button>
               </div>
             ) : (
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-6">
                 {/* Lista com ícones e percentuais */}
                 <div className="w-full space-y-3 flex-1">
                   {resumoMes.maioresGastos.slice(0, 5).map((item, idx) => (
@@ -1572,7 +1572,7 @@ export default function Index() {
                         >
                           <div className="w-2 h-2 rounded-full bg-white" />
                         </div>
-                        <span className="font-medium text-slate-700 truncate max-w-[150px]">
+                        <span className="font-medium text-slate-700 truncate max-w-[110px] sm:max-w-[150px]">
                           {item.nome}
                         </span>
                       </div>
