@@ -1303,6 +1303,23 @@ export default function CartoesPage() {
                 // não do DOM — sobrevive a paginação/virtualização futura e nunca altera a fatura.
                 const somaFiltradaCartao = Number(resumo?.somasPorClasse?.[filtroClasseFatura] ?? 0)
 
+                // 0.0.165: agrupamento por DATA da compra (ordem preservada do service/filtro —
+                // sort único por data, data original em toda parcela). No smartphone a data vira
+                // cabeçalho sticky de grupo em vez de coluna na linha; no desktop nada muda
+                // (a coluna de data por linha permanece).
+                const gruposFaturaCartao: { data: string; itens: any[] }[] = []
+                const mapaPorDataFatura = new Map<string, { data: string; itens: any[] }>()
+                for (const itemFatura of itensFiltradosCartao) {
+                  const dataChave = itemFatura.data_exibicao || itemFatura.data || ''
+                  let grupo = mapaPorDataFatura.get(dataChave)
+                  if (!grupo) {
+                    grupo = { data: dataChave, itens: [] }
+                    mapaPorDataFatura.set(dataChave, grupo)
+                    gruposFaturaCartao.push(grupo)
+                  }
+                  grupo.itens.push(itemFatura)
+                }
+
                 return (
                   <div key={cartao.id} id={`cartao-${cartao.id}`} className="transition">
                     <div className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80">
@@ -1439,7 +1456,7 @@ export default function CartoesPage() {
                               </Badge>
                             </div>
 
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-3 max-sm:flex-wrap max-sm:gap-y-2">
                               <div className="text-right">
                                 <span className="text-xs text-slate-400 block">
                                   Total da fatura
@@ -1487,7 +1504,7 @@ export default function CartoesPage() {
                                     variant="outline"
                                     size="sm"
                                     disabled={isProcessing}
-                                    className="text-xs h-7 text-rose-700 border-rose-200 hover:bg-rose-50 font-semibold shadow-2xs disabled:opacity-50"
+                                    className="text-xs h-7 text-rose-700 border-rose-200 hover:bg-rose-50 font-semibold shadow-2xs disabled:opacity-50 max-sm:text-[11px] max-sm:h-8 max-sm:w-full max-sm:justify-center"
                                     onClick={() => handleEstornarFatura(resumo.fatura.id)}
                                   >
                                     <RotateCcw className="w-3 h-3 mr-1" />
@@ -1670,165 +1687,188 @@ export default function CartoesPage() {
                               </div>
                             ) : (
                               <div className="divide-y divide-slate-100 max-h-72 overflow-y-auto border border-slate-200 rounded-lg bg-white">
-                                {itensFiltradosCartao.map((l: any) => {
-                                  const numP = l.numero_parcela || 1
-                                  const totP = l.total_parcelas || l.quantidade_parcelas || 1
-                                  const ehParcela = totP > 1
-                                  const ehFixo = Boolean(l.serie_id && l.regime === 'fixo')
-                                  // BLOCO 2 (Teste 4): para fixo indeterminado (total_parcelas IS NULL), renderizar a legenda "Fixo Indeterminado"
-                                  const ehFixoIndeterminado =
-                                    ehFixo &&
-                                    (l.total_parcelas === null || l.total_parcelas === undefined)
-                                  const ehFixoDeterminado = ehFixo && !ehFixoIndeterminado
-                                  const ehPrevisao =
-                                    l.natureza === 'previsao' ||
-                                    l.natureza_previsao === true ||
-                                    l.status_pagamento === 'previsao'
-                                  const ehAjuste = l.tipo === 'ajuste'
-                                  const reduzFatura = l.efeito_fatura === 'reduz'
-
-                                  return (
+                                {gruposFaturaCartao.map(
+                                  (grupoFatura: { data: string; itens: any[] }) => (
                                     <div
-                                      key={l.id}
-                                      className={`flex items-center justify-between p-2.5 sm:px-3 text-xs transition group ${
-                                        ehPrevisao
-                                          ? 'bg-amber-50/40 hover:bg-amber-50/70'
-                                          : 'hover:bg-slate-50'
-                                      }`}
+                                      key={grupoFatura.data || 'sem-data'}
+                                      className="divide-y divide-slate-100"
                                     >
-                                      <div className="flex items-center gap-2.5 min-w-0">
-                                        <span className="text-slate-400 text-[11px] font-mono shrink-0">
-                                          {l.data_exibicao || l.data
-                                            ? (l.data_exibicao || l.data)
-                                                .split('-')
-                                                .reverse()
-                                                .join('/')
-                                            : ''}
+                                      {/* Smartphone: cabeçalho sticky do grupo por data — substitui a coluna de data da linha */}
+                                      <div className="sm:hidden sticky top-0 z-10 bg-white/95 backdrop-blur-sm border-b border-slate-100 px-3 py-1.5">
+                                        <span className="text-slate-400 text-[11px] font-mono font-semibold">
+                                          {grupoFatura.data
+                                            ? grupoFatura.data.split('-').reverse().join('/')
+                                            : 'Sem data'}
                                         </span>
-                                        <div className="flex flex-col min-w-0 flex-1">
-                                          {/* BLOCO 3: badge de Modalidade de Saída quando NÃO é compra própria.
-                                             Empréstimo a terceiros não tem badge (não pode ser pago por cartão). */}
-                                          {l.modalidade_saida === 'compra_compartilhada' && (
-                                            <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 w-fit mt-0.5">
-                                              Compra compartilhada
-                                            </span>
-                                          )}
-                                          {l.modalidade_saida === 'compra_para_terceiros' && (
-                                            <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 w-fit mt-0.5">
-                                              Compra para terceiros
-                                            </span>
-                                          )}
-                                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                                            <span className="font-semibold text-slate-800 break-all sm:truncate">
-                                              {l.descricao}
-                                            </span>
-                                            {ehAjuste && (
-                                              <div className="flex items-center gap-1 shrink-0">
-                                                <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold">
-                                                  ± Ajuste
-                                                </Badge>
-                                                <Badge
-                                                  className={`text-[10px] py-0 px-1.5 font-medium border ${
-                                                    reduzFatura
-                                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                      : 'bg-rose-50 text-rose-700 border-rose-200'
-                                                  }`}
-                                                >
-                                                  {reduzFatura ? 'Reduz fatura' : 'Aumenta fatura'}
-                                                </Badge>
-                                                <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] py-0 px-1.5 font-medium">
-                                                  {l.subtipo_ajuste === 'ajuste_tecnico_sap'
-                                                    ? 'Técnico SAP'
-                                                    : 'Banco'}
-                                                </Badge>
-                                              </div>
-                                            )}
-                                            {ehParcela && !ehAjuste && (
-                                              <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
-                                                {numP}/{totP}
-                                              </Badge>
-                                            )}
-                                            {ehFixoDeterminado && (
-                                              <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
-                                                {numP}/{totP} - Fixo
-                                              </Badge>
-                                            )}
-                                            {ehFixoIndeterminado && (
-                                              <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
-                                                Fixo Indeterminado
-                                              </Badge>
-                                            )}
-                                            {ehPrevisao && (
-                                              <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] py-0 px-1.5 font-semibold shrink-0">
-                                                Previsão
-                                              </Badge>
-                                            )}
-                                          </div>
-                                          {l.categorias?.nome && (
-                                            <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600">
-                                              <span
-                                                className="w-2 h-2 rounded-full inline-block ring-1 ring-black/10 shrink-0"
-                                                style={{
-                                                  backgroundColor: l.categorias.cor || '#4F46E5',
-                                                }}
-                                              />
-                                              <span className="text-slate-900 dark:text-white font-bold">
-                                                {l.categorias.nome}
+                                      </div>
+                                      {grupoFatura.itens.map((l: any) => {
+                                        const numP = l.numero_parcela || 1
+                                        const totP = l.total_parcelas || l.quantidade_parcelas || 1
+                                        const ehParcela = totP > 1
+                                        const ehFixo = Boolean(l.serie_id && l.regime === 'fixo')
+                                        // BLOCO 2 (Teste 4): para fixo indeterminado (total_parcelas IS NULL), renderizar a legenda "Fixo Indeterminado"
+                                        const ehFixoIndeterminado =
+                                          ehFixo &&
+                                          (l.total_parcelas === null ||
+                                            l.total_parcelas === undefined)
+                                        const ehFixoDeterminado = ehFixo && !ehFixoIndeterminado
+                                        const ehPrevisao =
+                                          l.natureza === 'previsao' ||
+                                          l.natureza_previsao === true ||
+                                          l.status_pagamento === 'previsao'
+                                        const ehAjuste = l.tipo === 'ajuste'
+                                        const reduzFatura = l.efeito_fatura === 'reduz'
+
+                                        return (
+                                          <div
+                                            key={l.id}
+                                            className={`flex items-center justify-between max-sm:items-start p-2.5 sm:px-3 text-xs transition group ${
+                                              ehPrevisao
+                                                ? 'bg-amber-50/40 hover:bg-amber-50/70'
+                                                : 'hover:bg-slate-50'
+                                            }`}
+                                          >
+                                            <div className="flex items-center gap-2.5 min-w-0 max-sm:flex-1">
+                                              <span className="text-slate-400 text-[11px] font-mono shrink-0 max-sm:hidden">
+                                                {l.data_exibicao || l.data
+                                                  ? (l.data_exibicao || l.data)
+                                                      .split('-')
+                                                      .reverse()
+                                                      .join('/')
+                                                  : ''}
                                               </span>
-                                              {l.subcategorias?.nome && (
-                                                <span className="text-slate-600 dark:text-slate-300">
-                                                  / {l.subcategorias.nome}
-                                                </span>
-                                              )}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
+                                              <div className="flex flex-col min-w-0 flex-1">
+                                                {/* BLOCO 3: badge de Modalidade de Saída quando NÃO é compra própria.
+                                             Empréstimo a terceiros não tem badge (não pode ser pago por cartão). */}
+                                                {l.modalidade_saida === 'compra_compartilhada' && (
+                                                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-1.5 py-0.5 w-fit mt-0.5">
+                                                    Compra compartilhada
+                                                  </span>
+                                                )}
+                                                {l.modalidade_saida === 'compra_para_terceiros' && (
+                                                  <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 w-fit mt-0.5">
+                                                    Compra para terceiros
+                                                  </span>
+                                                )}
+                                                {/* 0.0.165: em max-sm a descrição fica em linha própria
+                                              (flex-1) e quebra por palavra — nunca letra a letra. */}
+                                                <div className="flex items-center gap-1.5 flex-wrap min-w-0 max-sm:flex-1">
+                                                  <span className="font-semibold text-slate-800 break-words sm:truncate">
+                                                    {l.descricao}
+                                                  </span>
+                                                  {ehAjuste && (
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                      <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold">
+                                                        ± Ajuste
+                                                      </Badge>
+                                                      <Badge
+                                                        className={`text-[10px] py-0 px-1.5 font-medium border ${
+                                                          reduzFatura
+                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            : 'bg-rose-50 text-rose-700 border-rose-200'
+                                                        }`}
+                                                      >
+                                                        {reduzFatura
+                                                          ? 'Reduz fatura'
+                                                          : 'Aumenta fatura'}
+                                                      </Badge>
+                                                      <Badge className="bg-slate-100 text-slate-700 border-slate-200 text-[10px] py-0 px-1.5 font-medium">
+                                                        {l.subtipo_ajuste === 'ajuste_tecnico_sap'
+                                                          ? 'Técnico SAP'
+                                                          : 'Banco'}
+                                                      </Badge>
+                                                    </div>
+                                                  )}
+                                                  {ehParcela && !ehAjuste && (
+                                                    <Badge className="bg-indigo-100 text-indigo-800 border-indigo-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
+                                                      {numP}/{totP}
+                                                    </Badge>
+                                                  )}
+                                                  {ehFixoDeterminado && (
+                                                    <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
+                                                      {numP}/{totP} - Fixo
+                                                    </Badge>
+                                                  )}
+                                                  {ehFixoIndeterminado && (
+                                                    <Badge className="bg-purple-100 text-purple-800 border-purple-200 text-[10px] py-0 px-1.5 font-bold shrink-0">
+                                                      Fixo Indeterminado
+                                                    </Badge>
+                                                  )}
+                                                  {ehPrevisao && (
+                                                    <Badge className="bg-amber-100 text-amber-800 border-amber-300 text-[10px] py-0 px-1.5 font-semibold shrink-0">
+                                                      Previsão
+                                                    </Badge>
+                                                  )}
+                                                </div>
+                                                {l.categorias?.nome && (
+                                                  <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-300 dark:border-slate-600 max-sm:max-w-full max-sm:flex-wrap">
+                                                    <span
+                                                      className="w-2 h-2 rounded-full inline-block ring-1 ring-black/10 shrink-0"
+                                                      style={{
+                                                        backgroundColor:
+                                                          l.categorias.cor || '#4F46E5',
+                                                      }}
+                                                    />
+                                                    <span className="text-slate-900 dark:text-white font-bold">
+                                                      {l.categorias.nome}
+                                                    </span>
+                                                    {l.subcategorias?.nome && (
+                                                      <span className="text-slate-600 dark:text-slate-300">
+                                                        / {l.subcategorias.nome}
+                                                      </span>
+                                                    )}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
 
-                                      <div className="flex items-center gap-2 sm:gap-3 shrink-0 pl-1 sm:pl-2">
-                                        <span
-                                          className={`font-bold text-xs sm:text-sm whitespace-nowrap ${
-                                            ehAjuste
-                                              ? reduzFatura
-                                                ? 'text-emerald-600'
-                                                : 'text-rose-600'
-                                              : 'text-rose-600'
-                                          }`}
-                                        >
-                                          {ehAjuste
-                                            ? `${reduzFatura ? '−' : '+'} ${formatMoneyBRL(l.valor)}`
-                                            : formatMoneyBRL(l.valor)}
-                                        </span>
+                                            <div className="flex items-center gap-2 sm:gap-3 shrink-0 pl-1 sm:pl-2 max-sm:self-start">
+                                              <span
+                                                className={`font-bold text-xs sm:text-sm whitespace-nowrap ${
+                                                  ehAjuste
+                                                    ? reduzFatura
+                                                      ? 'text-emerald-600'
+                                                      : 'text-rose-600'
+                                                    : 'text-rose-600'
+                                                }`}
+                                              >
+                                                {ehAjuste
+                                                  ? `${reduzFatura ? '−' : '+'} ${formatMoneyBRL(l.valor)}`
+                                                  : formatMoneyBRL(l.valor)}
+                                              </span>
 
-                                        {/* Ações em coluna no smartphone e linha no desktop */}
-                                        <div className="flex flex-col sm:flex-row items-center sm:gap-0.5 gap-0.5">
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => abrirEdicaoLancamentoFatura(l)}
-                                            title="Alterar lançamento desta fatura"
-                                            aria-label="Alterar lançamento desta fatura"
-                                            className="h-8 w-8 sm:h-7 sm:w-7 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
-                                          >
-                                            <Edit2 className="w-3.5 h-3.5" />
-                                          </Button>
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            onClick={() => handleExcluirLancamentoFatura(l)}
-                                            title="Excluir lançamento desta fatura"
-                                            aria-label="Excluir lançamento desta fatura"
-                                            className="h-8 w-8 sm:h-7 sm:w-7 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
-                                          >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                          </Button>
-                                        </div>
-                                      </div>
+                                              {/* Ações em coluna no smartphone e linha no desktop */}
+                                              <div className="flex flex-col sm:flex-row items-center sm:gap-0.5 gap-0.5">
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  onClick={() => abrirEdicaoLancamentoFatura(l)}
+                                                  title="Alterar lançamento desta fatura"
+                                                  aria-label="Alterar lançamento desta fatura"
+                                                  className="h-8 w-8 sm:h-7 sm:w-7 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                                >
+                                                  <Edit2 className="w-3.5 h-3.5" />
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  onClick={() => handleExcluirLancamentoFatura(l)}
+                                                  title="Excluir lançamento desta fatura"
+                                                  aria-label="Excluir lançamento desta fatura"
+                                                  className="h-8 w-8 sm:h-7 sm:w-7 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </Button>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        )
+                                      })}
                                     </div>
-                                  )
-                                })}
+                                  ),
+                                )}
                               </div>
                             )}
                           </div>
