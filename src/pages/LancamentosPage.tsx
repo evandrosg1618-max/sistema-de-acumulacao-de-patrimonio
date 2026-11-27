@@ -1201,22 +1201,22 @@ export default function LancamentosPage() {
       {/* Caixa de período customizado quando 'periodo' estiver ativo */}
       {filtroPeriodoTipo === 'periodo' && (
         <div className="bg-white rounded-xl p-2.5 px-3 border border-slate-200 flex flex-wrap items-center gap-2.5 text-xs">
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 font-medium">De:</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-slate-500 font-medium shrink-0">De:</span>
             <Input
               type="date"
               value={dataInicio}
               onChange={(e) => setDataInicio(e.target.value)}
-              className="w-36 text-xs h-7"
+              className="w-full min-w-0 sm:w-36 text-xs h-7"
             />
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 font-medium">Até:</span>
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="text-slate-500 font-medium shrink-0">Até:</span>
             <Input
               type="date"
               value={dataFim}
               onChange={(e) => setDataFim(e.target.value)}
-              className="w-36 text-xs h-7"
+              className="w-full min-w-0 sm:w-36 text-xs h-7"
             />
           </div>
           <Button
@@ -1540,16 +1540,17 @@ export default function LancamentosPage() {
         </div>
 
         {/* Campo de Busca na mesma linha horizontal */}
-        <div className="shrink-0 ml-auto flex items-center">
+        <div className="shrink-0 ml-auto flex items-center max-w-full min-w-0">
           {mostrarBusca ? (
-            <div className="flex items-center gap-1 bg-white rounded-full px-2.5 py-1 border border-slate-200 shadow-2xs">
+            <div className="flex items-center gap-1 bg-white rounded-full px-2.5 py-1 border border-slate-200 shadow-2xs min-w-0">
               <Search className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <input
                 type="text"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
                 placeholder="Buscar lançamentos..."
-                className="text-xs bg-transparent border-none focus:outline-none w-32 sm:w-44 text-slate-800"
+                className="text-xs bg-transparent border-none focus:outline-none w-full min-w-0 sm:w-44 text-slate-800"
+                autoComplete="off"
                 autoFocus
               />
               <button
@@ -1748,7 +1749,7 @@ export default function LancamentosPage() {
                             setLancamentoDetalhe(l)
                           }
                         }}
-                        className={`p-2 px-3 sm:p-3 sm:px-3.5 rounded-xl grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_180px_130px_36px_32px] items-center gap-3 transition group hover:bg-slate-50 active:bg-slate-100/70 border border-slate-100/70 shadow-2xs cursor-pointer ${
+                        className={`p-2 px-3 sm:p-3 sm:px-3.5 rounded-xl grid grid-cols-[minmax(0,1fr)_auto] sm:grid-cols-[minmax(0,1fr)_180px_130px_36px_32px] items-center gap-2.5 sm:gap-3 transition group hover:bg-slate-50 active:bg-slate-100/70 border border-slate-100/70 shadow-2xs cursor-pointer ${
                           ehPrevisao ? 'bg-amber-50/20' : 'bg-white'
                         }`}
                       >

@@ -1638,6 +1638,13 @@ export default function CartoesPage() {
                                 </Button>
                               </div>
                             )}
+                            {/* Soma filtrada em linha própria no smartphone — a barra de chips
+                                 estoura os 360px com esse texto dentro dela */}
+                            {resumo?.itens && resumo.itens.length > 0 && (
+                              <p className="text-[11px] text-slate-400 font-normal sm:hidden">
+                                Soma dos valores filtrados: {formatMoneyBRL(somaFiltradaCartao)}
+                              </p>
+                            )}
 
                             {!resumo?.itens || resumo.itens.length === 0 ? (
                               <div className="p-6 bg-slate-50 rounded-lg text-center space-y-2 border border-dashed border-slate-200">
@@ -1698,7 +1705,7 @@ export default function CartoesPage() {
                                                 .join('/')
                                             : ''}
                                         </span>
-                                        <div className="flex flex-col min-w-0">
+                                        <div className="flex flex-col min-w-0 flex-1">
                                           {/* BLOCO 3: badge de Modalidade de Saída quando NÃO é compra própria.
                                              Empréstimo a terceiros não tem badge (não pode ser pago por cartão). */}
                                           {l.modalidade_saida === 'compra_compartilhada' && (
@@ -1711,8 +1718,8 @@ export default function CartoesPage() {
                                               Compra para terceiros
                                             </span>
                                           )}
-                                          <div className="flex items-center gap-1.5 flex-wrap">
-                                            <span className="font-semibold text-slate-800 truncate">
+                                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                            <span className="font-semibold text-slate-800 break-all sm:truncate">
                                               {l.descricao}
                                             </span>
                                             {ehAjuste && (
@@ -1778,9 +1785,9 @@ export default function CartoesPage() {
                                         </div>
                                       </div>
 
-                                      <div className="flex items-center gap-3 shrink-0 pl-2">
+                                      <div className="flex items-center gap-2 sm:gap-3 shrink-0 pl-1 sm:pl-2">
                                         <span
-                                          className={`font-bold text-xs sm:text-sm ${
+                                          className={`font-bold text-xs sm:text-sm whitespace-nowrap ${
                                             ehAjuste
                                               ? reduzFatura
                                                 ? 'text-emerald-600'
@@ -1793,14 +1800,16 @@ export default function CartoesPage() {
                                             : formatMoneyBRL(l.valor)}
                                         </span>
 
-                                        <div className="flex items-center gap-0.5">
+                                        {/* Ações em coluna no smartphone e linha no desktop */}
+                                        <div className="flex flex-col sm:flex-row items-center sm:gap-0.5 gap-0.5">
                                           <Button
                                             type="button"
                                             variant="ghost"
                                             size="icon"
                                             onClick={() => abrirEdicaoLancamentoFatura(l)}
                                             title="Alterar lançamento desta fatura"
-                                            className="h-7 w-7 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
+                                            aria-label="Alterar lançamento desta fatura"
+                                            className="h-8 w-8 sm:h-7 sm:w-7 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50"
                                           >
                                             <Edit2 className="w-3.5 h-3.5" />
                                           </Button>
@@ -1810,7 +1819,8 @@ export default function CartoesPage() {
                                             size="icon"
                                             onClick={() => handleExcluirLancamentoFatura(l)}
                                             title="Excluir lançamento desta fatura"
-                                            className="h-7 w-7 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                                            aria-label="Excluir lançamento desta fatura"
+                                            className="h-8 w-8 sm:h-7 sm:w-7 text-slate-400 hover:text-rose-600 hover:bg-rose-50"
                                           >
                                             <Trash2 className="w-3.5 h-3.5" />
                                           </Button>
@@ -1895,7 +1905,7 @@ export default function CartoesPage() {
                                   if (e.target.value) setModoHistorico('todas')
                                 }}
                                 placeholder="Filtrar competência"
-                                className="h-7 w-[150px] text-[11px] bg-white border-slate-200"
+                                className="h-7 w-full max-w-[150px] text-[11px] bg-white border-slate-200"
                               />
                               <span className="text-[11px] text-slate-400 hidden lg:inline">
                                 Clique no card para abrir os lançamentos daquela fatura

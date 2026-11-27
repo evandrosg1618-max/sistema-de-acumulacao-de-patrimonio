@@ -344,7 +344,12 @@ export default function ContasPage() {
               </div>
             </div>
             <div>
-              <div className="text-[11px] text-slate-500 font-medium">Reservas & Provisões</div>
+              <div className="text-[11px] text-slate-500 font-medium">
+                Reservas
+                <span className="max-sm:hidden"> &amp; </span>
+                <span className="hidden max-sm:inline">/</span>
+                Provisões
+              </div>
               <div className="text-base font-bold text-slate-800 mt-0.5">
                 {contas.filter((c) => c.tipo.includes('Reserva') || c.tipo === 'provisao').length}
               </div>
@@ -405,7 +410,7 @@ export default function ContasPage() {
                 return (
                   <div
                     key={conta.id}
-                    className="p-4 flex items-center justify-between hover:bg-slate-50/80 transition"
+                    className="p-4 flex max-sm:flex-col max-sm:items-start sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition"
                   >
                     <div className="flex items-center gap-3">
                       <div
@@ -421,9 +426,9 @@ export default function ContasPage() {
                         )}
                       </div>
 
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-900 text-sm md:text-base">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-slate-900 text-sm md:text-base break-words">
                             {conta.nome}
                           </span>
                           <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full font-medium">
@@ -438,7 +443,7 @@ export default function ContasPage() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3 shrink-0">
                       <div className="text-right">
                         <div
                           className={`font-bold text-sm md:text-base ${

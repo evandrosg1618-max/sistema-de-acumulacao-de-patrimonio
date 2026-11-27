@@ -376,7 +376,7 @@ export default function CategoriasPage() {
       </div>
 
       {/* Cards/Filtros Rápidos: Todas, Despesas, Receitas, Arquivadas */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2 max-sm:overflow-x-auto max-sm:flex-nowrap max-sm:pb-3 -mx-4 px-4 sm:mx-0 sm:px-0">
         <Button
           variant={filtroTipo === 'todas' ? 'default' : 'ghost'}
           size="sm"
@@ -688,7 +688,7 @@ export default function CategoriasPage() {
                   </div>
 
                   {/* Ações da Categoria */}
-                  <div className="flex items-center gap-1 self-end sm:self-center">
+                  <div className="flex items-center gap-1 self-end sm:self-center max-sm:w-full max-sm:justify-end">
                     {!cat.arquivado && (
                       <Button
                         variant="outline"
@@ -824,7 +824,7 @@ export default function CategoriasPage() {
                         </div>
 
                         {/* Ações da Subcategoria */}
-                        <div className="flex items-center gap-1 self-end sm:self-center">
+                        <div className="flex items-center gap-1 self-end sm:self-center max-sm:w-full max-sm:justify-end">
                           {sub.arquivado ? (
                             <Button
                               variant="outline"
